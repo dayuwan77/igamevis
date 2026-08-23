@@ -24,6 +24,7 @@
 #include "Convert/iGameConvertToPointDataFilter.h"
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Convert/iGameConvertToVolumeMeshFilter.h"
+#include "Convert/iGamePointSetToOctreeFilter.h"
 
 #include "Interactor/iGameInteractor.h"
 
@@ -1942,6 +1943,20 @@ void igQtMainWindow::initAllFilters() {
             DataObject::Pointer res = filter->GetOutput(0);
             res->SetName(data->GetName());
             modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
+        }
+    });
+
+    QAction* pointSetToOctree_action = ui->menu_filters->addAction(
+            QStringLiteral("点集转八叉树 (Point Set To Octree)"));
+    connect(pointSetToOctree_action, &QAction::triggered, this, [&](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        PointSetToOctreeFilter::Pointer filter = PointSetToOctreeFilter::New();
+        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        filter->SetInput(data);
+        if (filter->Execute()) {
+            DataObject::Pointer res = filter->GetOutput(0);
+            res->SetName(data->GetName() + std::string("_octree"));
+            modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
         }
     });
 }
