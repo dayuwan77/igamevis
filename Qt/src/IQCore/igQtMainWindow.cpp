@@ -25,6 +25,7 @@
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Convert/iGameConvertToVolumeMeshFilter.h"
 #include "Convert/iGamePointSetToOctreeFilter.h"
+#include "Convert/iGameResampleToImageFilter.h"
 
 #include "Interactor/iGameInteractor.h"
 
@@ -78,6 +79,7 @@
 #include <iGamePointFinder.h>
 #include <iGameSelectionParameter.h>
 #include <iGameUnstructuredMesh.h>
+#include <iGameStructuredMesh.h>
 #include <iGameVolumeMesh.h>
 #include <include/IQComponents/Dialog/igQtChangeBackGroundDialog.h>
 #include <include/IQComponents/Dialog/igQtMeshCodecDialog.h>
@@ -1956,6 +1958,24 @@ void igQtMainWindow::initAllFilters() {
         if (filter->Execute()) {
             DataObject::Pointer res = filter->GetOutput(0);
             res->SetName(data->GetName() + std::string("_octree"));
+            modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
+        }
+    });
+
+    QAction* resampleToImage_action = ui->menu_filters->addAction(
+            QStringLiteral("重采样到图像 (Resample To Image)"));
+    connect(resampleToImage_action, &QAction::triggered, this, [&](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        ResampleToImageFilter::Pointer filter = ResampleToImageFilter::New();
+        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        filter->SetInput(data);
+        filter->SetSamplingDimensions(64, 64, 64); // 与 VTK 对比分辨率一致
+        if (filter->Execute()) {
+            DataObject::Pointer res = filter->GetOutput(0);
+            res->SetName(data->GetName() + std::string("_image"));
+            // 渲染时 ModelGeometryFilter 读取 "vtkGhostType" 单元数组做空白化，显示成飞机形状
+            auto draw = DynamicCast<DrawObject>(res);
+            if (draw != nullptr) { draw->SetViewStyle(IG_SURFACE); }
             modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
         }
     });

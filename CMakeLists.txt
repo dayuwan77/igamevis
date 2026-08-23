@@ -196,6 +196,16 @@ if (IGAME_BUILD_TEST_POINTSET_TO_OCTREE)
             IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
 endif ()
 
+# 单独编译「重采样到图像」自检测试（console 程序，无 HDF5 / Qt / 窗口依赖）。
+option(IGAME_BUILD_TEST_RESAMPLE_TO_IMAGE "Build the ResampleToImage self-test executable." ON)
+if (IGAME_BUILD_TEST_RESAMPLE_TO_IMAGE)
+    add_executable(testResampleToImage
+            Examples/Filter/Convert/TestResampleToImage.cpp)
+    target_link_libraries(testResampleToImage PRIVATE iGameCore)
+    target_compile_definitions(testResampleToImage PRIVATE
+            IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+endif ()
+
 # 导入example
 if (EXAMPLE_COMPILE)
     add_subdirectory(Examples)
