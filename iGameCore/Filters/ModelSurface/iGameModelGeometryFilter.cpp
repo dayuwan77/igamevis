@@ -9,6 +9,22 @@
 #include <stdexcept>
 IGAME_NAMESPACE_BEGIN
 #define ArrayList std::vector<ArrayObject>
+
+// 从属性集中读取名为 "vtkGhostType" 的无符号字符数组的原始指针（point/cell 数据）。
+// 找不到或类型不匹配时返回 nullptr。
+static const unsigned char* GetGhostArrayRawPointer(AttributeSet* attrSet, IGenum attachmentType) {
+    if (attrSet == nullptr) return nullptr;
+    auto attrs = attrSet->GetAllAttributes();
+    for (IGsize i = 0; i < attrs->GetNumberOfElements(); ++i) {
+        auto& a = attrs->GetElement(i);
+        if (a.isDeleted || a.pointer == nullptr) continue;
+        if (a.attachmentType != attachmentType) continue;
+        if (a.pointer->GetName() != "vtkGhostType") continue;
+        auto uc = DynamicCast<UnsignedCharArray>(a.pointer);
+        return uc ? uc->RawPointer() : nullptr;
+    }
+    return nullptr;
+}
 ModelGeometryFilter::ModelGeometryFilter() {
     this->PointMinimum = 0;
     this->PointMaximum = INT_MAX;
@@ -1176,7 +1192,89 @@ struct ExtractSG : public ExtractCellBoundaries {
     }
     void Initialize() override { this->ExtractCellBoundaries::Initialize(); }
 
+    // 依据 ghost 掩膜提取「有效单元区域」的表面：对每个非 ghost 单元，若其 6 邻居中的某个是
+    // ghost 或在网格边界之外，则抽出该面。等价于 ParaView 对 vtkResampleToImage 输出做空白化后
+    // 显示的表面（只在存在 vtkGhostType 单元数组时启用）。
+    void ExecuteBlanking() {
+        auto size = Mesh->GetDimensionSize();
+        const igIndex d0 = size[0], d1 = size[1], d2 = size[2];
+        const igIndex cd0 = d0 - 1, cd1 = d1 - 1, cd2 = d2 - 1;
+        const igIndex plane01 = d0 * d1;
+        const igIndex cellPlane01 = cd0 * cd1;
+        igIndex vhs[4];
+
+        for (igIndex k = 0; k < cd2; ++k) {
+            for (igIndex j = 0; j < cd1; ++j) {
+                for (igIndex i = 0; i < cd0; ++i) {
+                    const igIndex cellId = i + cd0 * j + cellPlane01 * k;
+                    if (this->CellGhosts[cellId] != 0) continue; // 跳过 ghost 单元
+                    if (this->CellVis && !this->CellVis[cellId]) continue;
+                    const igIndex base = i + d0 * j + plane01 * k;
+
+                    // k- 面
+                    if (k == 0 || this->CellGhosts[cellId - cellPlane01] != 0) {
+                        vhs[0] = base;
+                        vhs[1] = base + 1;
+                        vhs[2] = base + 1 + d0;
+                        vhs[3] = base + d0;
+                        Quads->AddCellIds(vhs, 4);
+                        f2c.emplace_back(cellId);
+                    }
+                    // k+ 面
+                    if (k == cd2 - 1 || this->CellGhosts[cellId + cellPlane01] != 0) {
+                        vhs[0] = base + plane01;
+                        vhs[1] = base + plane01 + 1;
+                        vhs[2] = base + plane01 + 1 + d0;
+                        vhs[3] = base + plane01 + d0;
+                        Quads->AddCellIds(vhs, 4);
+                        f2c.emplace_back(cellId);
+                    }
+                    // j- 面
+                    if (j == 0 || this->CellGhosts[cellId - cd0] != 0) {
+                        vhs[0] = base;
+                        vhs[1] = base + 1;
+                        vhs[2] = base + 1 + plane01;
+                        vhs[3] = base + plane01;
+                        Quads->AddCellIds(vhs, 4);
+                        f2c.emplace_back(cellId);
+                    }
+                    // j+ 面
+                    if (j == cd1 - 1 || this->CellGhosts[cellId + cd0] != 0) {
+                        vhs[0] = base + d0;
+                        vhs[1] = base + d0 + 1;
+                        vhs[2] = base + d0 + 1 + plane01;
+                        vhs[3] = base + d0 + plane01;
+                        Quads->AddCellIds(vhs, 4);
+                        f2c.emplace_back(cellId);
+                    }
+                    // i- 面
+                    if (i == 0 || this->CellGhosts[cellId - 1] != 0) {
+                        vhs[0] = base;
+                        vhs[1] = base + d0;
+                        vhs[2] = base + d0 + plane01;
+                        vhs[3] = base + plane01;
+                        Quads->AddCellIds(vhs, 4);
+                        f2c.emplace_back(cellId);
+                    }
+                    // i+ 面
+                    if (i == cd0 - 1 || this->CellGhosts[cellId + 1] != 0) {
+                        vhs[0] = base + 1;
+                        vhs[1] = base + 1 + d0;
+                        vhs[2] = base + 1 + d0 + plane01;
+                        vhs[3] = base + 1 + plane01;
+                        Quads->AddCellIds(vhs, 4);
+                        f2c.emplace_back(cellId);
+                    }
+                }
+            }
+        }
+    }
+
     void Execute() {
+        if (this->CellGhosts) {
+            this->ExecuteBlanking();
+            return;
+        }
         auto size = Mesh->GetDimensionSize();
         igIndex i = 0, j = 0, k = 0;
         igIndex vhs[4] = {0};
@@ -1320,8 +1418,8 @@ int ModelGeometryFilter::ExecuteWithStructuredMesh(DataObject::Pointer input, Su
     CharArray::Pointer CellVisibleArray = CharArray::New();
     char* CellVisible = ComputeCellVisibleArray(CellVisibleArray, inPoints, Mesh->GetCells());
     if (CellVisible) { return this->ExecuteWithVolumeMesh(input, output); }
-    unsigned char* cellGhosts = nullptr;
-    unsigned char* pointGhosts = nullptr;
+    const unsigned char* cellGhosts = GetGhostArrayRawPointer(inAllDataArray, IG_CELL);
+    const unsigned char* pointGhosts = nullptr;
 
     auto* extract =
             new ExtractSG(Mesh, CellVisible, cellGhosts, pointGhosts, this->Merging, this->RemoveGhostInterfaces);

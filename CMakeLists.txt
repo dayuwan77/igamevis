@@ -144,6 +144,17 @@ if (ENABLE_QT_MODULE)
             Qt_module
     )
 
+    # 将运行时资源（Shaders/Assests 等）部署到可执行文件同级目录。
+    # 渲染器按 CWD 相对路径 ./Resources/... 加载着色器与字体，多配置生成器
+    # （Visual Studio）下 exe 位于 <build>/<Config>/，而资源被拷到 <build>/Resources，
+    # 双击 exe 时会导致全部 shader/字体加载失败。此命令保持二者一致。
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_BINARY_DIR}/Resources"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources"
+            COMMENT "Deploying runtime Resources next to the executable"
+            VERBATIM)
+
     if (WIN32)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${DEPLOYQT_EXECUTABLE} "$<TARGET_FILE:${PROJECT_NAME}>")
@@ -171,6 +182,28 @@ if (ENABLE_QT_MODULE)
                 COMMENT "Copying libtorch DLLs to output folder"
         )
     endif ()
+endif ()
+
+# 单独编译「点集转八叉树」自检测试（console 程序，无 HDF5 / Qt / 窗口依赖）。
+# 它直连锁定 iGameCore，不经过需要 find_package(HDF5) 的 Examples 工程，
+# 便于在 VS 中把它设为启动项后直接 F5 / Ctrl+F5 运行。默认开启，不需要时关掉即可。
+option(IGAME_BUILD_TEST_POINTSET_TO_OCTREE "Build the PointSetToOctree self-test executable." ON)
+if (IGAME_BUILD_TEST_POINTSET_TO_OCTREE)
+    add_executable(testPointSetToOctree
+            Examples/Filter/Convert/TestPointSetToOctree.cpp)
+    target_link_libraries(testPointSetToOctree PRIVATE iGameCore)
+    target_compile_definitions(testPointSetToOctree PRIVATE
+            IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+endif ()
+
+# 单独编译「重采样到图像」自检测试（console 程序，无 HDF5 / Qt / 窗口依赖）。
+option(IGAME_BUILD_TEST_RESAMPLE_TO_IMAGE "Build the ResampleToImage self-test executable." ON)
+if (IGAME_BUILD_TEST_RESAMPLE_TO_IMAGE)
+    add_executable(testResampleToImage
+            Examples/Filter/Convert/TestResampleToImage.cpp)
+    target_link_libraries(testResampleToImage PRIVATE iGameCore)
+    target_compile_definitions(testResampleToImage PRIVATE
+            IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
 endif ()
 
 # 导入example
