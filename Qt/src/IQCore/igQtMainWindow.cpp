@@ -3,6 +3,7 @@
 // Created by m_ky on 2024/4/10.
 //
 
+#include "DIME/iGameElevationFilter.h"
 #include "MeshMetrics/iGameVolumeMeshMetricsFilter.h"
 #include "Deformation/iGameStressDeformationFilterCode.h"
 
@@ -55,6 +56,10 @@
 #include <P3SAM/iGameP3SAMSegmenter.h>
 #include <QDebug>
 #include <QLabel>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QMessageBox>
 #include <QSplitter>
 #include <QStyleFactory>
@@ -1972,6 +1977,102 @@ void igQtMainWindow::initAllFilters() {
             modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
         }
     });
+    /* ===== DIME #19：高程场 (Elevation)——任意方向投影 ===== */
+    QAction* elevation = ui->menu_filters->addAction(
+            QStringLiteral("高程场 (Elevation)"));
+    connect(elevation, &QAction::triggered, this, [this](bool checked) {
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        if (model == nullptr) return;
+        auto data = model->GetDataObject();
+
+        // 表单对话框：方向向量三分量 + 输出范围（QDoubleSpinBox 免字符串解析）
+        QDialog dlg(this);
+        dlg.setWindowTitle(QStringLiteral("高程场 (Elevation)"));
+        // 深色样式：主窗口样式会沿父子链渗入对话框，需显式接管配色
+        dlg.setAttribute(Qt::WA_StyledBackground, true);
+        dlg.setStyleSheet(QStringLiteral(
+            "QDialog { background-color: #1E1E1E; }"
+            "QLabel { color: #D8D8D8; font-size: 10pt; }"
+            "QDoubleSpinBox { background-color: #252526; color: #D4D4D4;"
+            " border: 1px solid #3C3C3C; border-radius: 4px;"
+            " padding: 4px 24px 4px 8px;"
+            " selection-background-color: #094771; }"
+            "QPushButton { background-color: #2A2A2A; color: #EAEAEA;"
+            " border: 1px solid #3A3A3A; padding: 6px 16px;"
+            " border-radius: 4px; }"
+            "QPushButton:hover { background-color: #3A3A3A; }"
+            "QPushButton:pressed { background-color: #252526; }"));
+
+        QFormLayout* form = new QFormLayout(&dlg);
+
+        // 注意：QDoubleSpinBox 默认范围是 [0, 99.99]，必须显式放宽
+        QDoubleSpinBox* dx = new QDoubleSpinBox(&dlg);
+        QDoubleSpinBox* dy = new QDoubleSpinBox(&dlg);
+        QDoubleSpinBox* dz = new QDoubleSpinBox(&dlg);
+        for (QDoubleSpinBox* sb : { dx, dy, dz }) {
+            sb->setRange(-1000.0, 1000.0);
+            sb->setDecimals(6);
+            sb->setSingleStep(0.1);
+        }
+        dx->setValue(0.0);
+        dy->setValue(0.0);
+        dz->setValue(1.0);   // 默认 +Z（海拔语义）
+
+        QDoubleSpinBox* lowSb  = new QDoubleSpinBox(&dlg);
+        QDoubleSpinBox* highSb = new QDoubleSpinBox(&dlg);
+        for (QDoubleSpinBox* sb : { lowSb, highSb }) {
+            sb->setRange(-1e9, 1e9);
+            sb->setDecimals(6);
+            sb->setSingleStep(0.1);
+        }
+        lowSb->setValue(0.0);    // 默认输出范围 [0, 1]
+        highSb->setValue(1.0);
+
+        form->addRow(QStringLiteral("方向向量 X (dx)："), dx);
+        form->addRow(QStringLiteral("方向向量 Y (dy)："), dy);
+        form->addRow(QStringLiteral("方向向量 Z (dz)："), dz);
+        form->addRow(QStringLiteral("输出范围下限 (low)："), lowSb);
+        form->addRow(QStringLiteral("输出范围上限 (high)："), highSb);
+        form->addRow(QString(), new QLabel(
+            QStringLiteral("方向无需归一化，但不能全为 0；负方向 = 高低翻转。"),
+            &dlg));
+
+        QDialogButtonBox* buttons = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+        form->addRow(QString(), buttons);
+
+        if (dlg.exec() != QDialog::Accepted) return;   // 取消：零副作用
+
+        const float dvx = static_cast<float>(dx->value());
+        const float dvy = static_cast<float>(dy->value());
+        const float dvz = static_cast<float>(dz->value());
+        const float low = static_cast<float>(lowSb->value());
+        const float high = static_cast<float>(highSb->value());
+
+        // 参数校验：零向量 / 非法区间直接提示并放弃执行
+        if (dvx == 0.f && dvy == 0.f && dvz == 0.f) {
+            showDarkFramelessMessage(QStringLiteral("Warning"),
+                QStringLiteral("方向向量不能全为 0"));
+            return;
+        }
+        if (!(high > low)) {
+            showDarkFramelessMessage(QStringLiteral("Warning"),
+                QStringLiteral("输出范围非法：low 必须小于 high"));
+            return;
+        }
+
+        ElevationFilter::Pointer filter = ElevationFilter::New();
+        filter->SetInput(data);
+        filter->SetDirection(dvx, dvy, dvz);
+        filter->SetRange(low, high);
+        if (filter->Execute()) {
+            modelTreeWidget->updateAllAttriubute(data);
+            rendererWidget->update();
+        }
+    });
+
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {

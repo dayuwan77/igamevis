@@ -85,7 +85,12 @@ endif ()
 target_link_libraries(${MODULE_NAME} PUBLIC ${LINK_LIBS})
 if (WIN32)
     #  内部库在cmake构建时定义IG_QT_COMPILE_EXPORT，使得模式切换为dllexport, 否则外部库在使用编译这个动态库代码时将其模式切换为dllimport
-    target_compile_definitions(${MODULE_NAME} PRIVATE IG_QT_COMPILE_EXPORT)
+    if (IGAME_BUILD_SHARED)
+        target_compile_definitions(${MODULE_NAME} PRIVATE IG_QT_COMPILE_EXPORT)
+    else ()
+        #  静态库：向消费者传播IG_QT_STATIC，关闭头文件中的dllimport
+        target_compile_definitions(${MODULE_NAME} PUBLIC IG_QT_STATIC)
+    endif ()
     #  由于Windows不会搜索其他目录下的dll文件因此要使用cmake指令将dll移至exe目录
     #  将QT模块编译成的可执行文件(.exe)、静态库(.lib)、动态库(.dll)的输出移至放入主程序源码目录
     set_property(TARGET ${MODULE_NAME} PROPERTY RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
