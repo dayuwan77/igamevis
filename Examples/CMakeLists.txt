@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.19)
+﻿cmake_minimum_required(VERSION 3.19)
 
 add_definitions(/D_USE_MATH_DEFINES)
 set(CMAKE_CXX_STANDARD 20)
@@ -49,8 +49,8 @@ if (WIN32)
             "-DIGAME_ABQ_RUNTIME_DIR=${AbqSDK_DLL_DIR}"
             "-DIGAME_ABQ_RUNTIME_LIBRARY_NAMES=${_IGAME_EXAMPLE_ABQ_RUNTIME_NAMES}"
             "-DIGAME_HDF5_RUNTIME_FILE=${_IGAME_EXAMPLE_HDF5_RUNTIME}"
-            "-DIGAME_GPS_RUNTIME_DIR=${CMAKE_SOURCE_DIR}/CMakeGPS/CMakeGPS/ReferenceDLL"
-            -P "${CMAKE_SOURCE_DIR}/Cmake/DeployExampleRuntime.cmake"
+            "-DIGAME_GPS_RUNTIME_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../CMakeGPS/CMakeGPS/ReferenceDLL"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/../Cmake/DeployExampleRuntime.cmake"
         COMMENT "Deploying runtime DLLs for Examples"
         VERBATIM)
 else ()
@@ -242,6 +242,9 @@ igame_add_example(testConvertToPointCloud Filter/Convert/TestConvertToPointCloud
 igame_add_example(testConvertToVolumeMesh Filter/Convert/TestConvertToVolumeMesh.cpp)
 igame_add_example(testConvertToSurfaceMesh Filter/Convert/TestConvertToSurfaceMesh.cpp)
 igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConvertToLagrangeUnstructuredMesh.cpp)
+
+# DIME
+igame_add_example(testElevation Filter/DIME/TestElevation.cpp)
 
 # IO (optional modules)
 igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
