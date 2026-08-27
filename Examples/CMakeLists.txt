@@ -306,11 +306,21 @@ igame_add_example(
     Filter/FeatureExtraction/FeatureEdges.cpp
 )
 
+# Feature edges console test
+igame_add_example(
+    testFeatureEdges
+    Filter/FeatureExtraction/FeatureEdges.cpp
+)
+
 # Feature edges GUI visualization
 igame_add_example(
     testFeatureEdgesVisualization
     Filter/FeatureExtraction/FeatureEdgesVisualization.cpp
 )
+
+# Random attributes (DataProcessing)
+igame_add_example(testRandomAttributes Filter/TestRandomAttributes.cpp)
+igame_add_example(testDeflectNormals Filter/TestDeflectNormals.cpp)
 
 if (ENABLE_LIBTORCH_MODULE)
     igame_add_example(testVortexDetection Filter/FeatureExtraction/VortexDetection.cpp)
