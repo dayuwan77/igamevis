@@ -31,3 +31,21 @@
 /Examples/Models/redsea
 /Examples/Models/sukong_Step-1_2.vtu
 /ThirdParty/libtorch/
+
+logs/
+
+# ===== Added during feature/random-deflect-filters cleanup =====
+Examples/Cmake/
+Examples/cmake-build-*/
+
+# Duplicate leftover VTK under Examples/Filter/ (we ship copies under Examples/Models only)
+Examples/Filter/Tet_Plane.vtu
+Examples/Filter/VectorFieldTest_Fan_UnstructuredGrid.vtk
+
+# Compressed .vtu copies under Models — zlib compression is NOT supported by framework VTU reader;
+# the Legacy .vtk counterparts are the ones tracked for this repo.
+Examples/Models/Tet_Plane.vtu
+
+# Cleaned large mesh produced locally for ParaView comparison (~42 MB).
+# Intentionally kept only on developer workstation, not shipped with the PR.
+Examples/Models/Simplification_dianfengshan_clean.vtk
