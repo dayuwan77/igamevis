@@ -36,3 +36,6 @@
 #include "FeatureExtraction/iGameLaplacianFilter.h"
 #include "FeatureExtraction/iGameVortexDetectionFilter.h"
 #include "FeatureExtraction/iGameVortexFilter.h"
+#include "FeatureExtraction/iGamePlaneSamplingFilter.h"
+#include "MyFilter/iGameCleanToGridFilter.h"
+
