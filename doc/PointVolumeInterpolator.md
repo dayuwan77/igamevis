@@ -56,14 +56,6 @@ interpolated value.
 The same model was processed in iGameVis and ParaView. The resulting
 interpolated values are consistent.
 
-### iGameVis result
-
-![Point Volume Interpolation result in iGameVis](images/PointVolumeInterpolator_iGameVis.png)
-
-### ParaView reference
-
-![Point Volume Interpolation reference in ParaView](images/PointVolumeInterpolator_ParaView.png)
-
 ## Logging
 
 The filter logs missing inputs, unsupported mesh or cell types, attribute
