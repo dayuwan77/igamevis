@@ -63,6 +63,7 @@
 #include <IQWidgets/igQtTensorWidget.h>
 #include <IQWidgets/igQtVariableCorrelationWidget.h>
 #include <IQWidgets/igQtPartFocusWidget.h>
+#include <IQWidgets/igQtVolumeInterpolatorWidget.h>
 #include <IQComponents/Dialog/igQtBoxSettingDialog.h>
 #include <IQComponents/Dialog/igQtChromeFramelessDialog.h>
 #include <iGameBlockMapping.h>
@@ -2841,6 +2842,48 @@ QAction* passArrays = ui->menu_filters->addAction(QStringLiteral("传递过滤�
         dlg->show();
     });
 
+    connect(ui->menu_filters->addAction(QStringLiteral("体采样 (Volume Interpolation)")), &QAction::triggered,
+            this, [this](bool) {
+        auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+        if (scene == nullptr || scene->GetCurrentModel() == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("体采样"), QStringLiteral("请先选择一个模型。"));
+            return;
+        }
+        auto dataObject = scene->GetCurrentModel()->GetDataObject();
+        if (dataObject == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("体采样"), QStringLiteral("当前模型没有可用的数据对象。"));
+            return;
+        }
+        auto volumeMesh = igQtVolumeInterpolatorWidget::ResolveVolumeMesh(dataObject);
+        if (volumeMesh == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("体采样"),
+                                     QStringLiteral("当前模型不是体网格，体采样仅支持四面体/六面体体网格。"));
+            return;
+        }
+        if (!igQtVolumeInterpolatorWidget::CheckCellTypesSupported(volumeMesh.get())) {
+            showDarkFramelessMessage(QStringLiteral("体采样"),
+                                     QStringLiteral("当前体网格包含非四面体/六面体单元（如棱柱、金字塔、多面体等），"
+                                                    "体采样插值仅支持四面体（Tetra）和六面体（Hexahedron）单元。"));
+            return;
+        }
+
+        static igQtChromeFramelessDialog* dialog = nullptr;
+        static igQtVolumeInterpolatorWidget* widget = nullptr;
+        if (!dialog) {
+            dialog = new igQtChromeFramelessDialog(this);
+            dialog->setDialogTitle(QStringLiteral("体采样"));
+            dialog->setMaximizeEnabled(false);
+            widget = new igQtVolumeInterpolatorWidget(dialog->contentHost());
+            dialog->setContentWidget(widget);
+            dialog->resize(420, 360);
+            connect(modelTreeWidget, &igQtModelDialogWidget::CurrendModelChanged, widget,
+                    &igQtVolumeInterpolatorWidget::RefreshModel);
+        }
+        widget->RefreshModel();
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    });
 }
     
 
