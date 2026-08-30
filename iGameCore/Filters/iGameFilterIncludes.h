@@ -32,6 +32,7 @@
 #include "VariableDensity/iGameGenerateVariableDensityDataFilter.h"
 #include "VolumeMeshAlgorithm/iGameTetraDecimation.h"
 #include "GlobalIds/iGameGenerateGlobalIdsFilter.h"
+#include "Interpolation/iGamePointVolumeInterpolatorFilter.h"
 #include "FeatureExtraction/iGameCurvatureFilter.h"
 #include "FeatureExtraction/iGameCountCellFacesFilter.h"
 #include "FeatureExtraction/iGameFeatureEdgesFilter.h"
