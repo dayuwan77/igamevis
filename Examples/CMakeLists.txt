@@ -216,6 +216,14 @@ igame_add_example(testSetRenderingPressure Rendering/SetRenderingPressure.cpp)
 # Attribute
 igame_add_example(testChangeRange Attribute/TestSubDataRangeChangeAndRecollect.cpp)
 igame_add_example(testPointCoordinates Filter/PointCoordinates/TestPointCoordinates.cpp)
+igame_add_example(testPointAndCellIds Filter/PointAndCellIds/TestPointAndCellIds.cpp)
+
+# Interpolation
+igame_add_example(testPointLineInterpolator Filter/PointLineInterpolator/TestPointLineInterpolator.cpp)
+if (TARGET Qt_module)
+    igame_add_example(testPointLineChart Qt/TestPointLineChart.cpp)
+    target_link_libraries(testPointLineChart PRIVATE Qt_module)
+endif ()
 
 # Vector / Tensor
 igame_add_example(testVector Filter/Vector/TestVector.cpp)
@@ -233,6 +241,9 @@ igame_add_example(testVariableCorrelationData Filter/VisualizationData/TestVaria
 igame_add_example(testVariableDensityData Filter/VisualizationData/TestVariableDensityData.cpp)
 igame_add_example(testPlotLineData Filter/VisualizationData/TestPlotLineData.cpp)
 
+# RemoveGhostInformation
+igame_add_example(testRemoveGhostInformation Filter/RemoveGhostInformation/TestRemoveGhostInformation.cpp)
+
 # Selection
 igame_add_example(testSetSelectionCallBack Filter/Selection/TestSetSelectionCallBack.cpp)
 igame_add_example(testSetClearSelectionCallBackFunc Filter/Selection/TestSetClearSelectionCallBackFunc.cpp)
@@ -244,6 +255,7 @@ igame_add_example(testGetPointsInFrustum Filter/Selection/TestGetPointsInFrustum
 igame_add_example(testGetCellsInFrustum Filter/Selection/TestGetCellsInFrustum.cpp)
 
 # Data processing
+igame_add_example(testExtractLocation Filter/DataProcessing/ExtractLocation/TestExtractLocation.cpp)
 igame_add_example(testOverlappingCellsDetector
     Filter/DataProcessing/OverlappingCellsDetector/TestOverlappingCellsDetector.cpp)
 
@@ -259,13 +271,22 @@ igame_add_example(testConvertToPointCloud Filter/Convert/TestConvertToPointCloud
 igame_add_example(testConvertToVolumeMesh Filter/Convert/TestConvertToVolumeMesh.cpp)
 igame_add_example(testConvertToSurfaceMesh Filter/Convert/TestConvertToSurfaceMesh.cpp)
 igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConvertToLagrangeUnstructuredMesh.cpp)
+igame_add_example(testConvertToVertex Filter/Convert/TestConvertToVertex.cpp)
+
+# Axis aligned reflection
+igame_add_example(testAxisAlignedReflection Filter/AxisAlignedReflection/TestAxisAlignedReflection.cpp)
 
 # My Filters
+igame_add_example(testExtractCellsByType Filter/MyFilter/TestExtractCellsByType.cpp)
 igame_add_example(testCellCenterFilter Filter/MyFilter/TestCellCenterFilter.cpp)
 
 # IO (optional modules)
 igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
 
+# Transform
+igame_add_example(testTransform Filter/TestTransform.cpp)
+# MeshQuality
+igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
 #Data Processing
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
 
@@ -294,6 +315,7 @@ igame_add_example(testAnsysRSTReader IO/AnsysRSTReader.cpp)
 igame_add_example(testAnsysRTHReader IO/AnsysRTHReader.cpp)
 
 # Animation / Filters
+igame_add_example(testVolumeOfRevolution Filter/VolumeOfRevolution/TestVolumeOfRevolution.cpp)
 igame_add_example(testPassArray Filter/PassArrays/TestPassArrays.cpp)
 
 igame_add_example(testAnimation Animation/TestAnimation.cpp)
@@ -306,24 +328,61 @@ endif ()
 igame_add_example(testClip Filter/TestClip.cpp)
 igame_add_example(testSlice Filter/TestSlice.cpp)
 igame_add_example(testIsoVolume Filter/TestIsoVolume.cpp)
+igame_add_example(testTriangleStrip Filter/TriangleStrip/TestTriangleStrip.cpp)
+if (TARGET Qt_module)
+    igame_add_example(testTriangleStripWidget Filter/TriangleStrip/TestTriangleStripWidget.cpp)
+    target_link_libraries(testTriangleStripWidget PRIVATE Qt_module)
+    if (WIN32 AND DEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET testTriangleStripWidget POST_BUILD
+            COMMAND "${DEPLOYQT_EXECUTABLE}" "$<TARGET_FILE:testTriangleStripWidget>"
+            VERBATIM)
+        if (TARGET Qt5::QOffscreenIntegrationPlugin)
+            add_custom_command(TARGET testTriangleStripWidget POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "$<TARGET_FILE:Qt5::QOffscreenIntegrationPlugin>"
+                    "$<TARGET_FILE_DIR:testTriangleStripWidget>/platforms/"
+                VERBATIM)
+        endif ()
+    endif ()
+endif ()
 igame_add_example(testDeformation Filter/Deformation/TestStressDeformationFilter.cpp)
 igame_add_example(testDeformationCode Filter/Deformation/TestStressDeformationFilterCode.cpp)
 igame_add_example(testContourLine Filter/TestContourLine.cpp)
+igame_add_example(testThresholdAndGenerateIds Filter/TestThresholdAndGenerateIds.cpp)
+igame_add_example(testMultiBlockGeometry Filter/TestMultiBlockGeometry.cpp)
+igame_add_example(testShrink Filter/Shrink/TestShrink.cpp)
 igame_add_example(testGenerateProcessIds Filter/TestGenerateProcessIds.cpp)
+igame_add_example(testCellMeshMetrics Filter/TestCellMeshMetrics.cpp)
 igame_add_example(testGhostDemo Filter/GhostCell/TestGhostDemo.cpp)
+igame_add_example(testBoundaryMeshQuality Filter/TestBoundaryMeshQuality.cpp)
+
+# Probe
+igame_add_example(testProbe Filter/Probe/TestProbe.cpp)
+
+# 简单任务 #5 + 中等任务 #28 配套测试用例
+igame_add_example(testCountCellVertices Filter/TestCountCellVertices.cpp)
+igame_add_example(testExtractEdges Filter/TestExtractEdges.cpp)
 
 # Color bar / interaction
 igame_add_example(testChangeColorRange ColorBar/ChangeColorRange.cpp)
 igame_add_example(testChangeColorBar ColorBar/ChangeColorBar.cpp)
 igame_add_example(testMultiscaleInteraction MultiscaleInteraction/TestMultiscaleInteraction.cpp)
 
+# Sources
+igame_add_example(testRandomVectors Filter/AttributeManipulation/TestRandomVectors.cpp)
+
 # Feature extraction
 igame_add_example(testVortexExtraction Filter/FeatureExtraction/VortexExtraction.cpp)
 igame_add_example(testCurvatureExtraction Filter/FeatureExtraction/CurvatureExtraction.cpp)
 igame_add_example(testGradientExtraction Filter/FeatureExtraction/GradientExtraction.cpp)
 igame_add_example(testLaplacianExtraction Filter/FeatureExtraction/LaplacianExtraction.cpp)
+igame_add_example(testExtractComponent Filter/TestExtractComponent.cpp)
+igame_add_example(testFeatureEdgeRegion Filter/FeatureExtraction/FeatureEdgeRegion.cpp)
 igame_add_example(testOutlineCorners Filter/FeatureExtraction/OutlineCorners.cpp)
 igame_add_example(testCellSizeExtraction Filter/FeatureExtraction/CellSizeExtraction.cpp)
+
+igame_add_example(TestValidateCellsFilter Filter/MyFilter/TestValidateCellsFilter.cpp)
+igame_add_example(TestSurfaceNormalsFilter Filter/SurfaceNormals/TestSurfaceNormalsFilter.cpp)
 
 # Feature edges console test
 igame_add_example(
@@ -352,10 +411,21 @@ igame_add_example(
     Filter/GlobalIds/TestGenerateGlobalIds.cpp
 )
 
-# Interpolation
+# Extract Subset
+igame_add_example(
+    testExtractSubset
+    Filter/TestExtractSubset.cpp
+)
+# Elevation
+igame_add_example(
+    testElevation
+    Filter/Elevation/TestElevation.cpp
+)
+# AppendReduce
+igame_add_example(testAppendReduce Filter/TestAppendReduce.cpp)
+
+# Volume Interpolation
 igame_add_example(testPointVolumeInterpolator Filter/Interpolation/TestPointVolumeInterpolator.cpp)
-set_target_properties(testPointVolumeInterpolator PROPERTIES
-    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)

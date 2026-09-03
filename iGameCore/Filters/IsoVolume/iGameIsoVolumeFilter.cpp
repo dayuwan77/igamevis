@@ -148,10 +148,10 @@ bool IsoVolumeFilter::ClipMeshByScalar(UnstructuredMesh::Pointer input, ArrayObj
 
     // 复制完全在内的单元
     igIndex vcnt = 0;
-    igIndex vhs[IGAME_CELL_MAX_SIZE] = {0};
+    const igIndex* vhs = nullptr;
     for (igIndex cellId = 0; cellId < inCellNum; cellId++) {
         if (cellVisible[cellId] == 1) {
-            vcnt = inCells->GetCellIds(cellId, vhs);
+            vcnt = static_cast<igIndex>(inCells->GetCellIds(cellId, vhs));
             OutConn->AddCellIds(vhs, vcnt);
             OutType->AddValue(inTypes->GetValue(cellId));
             OriginCell.emplace_back(cellId);
@@ -171,43 +171,44 @@ bool IsoVolumeFilter::ClipMeshByScalar(UnstructuredMesh::Pointer input, ArrayObj
     igIndex CellId = 0;
     igIndex i = 0;
     Cell::Pointer cell = nullptr;
-    double CellIsoValue[IGAME_CELL_MAX_SIZE] = {0};
+    std::vector<double> CellIsoValue;
     for (CellId = 0; CellId < inCellNum; CellId++) {
         if (cellVisible[CellId]) { continue; }
         cell = input->GetCell(CellId);
         vhs2 = cell->m_PointIds->RawPointer();
         vcnt = cell->GetNumberOfPoints();
+        if (CellIsoValue.size() < (size_t)vcnt) { CellIsoValue.resize(vcnt); }
         for (i = 0; i < vcnt; i++) { CellIsoValue[i] = PointIsoValue[vhs2[i]]; }
         switch (cell->GetCellType()) {
             case IG_TRIANGLE:
-                CellClip::Clip(DynamicCast<Triangle>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr,
+                CellClip::Clip(DynamicCast<Triangle>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr,
                                nullptr, CellId, OriginEdge, OriginCell);
                 break;
             case IG_QUAD:
-                CellClip::Clip(DynamicCast<Quad>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr, nullptr,
+                CellClip::Clip(DynamicCast<Quad>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr, nullptr,
                                CellId, OriginEdge, OriginCell);
                 break;
             case IG_POLYGON:
-                CellClip::Clip(DynamicCast<Polygon>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr, nullptr,
+                CellClip::Clip(DynamicCast<Polygon>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr, nullptr,
                                CellId, OriginEdge, OriginCell);
                 break;
             case IG_TETRA:
-                CellClip::Clip(DynamicCast<Tetra>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr, nullptr,
+                CellClip::Clip(DynamicCast<Tetra>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr, nullptr,
                                CellId, OriginEdge, OriginCell);
                 break;
             case IG_PRISM:
             case IG_PYRAMID:
             case IG_HEXAHEDRON:
                 // 无对应专用重载，走通用 Volume 裁剪（内部自动四面体化）
-                CellClip::Clip(DynamicCast<Volume>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr,
+                CellClip::Clip(DynamicCast<Volume>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr,
                                nullptr, CellId, OriginEdge, OriginCell, PointIsoValue);
                 break;
             case IG_QUADRATIC_TETRA:
-                CellClip::Clip(DynamicCast<QuadraticTetra>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr,
+                CellClip::Clip(DynamicCast<QuadraticTetra>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr,
                                nullptr, CellId, OriginEdge, OriginCell);
                 break;
             case IG_POLYHEDRON:
-                CellClip::Clip(DynamicCast<Polyhedron>(cell), CellIsoValue, OutPoints, OutConn, OutType, nullptr,
+                CellClip::Clip(DynamicCast<Polyhedron>(cell), CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr,
                                nullptr, CellId, OriginEdge, OriginCell);
                 break;
             default: {
@@ -216,7 +217,7 @@ bool IsoVolumeFilter::ClipMeshByScalar(UnstructuredMesh::Pointer input, ArrayObj
                     // Quadratic / Lagrange 体单元并不是 Volume 子类，DynamicCast 可能为 nullptr，
                     // 此时无法裁剪且会崩溃，选择跳过该相交单元以保证健壮性。
                     if (vol) {
-                        CellClip::Clip(vol, CellIsoValue, OutPoints, OutConn, OutType, nullptr,
+                        CellClip::Clip(vol, CellIsoValue.data(), OutPoints, OutConn, OutType, nullptr,
                                        nullptr, CellId, OriginEdge, OriginCell, PointIsoValue);
                     }
                 }
@@ -254,9 +255,9 @@ bool IsoVolumeFilter::ClipMeshByScalar(UnstructuredMesh::Pointer input, ArrayObj
         std::vector<igIndex> repOfPre(preCnt, -1);   // 每个新点对应的代表输出点索引
         igIndex compactCnt = 0;
         std::vector<std::vector<igIndex>> remappedCells(outC);
-        igIndex vhs[IGAME_CELL_MAX_SIZE] = {0};
+        const igIndex* vhs = nullptr;
         for (igIndex c = 0; c < outC; ++c) {
-            igIndex vcnt = OutConn->GetCellIds(c, vhs);
+            igIndex vcnt = static_cast<igIndex>(OutConn->GetCellIds(c, vhs));
             remappedCells[c].resize(vcnt);
             for (igIndex k = 0; k < vcnt; ++k) {
                 igIndex pre = oldToNew[vhs[k]];
@@ -356,13 +357,13 @@ void IsoVolumeFilter::ComputePointValueAndCellVisible(Points::Pointer inPoints, 
 
     auto func = [&](igIndex start, igIndex end) -> void {
         igIndex cellId = 0;
-        igIndex vhs[IGAME_CELL_MAX_SIZE] = {0};
+        const igIndex* vhs = nullptr;
         igIndex vcnt = 0;
         igIndex allIn = 1, allOut = 1;
         double value = 0;
         igIndex i = 0;
         for (cellId = start; cellId < end; cellId++) {
-            vcnt = inCells->GetCellIds(cellId, vhs);
+            vcnt = static_cast<igIndex>(inCells->GetCellIds(cellId, vhs));
             allIn = 1;
             allOut = 1;
             for (i = 0; i < vcnt; i++) {

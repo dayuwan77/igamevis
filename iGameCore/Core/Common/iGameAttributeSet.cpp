@@ -264,8 +264,14 @@ bool iGame::AttributeSet::Attribute::DeepCopy(const iGame::AttributeSet::Attribu
     attachmentType = other.attachmentType;
     isDeleted = other.isDeleted;
 
-    dataRange = DoubleArray::New();
-    dataRange->DeepCopy(other.dataRange);
+    // 源 dataRange 为 null（未计算）时保持 null，走懒计算；
+    // 避免把 null 拷贝成空数组（非 null），导致后续 UpdateAllDataRange 越界写
+    if (other.dataRange != nullptr) {
+        dataRange = DoubleArray::New();
+        dataRange->DeepCopy(other.dataRange);
+    } else {
+        dataRange = nullptr;
+    }
     return true;
 }
 
