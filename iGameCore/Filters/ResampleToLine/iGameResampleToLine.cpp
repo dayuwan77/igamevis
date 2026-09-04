@@ -43,10 +43,17 @@ bool ResampleToLine::Execute() {
     };*/
 
     // SetOutput(input);
-    auto mesh = DynamicCast<UnstructuredMesh>(input);
-    auto output = resample_to_line_UnstructuredMesh(mesh, orig, target, n);
-    SetOutput(output);
-    return true;
+    if (input->GetDataObjectType() == IG_UNSTRUCTURED_MESH){
+        auto mesh = DynamicCast<UnstructuredMesh>(input);
+        auto output = resample_to_line_UnstructuredMesh(mesh, orig, target, n);
+        SetOutput(output);
+        return true;
+    
+    } else {
+        m_Message = "please input UnstructuredMesh";
+        return false;
+    }
+    
     //switch (input->GetDataObjectType()) {
     //    std::cout << input->GetDataObjectType()<<std::endl;
     //    /*case IG_SURFACE_MESH: {
@@ -150,17 +157,6 @@ float ResampleToLine::Interpolate(const Point& target, const std::vector<Point>&
 
 
 
-//输入面的三个顶点索引，返回该三角形的AABB包围盒
-ResampleToLine::AABB ResampleToLine::triangleAABB(const SurfaceMesh::Pointer Mesh, int faceida, int faceidb, int faceidc) {
-    auto p0 = Mesh->GetPoint(faceida);
-    auto p1 = Mesh->GetPoint(faceidb);
-    auto p2 = Mesh->GetPoint(faceidc);
-    AABB box;
-    box.expand(p0);
-    box.expand(p1);
-    box.expand(p2);
-    return box;
-}
 
 
 //构建均匀桶
@@ -227,7 +223,7 @@ StructuredMesh::Pointer ResampleToLine::resample_to_line_UnstructuredMesh(const 
         int cellid;
         int faceid;
         //最近面距离截断数值
-        float distSq = 1e-5f;
+        float distSq = maxdistSq;
         if (findNearest(mesh, p, closest, cellid, faceid, distSq, ungrid, bbox)) {
             //std::cout << cellid << std::endl;
             candidatePoint[i] = closest;
@@ -245,7 +241,7 @@ StructuredMesh::Pointer ResampleToLine::resample_to_line_UnstructuredMesh(const 
         auto attr = attrSet->GetAttribute(i).GetPointer();
         auto type = attrSet->GetAttribute(i).GetType();
         
-        //if (type == IG_CELL)  continue; 
+        if (type == IG_CELL)  continue; 
             ;
         auto attrtype = attr->GetArrayType();
         auto name = attr->GetName();
@@ -291,9 +287,18 @@ StructuredMesh::Pointer ResampleToLine::resample_to_line_UnstructuredMesh(const 
         
     }
     output->SetPoints(samples);
+    output->GenStructuredCellConnectivities();
+    //buildLine(output);
     return output;
 }
-    
+//bool ResampleToLine::buildLine(StructuredMesh::Pointer& mesh){
+//    CellArray::Pointer cells = CellArray::New();
+//    for (int i = 0; i< mesh->GetNumberOfPoints()-1; i++){ 
+//        cells->AddCellId2(i, i + 1);
+//    }
+//    
+//    return true;
+//}
 
 std::array<float, 3> ResampleToLine::GetPosition_face(Face* f, int num) {
     std::array<float, 3> position = {0.0f, 0.0f, 0.0f};
@@ -496,6 +501,27 @@ void ResampleToLine::closestPointOnTriangle(const Point& p, const Point& a, cons
     distSq = minDistSq;
     return;
     
+
+}
+
+bool pointInTetra(const Point& p, const Cell& cell) { 
+    const Point& a = cell.GetPoint(0);
+    const Point& b = cell.GetPoint(1);
+    const Point& c = cell.GetPoint(2);
+    const Point& d = cell.GetPoint(3);
+    
+    auto det3 = [](const Point& a, const Point& b, const Point& c) {
+        return a[0] * (b[1] * c[2] - c[1] * b[2]) - a[1] * (b[0] * c[2] - c[0] * b[2]) +
+               a[2] * (b[0] * c[1] - c[0] * b[1]);
+    };
+    float D0 = det3(b-a, c-a, d-a);
+    if (std::abs(D0) < 1e-15) return false;
+    float D1 = det3(p - b, c - b, d - b);
+    float D2 = det3(a - p, c - p, d - p);
+    float D3 = det3(a - b, p - b, d - b);
+    float D4 = det3(a - b, c - b, p - b);
+
+
 
 }
 

@@ -38,8 +38,10 @@ private:
     Point orig = {-1.0f, -0.983795f, -0.35714f}, target = {1.0f, 0.983795f, 0.35714f};
     int n = 40;
     int g_nx = 50, g_ny = 50, g_nz = 50;
+    float maxdistSq = 1e-6f;
     StructuredMesh::Pointer resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh, const Point& p0,
                                                               const Point& p1, int n, double maxDistance = 1e-6);
+    bool buildLine(StructuredMesh::Pointer& mesh);
     bool rayTriangleIntersect(const Point& orign, const Point& dir, const Point& v0, const Point& v1, const Point& v2,
                               double& t, double& u, double& v);
     std::array<float, 3> GetPosition_face(Face* f, int num);
@@ -100,8 +102,8 @@ private:
         int triangleIndex = -1;
         double w0, w1, w2; // Barycentric coordinates
     };
-    AABB triangleAABB(const SurfaceMesh::Pointer Mesh, int faceida, int faceidb, int faceidc);
-    std::unique_ptr<BVHNode> buildBVH(SurfaceMesh::Pointer& mesh, std::vector<int>& triangleIndices, int depth);
+    //AABB triangleAABB(const SurfaceMesh::Pointer Mesh, int faceida, int faceidb, int faceidc);
+    //std::unique_ptr<BVHNode> buildBVH(SurfaceMesh::Pointer& mesh, std::vector<int>& triangleIndices, int depth);
     std::vector<std::vector<int>> builduniformGrid(const BoundingBox& bbox, const UnstructuredMesh::Pointer& mesh, int nx, int ny,
                                                    int nz);
     void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c, Point& closest,

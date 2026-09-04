@@ -1945,7 +1945,7 @@ void igQtMainWindow::initAllFilters() {
         }
     });
 
-    auto DrawLine = [&](SurfaceMesh::Pointer m, Painter3D* painter) -> void {
+    auto DrawLine = [](SurfaceMesh::Pointer m, Painter3D* painter) -> void {
         //draw line
         painter->SetPen(Color::White);
         painter->SetBrush(0, 255, 0);
@@ -1957,7 +1957,7 @@ void igQtMainWindow::initAllFilters() {
     };
 
     QAction* ResampleToLineAct = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
-    connect(ResampleToLineAct, &QAction::triggered, this, [&](bool checked) {
+    connect(ResampleToLineAct, &QAction::triggered, this, [=, this](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
         ResampleToLine::Pointer filter = ResampleToLine::New();
         auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
@@ -1976,6 +1976,8 @@ void igQtMainWindow::initAllFilters() {
         z_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 z", "0.35714");
         frequence = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "采样数量", "40");
         dialog->show();
+
+        auto drawLineFunc = DrawLine;
         dialog->setApplyFunctor([=, this]() {
             bool ok;
             auto Clamp = [](double x, double l, double r) -> double {
@@ -2001,7 +2003,7 @@ void igQtMainWindow::initAllFilters() {
                 auto draw = DynamicCast<DrawObject>(res);
                 if (draw != nullptr) {
                     int id = modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
-                    DrawLine(res, scene->GetModelById(id)->GetPainter3D());
+                    drawLineFunc(res, scene->GetModelById(id)->GetPainter3D());
                     res->SetViewStyle(IG_SURFACE);
                     rendererWidget->update();
                     modelTreeWidget->updateAllAttriubute(res);
