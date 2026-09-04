@@ -165,6 +165,9 @@ std::vector<std::vector<int>> ResampleToLine::builduniformGrid(const BoundingBox
     auto g_voxelSizeX = (bbox.max[0] - bbox.min[0]) / nx;
     auto g_voxelSizeY = (bbox.max[1] - bbox.min[1]) / ny;
     auto g_voxelSizeZ = (bbox.max[2] - bbox.min[2]) / nz;
+    if (g_voxelSizeX < 1e-12) g_voxelSizeX = 1.0;
+    if (g_voxelSizeY < 1e-12) g_voxelSizeY = 1.0;
+    if (g_voxelSizeZ < 1e-12) g_voxelSizeZ = 1.0;
     std::vector<std::vector<int>> g_voxelCells;
     g_voxelCells.assign(nx * ny * nz, {});
     
@@ -174,6 +177,7 @@ std::vector<std::vector<int>> ResampleToLine::builduniformGrid(const BoundingBox
         for (int nid = 0; nid < mesh->GetCell(cellid)->GetNumberOfPoints(); nid++) { 
             aabb.expand(mesh->GetPoint(cell->GetPointId(nid)));
         }
+
         int ix_min = std::max(0, (int)((aabb.min[0] - bbox.min[0]) / g_voxelSizeX));
         int iy_min = std::max(0, (int) ((aabb.min[1] - bbox.min[1]) / g_voxelSizeY));
         int iz_min = std::max(0, (int) ((aabb.min[2] - bbox.min[2]) / g_voxelSizeZ));
