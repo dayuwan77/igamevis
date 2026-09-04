@@ -64,20 +64,53 @@ bool PointVolumeInterpolatorFilter::Execute() {
     }
     Points::Pointer queryPts = querySet->GetPoints();
 
-    // ==================== 属性选取 ====================
+    // ==================== 属性选取（仅 PointData） ====================
+    // 插值按"点 ID"访问属性数组：若选中的是 CellData（长度=单元数），点 ID
+    // 会越界。因此 index/name 只在"点属性"作用域内解析，且校验长度一致。
     auto attrs = volumeMesh->GetAttributeSet();
-    int index = m_AttributeIndex;
-    if (index == -1 && !m_AttributeName.empty()) {
-        index = attrs->GetAttributeIndex(m_AttributeName);
-    }
-    if (index < 0 || static_cast<IGsize>(index) >= attrs->GetNumberOfAttributes()) {
-        igError("PointVolumeInterpolatorFilter: attribute index {} is out of range.", index);
+    if (attrs == nullptr) {
+        igError("PointVolumeInterpolatorFilter: input has no attribute set.");
         return false;
     }
-    auto& attr = attrs->GetAttribute(index);
-    ArrayObject* data = attr.pointer.get();
-    if (data == nullptr) {
-        igError("PointVolumeInterpolatorFilter: attribute {} is empty.", index);
+    auto pointAttrs = attrs->GetAllPointAttributes();
+    const IGsize numPointAttrs = (pointAttrs != nullptr) ? pointAttrs->GetNumberOfElements() : 0;
+    if (numPointAttrs == 0) {
+        igError("PointVolumeInterpolatorFilter: input has no point attribute (PointData).");
+        return false;
+    }
+
+    int index = m_AttributeIndex;
+    if (index == -1 && !m_AttributeName.empty()) {
+        index = -1;
+        for (IGsize i = 0; i < numPointAttrs; ++i) {
+            const auto& candidate = pointAttrs->GetElement(i);
+            if (candidate.IsNone() || !candidate.pointer) continue;
+            if (candidate.pointer->GetName() == m_AttributeName) {
+                index = static_cast<int>(i);
+                break;
+            }
+        }
+        if (index == -1) {
+            igError("PointVolumeInterpolatorFilter: no point attribute named '{}'.", m_AttributeName);
+            return false;
+        }
+    }
+    if (index < 0 || static_cast<IGsize>(index) >= numPointAttrs) {
+        igError("PointVolumeInterpolatorFilter: point attribute index {} is out of range "
+                "(only {} point attributes exist).", index, numPointAttrs);
+        return false;
+    }
+
+    auto& chosen = pointAttrs->GetElement(index);
+    if (chosen.IsNone() || !chosen.pointer) {
+        igError("PointVolumeInterpolatorFilter: point attribute {} is empty.", index);
+        return false;
+    }
+    ArrayObject* data = chosen.pointer.get();
+    if (data->GetNumberOfElements() != volumeMesh->GetNumberOfPoints()) {
+        igError("PointVolumeInterpolatorFilter: point attribute '{}' length {} != point count {}; "
+                "refusing to interpolate non-point data.",
+                data->GetName(), data->GetNumberOfElements(), volumeMesh->GetNumberOfPoints());
         return false;
     }
     int dim = data->GetDimension();

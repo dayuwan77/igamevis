@@ -1,16 +1,100 @@
 #include "Interpolation/iGamePointVolumeInterpolatorFilter.h"
+#include "iGameAttributeSet.h"
 #include "iGameBoundingBox.h"
 #include "iGameFileIO.h"
+#include "iGamePointSet.h"
 #include "iGameRenderWindow.h"
 #include "iGameScene.h"
 #include "iGameType.h"
+#include "iGameUnstructuredMesh.h"
 
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <vector>
 
+// 守卫：核心 Filter 只允许插值 PointData。若允许选到 CellData，
+// 会以点 ID 访问长度=单元数的数组而越界。
+namespace {
+bool AttributeSelectionGuardChecks() {
+    std::cerr << "\n[Guard] filter attribute must be PointData:\n";
+    bool ok = true;
+
+    auto mesh = iGame::UnstructuredMesh::New();
+    auto pts = mesh->GetPoints();
+    pts->AddPoint(iGame::Point(0.f, 0.f, 0.f));
+    pts->AddPoint(iGame::Point(1.f, 0.f, 0.f));
+    pts->AddPoint(iGame::Point(0.f, 1.f, 0.f));
+    pts->AddPoint(iGame::Point(0.f, 0.f, 1.f));
+    igIndex tet[4] = {0, 1, 2, 3};
+    mesh->AddCell(tet, 4, iGame::IG_TETRA);
+
+    auto pa = iGame::FloatArray::New();
+    pa->SetName("PtA");
+    pa->SetDimension(1);
+    pa->Resize(4);
+    for (IGsize i = 0; i < 4; ++i) pa->SetValue(i, double(i));
+    mesh->GetAttributeSet()->AddScalar(IG_POINT, pa);
+
+    auto ca = iGame::FloatArray::New();
+    ca->SetName("CellA");
+    ca->SetDimension(1);
+    ca->Resize(1);
+    ca->SetValue(0, 99.0);
+    mesh->GetAttributeSet()->AddScalar(IG_CELL, ca);
+
+    auto query = iGame::PointSet::New();
+    query->AddPoint(iGame::Point(0.25f, 0.25f, 0.25f));
+
+    auto makeFilter = [&]() {
+        auto f = iGame::PointVolumeInterpolatorFilter::New();
+        f->SetInput(mesh);
+        f->SetInput(1, query);
+        return f;
+    };
+
+    {
+        auto f = makeFilter();
+        f->SetAttributeByName("CellA");
+        const bool rejected = !f->Execute();
+        std::cerr << (rejected ? "  -> PASS" : "  -> FAIL")
+                  << " : selecting CellData by name is rejected\n";
+        ok = ok && rejected;
+    }
+    {
+        auto f = makeFilter();
+        f->SetAttributeByIndex(0);
+        const bool succeeded = f->Execute();
+        std::cerr << (succeeded ? "  -> PASS" : "  -> FAIL")
+                  << " : selecting PointData by index works\n";
+        ok = ok && succeeded;
+    }
+    {
+        auto f = makeFilter();
+        f->SetAttributeByName("PtA");
+        const bool succeeded = f->Execute();
+        std::cerr << (succeeded ? "  -> PASS" : "  -> FAIL")
+                  << " : selecting PointData by name works\n";
+        ok = ok && succeeded;
+    }
+    {
+        auto f = makeFilter();
+        f->SetAttributeByIndex(7); // 越界（点属性只有 1 个）
+        const bool rejected = !f->Execute();
+        std::cerr << (rejected ? "  -> PASS" : "  -> FAIL")
+                  << " : out-of-range point attribute index is rejected\n";
+        ok = ok && rejected;
+    }
+    return ok;
+}
+} // namespace
+
 int main() {
+    if (!AttributeSelectionGuardChecks()) {
+        std::cerr << "\nGuard FAILED, aborting.\n";
+        return 1;
+    }
+
     auto scene = iGame::Scene::New();
 
     // 读取一个体网格（含点标量属性）
