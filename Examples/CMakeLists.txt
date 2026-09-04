@@ -241,6 +241,8 @@ igame_add_example(testVariableCorrelationData Filter/VisualizationData/TestVaria
 igame_add_example(testVariableDensityData Filter/VisualizationData/TestVariableDensityData.cpp)
 igame_add_example(testPlotLineData Filter/VisualizationData/TestPlotLineData.cpp)
 
+# MaskPoints
+igame_add_example(testMaskPoints Filter/MaskPoints/TestMaskPoints.cpp)
 # RemoveGhostInformation
 igame_add_example(testRemoveGhostInformation Filter/RemoveGhostInformation/TestRemoveGhostInformation.cpp)
 
@@ -348,6 +350,7 @@ endif ()
 igame_add_example(testDeformation Filter/Deformation/TestStressDeformationFilter.cpp)
 igame_add_example(testDeformationCode Filter/Deformation/TestStressDeformationFilterCode.cpp)
 igame_add_example(testContourLine Filter/TestContourLine.cpp)
+igame_add_example(testMergeVectorComponents Filter/TestMergeVectorComponents.cpp)
 igame_add_example(testThresholdAndGenerateIds Filter/TestThresholdAndGenerateIds.cpp)
 igame_add_example(testMultiBlockGeometry Filter/TestMultiBlockGeometry.cpp)
 igame_add_example(testShrink Filter/Shrink/TestShrink.cpp)
@@ -396,6 +399,7 @@ igame_add_example(
     Filter/FeatureExtraction/FeatureEdgesVisualization.cpp
 )
 
+
 if (ENABLE_LIBTORCH_MODULE)
     igame_add_example(testVortexDetection Filter/FeatureExtraction/VortexDetection.cpp)
     target_compile_definitions(testVortexDetection PUBLIC LibTorch_ENABLE)
@@ -423,6 +427,10 @@ igame_add_example(
 )
 # AppendReduce
 igame_add_example(testAppendReduce Filter/TestAppendReduce.cpp)
+
+# Periodic
+igame_add_example(testAngularPeriodic Filter/Periodic/TestAngularPeriodic.cpp)
+igame_add_example(testAngularPeriodicSelfCheck Filter/Periodic/TestAngularPeriodicSelfCheck.cpp)
 
 # Volume Interpolation
 igame_add_example(testPointVolumeInterpolator Filter/Interpolation/TestPointVolumeInterpolator.cpp)

@@ -1008,6 +1008,7 @@ QLabel#CustomTitleLabel {
     <property name="title">
      <string>算法处理</string>
     </property>
+    <addaction name="action_MergeVectorComponents"/>
     <addaction name="action_GlobalIds"/>
     <addaction name="action_TriangleStrip"/>
     <addaction name="action_Elevation"/>
@@ -1487,6 +1488,21 @@ QLabel#CustomTitleLabel {
     <number>1</number>
    </attribute>
    <widget class="igQtContourExtractWidget" name="widget_ContourExtract"/>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_MergeVectorComponents">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>合并标量数组为向量</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtMergeVectorComponentsWidget" name="widget_MergeVectorComponents"/>
   </widget>
   <widget class="QDockWidget" name="dockWidget_ExtractComponent">
    <property name="minimumSize">
@@ -2270,6 +2286,14 @@ QLabel#CustomTitleLabel {
     <string>轮廓提取</string>
    </property>
   </action>
+  <action name="action_MergeVectorComponents">
+   <property name="text">
+    <string>合并标量数组为向量(merge_vector_components)</string>
+   </property>
+   <property name="toolTip">
+    <string>合并标量数组为向量(merge_vector_components)</string>
+   </property>
+  </action>
   <action name="action_ExtractEdges">
    <property name="checkable">
     <bool>false</bool>
@@ -2474,6 +2498,12 @@ QLabel#CustomTitleLabel {
    <class>igQtContourExtractWidget</class>
    <extends>QWidget</extends>
    <header>IQWidgets/igQtContourExtractWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtMergeVectorComponentsWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtMergeVectorComponentsWidget.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
