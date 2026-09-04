@@ -104,7 +104,7 @@
 #include <QLineEdit>
 #include <QFormLayout>
 #include <QDialogButtonBox>
-
+#include "ResampleToLine/iGameResampleToLine.h"
 
 #include "ui_igQtVariableCorrelationWidget.h"
 
@@ -1943,6 +1943,72 @@ void igQtMainWindow::initAllFilters() {
             res->SetName(data->GetName());
             modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
         }
+    });
+
+    auto DrawLine = [&](SurfaceMesh::Pointer m, Painter3D* painter) -> void {
+        //draw line
+        painter->SetPen(Color::White);
+        painter->SetBrush(0, 255, 0);
+        if (m->GetEdges() == nullptr) { m->BuildEdges(); }
+        int np = m->GetNumberOfPoints();
+        if (np <= 0) { throw std::runtime_error("points is zero!"); }
+        for (int i = 0; i < m->GetNumberOfPoints() - 1; i++) { painter->DrawLine(m->GetPoint(i), m->GetPoint(i + 1)); }
+        painter->Modified();
+    };
+
+    QAction* ResampleToLineAct = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
+    connect(ResampleToLineAct, &QAction::triggered, this, [&](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        ResampleToLine::Pointer filter = ResampleToLine::New();
+        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        auto drawold = DynamicCast<DrawObject>(data);
+        auto scene = rendererWidget->GetScene();
+        auto model = scene->GetCurrentModel();
+        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle("重采样至直线");
+
+        int x_1, y_1, z_1, x_2, y_2, z_2, frequence;
+        x_1 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point1 x", "-1.0");
+        y_1 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point1 y", "-0.983795");
+        z_1 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point1 z", "-0.35714");
+        x_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 x", "1.0");
+        y_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 y", "0.983795");
+        z_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 z", "0.35714");
+        frequence = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "采样数量", "40");
+        dialog->show();
+        dialog->setApplyFunctor([=, this]() {
+            bool ok;
+            auto Clamp = [](double x, double l, double r) -> double {
+                if (x < l) return l;
+                if (x > r) return r;
+                return x;
+            };
+            Point orig, target;
+            int n;
+            orig[0] = Clamp(dialog->getDouble(x_1, ok), -1.0, 1.0);
+            orig[1] = Clamp(dialog->getDouble(y_1, ok), -1.0, 1.0);
+            orig[2] = Clamp(dialog->getDouble(z_1, ok), -1.0, 1.0);
+            target[0] = Clamp(dialog->getDouble(x_2, ok), -1.0, 1.0);
+            target[1] = Clamp(dialog->getDouble(y_2, ok), -1.0, 1.0);
+            target[2] = Clamp(dialog->getDouble(z_2, ok), -1.0, 1.0);
+            n = dialog->getInt(frequence, ok);
+
+            filter->SetInput(data);
+            filter->setOrigTarget(orig, target, n);
+            if (filter->Execute()) {
+                SurfaceMesh::Pointer res = DynamicCast<SurfaceMesh>(filter->GetOutput(0));
+                res->SetName(res->GetName());
+                auto draw = DynamicCast<DrawObject>(res);
+                if (draw != nullptr) {
+                    int id = modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
+                    DrawLine(res, scene->GetModelById(id)->GetPainter3D());
+                    res->SetViewStyle(IG_SURFACE);
+                    rendererWidget->update();
+                    modelTreeWidget->updateAllAttriubute(res);
+                }
+            }
+            QMessageBox::information(dialog, "ResampleToLine", "运行完毕", QMessageBox::Close);
+        });
     });
 }
 
