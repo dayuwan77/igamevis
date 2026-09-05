@@ -4197,9 +4197,19 @@ void igQtMainWindow::initAllFilters() {
             return;
         }
 
-        surface->SetName(obj->GetName() + "_surface");
-        modelTreeWidget->addDataObjectToModelTree(surface, Algorithm);
-        rendererWidget->update();
+        // 非时序数据：保持单次计算行为
+        VortexFilter::Pointer filter = VortexFilter::New();
+        filter->SetAttributeByIndex(index);
+        filter->SetInput(data);
+
+        if (filter->Execute()) {
+            refreshTree();
+        } else {
+            // Windows.h 可能把 GetMessage 宏展开为 GetMessageA，
+            // 加括号可以阻止宏展开。
+            std::string message = (filter->GetMessage)();
+            showDarkFramelessMessage(QStringLiteral("Warning"), QString::fromStdString(message));
+        }
     });
 
     connect(mesh_processing->addAction(QStringLiteral("强制静态网格 (Force Static Mesh)")), &QAction::triggered, this, [this](bool) {
@@ -4256,83 +4266,7 @@ void igQtMainWindow::initAllFilters() {
         }
     });
 
-    //connect(mesh_processing->addAction("Test"), &QAction::triggered, this, [&](bool checked) {
-    //    auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-
-    //    auto m_StreamBase = iGame::StreamBase::New();
-    //    auto streamtracer = m_StreamBase->streamFilter;
-    //    streamtracer->initStreamTracer(obj);
-    //    //auto seeds=streamtracer->getModelSelect();//当实际已经选中了重点区域时直接调用该函数
-    //    Vector3f boundMax = streamtracer->GetMesh()->GetBoundingBox().max; //包围盒区域
-    //    Vector3f boundMin = streamtracer->GetMesh()->GetBoundingBox().min;
-    //    Vector3f centerMax = (boundMax - boundMin) / 5 + boundMin; //模拟被选中重点区域
-    //    auto seeds = streamtracer->getAllSubBlockCenters(boundMax, boundMin, centerMax, boundMin, 2,
-    //                                                     4); //4，6为划分子块的数量
-    //    float lengthOfStreamLine = 5;
-    //    float lengthOfStep = 0.3;
-    //    float maxSteps = 1000;
-    //    float terminalSpeed = 0.005;
-    //    streamtracer->SetInput(seeds, "V", lengthOfStreamLine, lengthOfStep, terminalSpeed, maxSteps);
-    //    streamtracer->Execute();
-    //    std::cout << seeds.size() << std::endl;
-    //    auto output = streamtracer->GetOutput();
-
-    //    modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
-    //    rendererWidget->update();
-    //});
-
-    //connect(mesh_processing->addAction("Test2"), &QAction::triggered, this, [&](bool checked) { 
-    //    auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-
-    //    auto filter = iGame::VolumeMeshMetricsFilter::New();
-    //    filter->SetVolumeMetric(VolumeMeshMetricsFilter::HEX_VOLUME);
-    //    filter->SetInput(obj);
-    //    filter->Execute();
-
-    //    modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
-    //    rendererWidget->update();
-    //    });
-    //connect(mesh_processing->addAction("Test3"), &QAction::triggered, this, [&](bool checked) 
-    //    { 
-    //        CellArray::Pointer cellArray = CellArray::New();
-    //        clock_t start = clock();
-    //        igIndex cell[3]{};
-    //        cellArray->AddCellIds(cell, 2);
-    //        for (int i = 0; i < 10000000; i++) { 
-    //            cellArray->AddCellIds(cell, 3);
-    //        }
-    //        clock_t end = clock();
-    //        std::cout << end - start << std::endl;
-
-    //    });
-    QMenu* convert = ui->menu_filters->addMenu(QStringLiteral("数据转换 (Convert)"));
-    connect(convert->addAction(QStringLiteral("转换为点数据 (Convert To PointData)")), &QAction::triggered, this, [&](bool checked) {
-        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
-        auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-        ConvertToPointDataFilter::Pointer filter = ConvertToPointDataFilter::New();
-        filter->SetInput(obj);
-        if (filter->Execute()) {
-            modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
-            rendererWidget->update();
-        }
-    });
-    connect(convert->addAction(QStringLiteral("转换为单元数据 (Convert To CellData)")), &QAction::triggered, this, [&](bool checked) {
-        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
-        auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-        ConvertToCellDataFilter::Pointer filter = ConvertToCellDataFilter::New();
-        filter->SetInput(obj);
-        // 非时序：保持原有单次计算行为
-        VortexFilter::Pointer filter = VortexFilter::New();
-        filter->SetAttributeByIndex(index);
-        filter->SetInput(data);
-        if (filter->Execute()) {
-            refreshTree();
-        } else {
-            std::string message = filter->GetMessage();
-            showDarkFramelessMessage(QStringLiteral("Warning"), QString::fromStdString(message));
-        }
-    });
-
+    
     QAction* vortexPrection = view->addAction(QStringLiteral("涡旋预测 (PredictVortex)"));
     connect(vortexPrection, &QAction::triggered, this, [this](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
