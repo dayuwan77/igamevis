@@ -525,6 +525,13 @@ bool pointInTetra(const Point& p, const Cell& cell) {
     float D3 = det3(a - b, p - b, d - b);
     float D4 = det3(a - b, c - b, p - b);
 
+    float l1 = D1 / D0;
+    float l2 = D2 / D0;
+    float l3 = D3 / D0;
+    float l4 = D4 / D0;
+
+    return (l1 >= FLT_EPSILON && l2 >= FLT_EPSILON && l3 >= FLT_EPSILON && l4 >= FLT_EPSILON && l1 <= 1 + FLT_EPSILON&&
+            l2 <= 1 + FLT_EPSILON && l3 <= 1 + FLT_EPSILON && l4 <= 1 + FLT_EPSILON);
 
 
 }
