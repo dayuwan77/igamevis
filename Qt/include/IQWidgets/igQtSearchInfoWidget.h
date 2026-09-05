@@ -41,6 +41,9 @@ public:
     // 刷新属性列表
     void refreshProperties();
 
+    // Show the point-data table and focus the requested attribute.
+    void showPointAttributeDetails(iGame::Model* model, const QString& arrayName);
+
 private slots:
     // 查询按钮点击槽函数
     void onQueryButtonClicked();

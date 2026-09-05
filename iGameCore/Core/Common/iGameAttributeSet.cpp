@@ -247,25 +247,42 @@ void iGame::AttributeSet::Attribute::Delete() { isDeleted = true; }
 
 bool iGame::AttributeSet::Attribute::DeepCopy(const iGame::AttributeSet::Attribute& other) {
     if (other.isDeleted) return true;
-    if (DynamicCast<FloatArray>(other.pointer)) {
-        auto p = FloatArray::New();
-        p->DeepCopy(DynamicCast<FloatArray>(other.pointer));
-        p->SetName(other.pointer->GetName());
-        pointer = p;
-    } else if (DynamicCast<DoubleArray>(other.pointer)) {
-        auto p = DoubleArray::New();
-        p->DeepCopy(DynamicCast<DoubleArray>(other.pointer));
-        p->SetName(other.pointer->GetName());
-        pointer = p;
-    } else {
-        return false;
-    }
+    if (!other.pointer) return false;
+
+    // 通用数组克隆：覆盖所有 FlatArray 派生类型（float/double/整型等），
+    // 避免只支持 Float/Double 导致其它属性复制失败并留下空属性槽位。
+    auto cloneArray = [](const ArrayObject::Pointer& src) -> ArrayObject::Pointer {
+        if (!src) return nullptr;
+        ArrayObject::Pointer dst = nullptr;
+        if (auto a = DynamicCast<FloatArray>(src)) { auto n = FloatArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<DoubleArray>(src)) { auto n = DoubleArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<CharArray>(src)) { auto n = CharArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<UnsignedCharArray>(src)) { auto n = UnsignedCharArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<ShortArray>(src)) { auto n = ShortArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<UnsignedShortArray>(src)) { auto n = UnsignedShortArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<IntArray>(src)) { auto n = IntArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<UnsignedIntArray>(src)) { auto n = UnsignedIntArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<LongLongArray>(src)) { auto n = LongLongArray::New(); n->DeepCopy(a); dst = n; }
+        else if (auto a = DynamicCast<UnsignedLongLongArray>(src)) { auto n = UnsignedLongLongArray::New(); n->DeepCopy(a); dst = n; }
+        return dst;
+    };
+
+    auto p = cloneArray(other.pointer);
+    if (p == nullptr) return false;
+    p->SetName(other.pointer->GetName());
+    pointer = p;
     type = other.type;
     attachmentType = other.attachmentType;
     isDeleted = other.isDeleted;
 
-    dataRange = DoubleArray::New();
-    dataRange->DeepCopy(other.dataRange);
+    // 源 dataRange 为 null（未计算）时保持 null，走懒计算；
+    // 避免把 null 拷贝成空数组（非 null），导致后续 UpdateAllDataRange 越界写
+    if (other.dataRange != nullptr) {
+        dataRange = DoubleArray::New();
+        dataRange->DeepCopy(other.dataRange);
+    } else {
+        dataRange = nullptr;
+    }
     return true;
 }
 

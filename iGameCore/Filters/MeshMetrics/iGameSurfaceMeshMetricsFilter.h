@@ -47,6 +47,9 @@ public:
     void SetSurfaceMetric(SurfaceMetric mode) { this->m_Metric = mode; }
     SurfaceMetric GetSurfaceMetric() { return this->m_Metric; }
 
+    double ComputeCellMetric(igIndex vNum, igIndex* vhs) {return ComputeMetric(vNum, vhs);}     // pulic的ComputeMetric以供MeshQuality调用
+    void SetPoints(Points::Pointer points) {m_Points = points;}     // 方便meshquality输入points
+
     bool Execute() override;
 
 protected:

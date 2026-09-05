@@ -100,6 +100,55 @@ void igQtSearchInfoWidget::setCurrentModel(iGame::Model* model) {
     refreshData();
 }
 
+void igQtSearchInfoWidget::showPointAttributeDetails(iGame::Model* model, const QString& arrayName) {
+    setCurrentModel(model);
+    if (!m_currentModelData) return;
+
+    {
+        const QSignalBlocker blockPoints(ui->radioButton_Points);
+        const QSignalBlocker blockCells(ui->radioButton_Cells);
+        ui->radioButton_Points->setChecked(true);
+        ui->radioButton_Cells->setChecked(false);
+    }
+    m_currentDataType = 0;
+    refreshProperties();
+
+    int propertyIndex = -1;
+    int attributeIndex = -1;
+    auto* attributeSet = m_currentModelData->GetAttributeSet();
+    if (attributeSet) {
+        attributeIndex = attributeSet->GetAttributeIndex(arrayName.toStdString());
+        for (int i = 0; i < m_properties.size(); ++i) {
+            const auto& descriptor = m_properties[i];
+            if (descriptor.kind == PropertyDescriptor::Kind::Attribute &&
+                descriptor.attributeIndex == attributeIndex) {
+                propertyIndex = i;
+                if (descriptor.component == -1) break;
+            }
+        }
+    }
+
+    if (propertyIndex >= 0) ui->comboBox_Property->setCurrentIndex(propertyIndex);
+    refreshData();
+
+    // Point tables begin with Point ID, X, Y and Z. Scroll the first column
+    // belonging to the extracted attribute into view for immediate inspection.
+    int attributeColumnOffset = 0;
+    for (const auto& descriptor: m_properties) {
+        if (descriptor.kind != PropertyDescriptor::Kind::Attribute) continue;
+        if (descriptor.attributeIndex == attributeIndex) {
+            const int column = 4 + attributeColumnOffset;
+            if (ui->tableWidget_Results->rowCount() > 0 &&
+                column < ui->tableWidget_Results->columnCount()) {
+                ui->tableWidget_Results->scrollToItem(
+                        ui->tableWidget_Results->item(0, column), QAbstractItemView::PositionAtCenter);
+            }
+            break;
+        }
+        ++attributeColumnOffset;
+    }
+}
+
 void igQtSearchInfoWidget::updateFromSelection(int dataType) {
     m_currentDataType = dataType;
     {

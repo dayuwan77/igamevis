@@ -159,6 +159,48 @@ void igQtModelInformationWidget::updateInformationFrame() {
         createPropertyLabel(statForm, QStringLiteral("块数"), QString::number(obj->GetNumberOfSubDataObjects()));
     } else {
         CreateDataObjectLayoutInfo(obj, statForm);
+
+        // 属性数组：名称 / 类型 / 范围（与 ParaView 的属性表格式一致）
+        auto attrSet = obj->GetAttributeSet();
+        if (attrSet != nullptr && attrSet->GetNumberOfAttributes() > 0) {
+            auto AppendAttributeRows = [&](auto attrs) {
+                if (attrs == nullptr || attrs->GetNumberOfElements() == 0) return;
+                for (int i = 0; i < attrs->GetNumberOfElements(); i++) {
+                    auto& attr = attrs->GetElement(i);
+                    auto arr = attr.pointer;
+                    if (arr == nullptr || attr.IsNone()) continue;
+                    QString typeName = QStringLiteral("unknown");
+                    if (iGame::DynamicCast<iGame::LongLongArray>(arr)) {
+                        typeName = QStringLiteral("long long");
+                    } else if (iGame::DynamicCast<iGame::IntArray>(arr)) {
+                        typeName = QStringLiteral("int");
+                    } else if (iGame::DynamicCast<iGame::UnsignedIntArray>(arr)) {
+                        typeName = QStringLiteral("unsigned int");
+                    } else if (iGame::DynamicCast<iGame::FloatArray>(arr)) {
+                        typeName = QStringLiteral("float");
+                    } else if (iGame::DynamicCast<iGame::DoubleArray>(arr)) {
+                        typeName = QStringLiteral("double");
+                    } else if (iGame::DynamicCast<iGame::CharArray>(arr)) {
+                        typeName = QStringLiteral("char");
+                    }
+                    QString rangeText = QStringLiteral("n/a");
+                    if (arr->GetNumberOfElements() > 0) {
+                        double rmin = arr->GetValue(0);
+                        double rmax = arr->GetValue(0);
+                        for (IGsize k = 1; k < arr->GetNumberOfValues(); ++k) {
+                            double v = arr->GetValue(k);
+                            if (v < rmin) rmin = v;
+                            if (v > rmax) rmax = v;
+                        }
+                        rangeText = QStringLiteral("[%1, %2]").arg(rmin).arg(rmax);
+                    }
+                    createPropertyLabel(statForm, QString::fromStdString(arr->GetName()),
+                                        typeName + QStringLiteral(" | ") + rangeText);
+                }
+            };
+            AppendAttributeRows(attrSet->GetAllPointAttributes());
+            AppendAttributeRows(attrSet->GetAllCellAttributes());
+        }
     }
 
     IGsize memorySize = obj->GetRealMemorySize();

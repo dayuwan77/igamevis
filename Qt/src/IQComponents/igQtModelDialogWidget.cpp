@@ -374,9 +374,11 @@ void igQtModelDialogWidget::updateAllAttriubute(iGame::DataObject::Pointer obj) 
         child->setIcon(0, igQtModelTreeIcons::Cell());
         child->setDimension(1);
     }
-
+    BuildSubObjectTreeSkeleton(item, obj);
     item->viewAttribute(-1);
     iGame::DynamicCast<iGame::DrawObject>(obj)->ForceReConvertToDrawableData();
+
+    BuildSubObjectTreeSkeleton(item, obj);
 }
 
 int igQtModelDialogWidget::addDataObjectToModelTree(iGame::DataObject::Pointer obj, ItemSource source) {
