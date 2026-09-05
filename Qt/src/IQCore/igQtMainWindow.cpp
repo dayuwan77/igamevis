@@ -1980,19 +1980,8 @@ void igQtMainWindow::initAllFilters() {
         auto drawLineFunc = DrawLine;
         dialog->setApplyFunctor([=, this]() {
             bool ok;
-            auto Clamp = [](double x, double l, double r) -> double {
-                if (x < l) return l;
-                if (x > r) return r;
-                return x;
-            };
             Point orig, target;
             int n;
-            /*orig[0] = Clamp(dialog->getDouble(x_1, ok), -1.0, 1.0);
-            orig[1] = Clamp(dialog->getDouble(y_1, ok), -1.0, 1.0);
-            orig[2] = Clamp(dialog->getDouble(z_1, ok), -1.0, 1.0);
-            target[0] = Clamp(dialog->getDouble(x_2, ok), -1.0, 1.0);
-            target[1] = Clamp(dialog->getDouble(y_2, ok), -1.0, 1.0);
-            target[2] = Clamp(dialog->getDouble(z_2, ok), -1.0, 1.0);*/
             orig[0] = dialog->getDouble(x_1, ok);
             orig[1] = dialog->getDouble(y_1, ok);
             orig[2] = dialog->getDouble(z_1, ok);
