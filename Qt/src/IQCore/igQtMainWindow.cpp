@@ -17,6 +17,7 @@
 #include "DataProcessing/iGameMeshSimplificationFilter.h"
 #include "DataProcessing/iGameMeshSimplificationFilterPro.h"
 #include "DataProcessing/iGameMeshTriangulationFilter.h"
+#include "ForceStaticMesh/iGameForceStaticMeshFilter.h"
 #include "MaskPoints/iGameMaskPointsFilter.h"
 #include "DataProcessing/OverlappingCellsDetector/iGameOverlappingCellsDetectorFilter.h"
 #include "DataProcessing/Simplification/iGameMeshSaliency.h"
@@ -122,6 +123,8 @@
 #include <BuildAdjacencyRelation/iGameBuildAdjacencyRelationFilter.h>
 #include <meshoptimizer.h>
 #include <stdio.h>
+
+#include <map>
 
 #include <QDebug>
 #include <QMessageBox>
@@ -4194,6 +4197,130 @@ void igQtMainWindow::initAllFilters() {
             return;
         }
 
+        surface->SetName(obj->GetName() + "_surface");
+        modelTreeWidget->addDataObjectToModelTree(surface, Algorithm);
+        rendererWidget->update();
+    });
+
+    connect(mesh_processing->addAction(QStringLiteral("强制静态网格 (Force Static Mesh)")), &QAction::triggered, this, [this](bool) {
+        if (rendererWidget->GetScene() == nullptr
+            || rendererWidget->GetScene()->GetCurrentModel() == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("无可用模型"), QStringLiteral("请先加载并选择模型。"));
+            return;
+        }
+        auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        if (obj == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("无可用模型"), QStringLiteral("当前模型没有可用数据。"));
+            return;
+        }
+        if (iGame::DynamicCast<iGame::PointSet>(obj) == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("错误"), QStringLiteral("当前模型不支持静态网格（需要网格/点集）。"));
+            return;
+        }
+
+        // 按输入对象（DataObjectId）各自维护 Filter 实例与已登记的输出模型：
+        // 同一输入重复执行 → 复用缓存、仅更新属性；不同输入各自一份，避免
+        // 在多个模型间反复切换时不断重建缓存并无限新增模型。
+        static std::map<DataObjectId, ForceStaticMeshFilter::Pointer> s_fsmFilters;
+        static std::map<DataObjectId, iGame::DataObject::Pointer> s_fsmOutputs;
+
+        const DataObjectId key = obj->GetDataObjectId();
+        auto& filter = s_fsmFilters[key];
+        if (!filter) { filter = ForceStaticMeshFilter::New(); }
+
+        filter->SetInput(obj);
+        if (!filter->Execute()) {
+            showDarkFramelessMessage(QStringLiteral("执行出错"), QStringLiteral("当前对象不支持静态网格转换。"));
+            return;
+        }
+        auto out = filter->GetOutput();
+        if (out == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("执行出错"), QStringLiteral("静态网格输出为空。"));
+            return;
+        }
+
+        auto& registered = s_fsmOutputs[key];
+        if (registered == nullptr || registered.get() != out.get()) {
+            // 该输入的首次执行，或缓存被重建（几何变化）：作为新模型加入模型树并登记
+            out->SetName(obj->GetName() + "_ForceStaticMesh");
+            modelTreeWidget->addDataObjectToModelTree(out, ItemSource::Algorithm);
+            registered = out;
+            rendererWidget->update();
+            showDarkFramelessMessage(QStringLiteral("完成"),
+                                     QStringLiteral("已生成静态网格缓存（几何固定）。再次执行将复用缓存，仅更新属性。"));
+        } else {
+            // 同一输入缓存被复用：仅刷新其属性显示，不重复加模型
+            modelTreeWidget->updateAllAttriubute(out);
+            rendererWidget->update();
+            showDarkFramelessMessage(QStringLiteral("完成"), QStringLiteral("已复用静态缓存，仅更新属性数据。"));
+        }
+    });
+
+    //connect(mesh_processing->addAction("Test"), &QAction::triggered, this, [&](bool checked) {
+    //    auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+
+    //    auto m_StreamBase = iGame::StreamBase::New();
+    //    auto streamtracer = m_StreamBase->streamFilter;
+    //    streamtracer->initStreamTracer(obj);
+    //    //auto seeds=streamtracer->getModelSelect();//当实际已经选中了重点区域时直接调用该函数
+    //    Vector3f boundMax = streamtracer->GetMesh()->GetBoundingBox().max; //包围盒区域
+    //    Vector3f boundMin = streamtracer->GetMesh()->GetBoundingBox().min;
+    //    Vector3f centerMax = (boundMax - boundMin) / 5 + boundMin; //模拟被选中重点区域
+    //    auto seeds = streamtracer->getAllSubBlockCenters(boundMax, boundMin, centerMax, boundMin, 2,
+    //                                                     4); //4，6为划分子块的数量
+    //    float lengthOfStreamLine = 5;
+    //    float lengthOfStep = 0.3;
+    //    float maxSteps = 1000;
+    //    float terminalSpeed = 0.005;
+    //    streamtracer->SetInput(seeds, "V", lengthOfStreamLine, lengthOfStep, terminalSpeed, maxSteps);
+    //    streamtracer->Execute();
+    //    std::cout << seeds.size() << std::endl;
+    //    auto output = streamtracer->GetOutput();
+
+    //    modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+    //    rendererWidget->update();
+    //});
+
+    //connect(mesh_processing->addAction("Test2"), &QAction::triggered, this, [&](bool checked) { 
+    //    auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+
+    //    auto filter = iGame::VolumeMeshMetricsFilter::New();
+    //    filter->SetVolumeMetric(VolumeMeshMetricsFilter::HEX_VOLUME);
+    //    filter->SetInput(obj);
+    //    filter->Execute();
+
+    //    modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
+    //    rendererWidget->update();
+    //    });
+    //connect(mesh_processing->addAction("Test3"), &QAction::triggered, this, [&](bool checked) 
+    //    { 
+    //        CellArray::Pointer cellArray = CellArray::New();
+    //        clock_t start = clock();
+    //        igIndex cell[3]{};
+    //        cellArray->AddCellIds(cell, 2);
+    //        for (int i = 0; i < 10000000; i++) { 
+    //            cellArray->AddCellIds(cell, 3);
+    //        }
+    //        clock_t end = clock();
+    //        std::cout << end - start << std::endl;
+
+    //    });
+    QMenu* convert = ui->menu_filters->addMenu(QStringLiteral("数据转换 (Convert)"));
+    connect(convert->addAction(QStringLiteral("转换为点数据 (Convert To PointData)")), &QAction::triggered, this, [&](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        ConvertToPointDataFilter::Pointer filter = ConvertToPointDataFilter::New();
+        filter->SetInput(obj);
+        if (filter->Execute()) {
+            modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
+            rendererWidget->update();
+        }
+    });
+    connect(convert->addAction(QStringLiteral("转换为单元数据 (Convert To CellData)")), &QAction::triggered, this, [&](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        ConvertToCellDataFilter::Pointer filter = ConvertToCellDataFilter::New();
+        filter->SetInput(obj);
         // 非时序：保持原有单次计算行为
         VortexFilter::Pointer filter = VortexFilter::New();
         filter->SetAttributeByIndex(index);

@@ -7,6 +7,7 @@
 #include "Convert/iGameConvertToPointCloudFilter.h"
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Convert/iGameConvertToVolumeMeshFilter.h"
+#include "ForceStaticMesh/iGameForceStaticMeshFilter.h"
 #include "MaskPoints/iGameMaskPointsFilter.h"
 #include "Convert/iGameConvertToVertexFilter.h"
 

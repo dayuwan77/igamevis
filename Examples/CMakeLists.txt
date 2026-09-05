@@ -282,6 +282,9 @@ igame_add_example(testAxisAlignedReflection Filter/AxisAlignedReflection/TestAxi
 igame_add_example(testExtractCellsByType Filter/MyFilter/TestExtractCellsByType.cpp)
 igame_add_example(testCellCenterFilter Filter/MyFilter/TestCellCenterFilter.cpp)
 
+# Force Static Mesh
+igame_add_example(testForceStaticMesh Filter/ForceStaticMesh/TestForceStaticMesh.cpp)
+
 # IO (optional modules)
 igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
 
