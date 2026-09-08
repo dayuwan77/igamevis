@@ -1,0 +1,1 @@
+AppendReduce_plane*.vtk !filter !diff !merge text
