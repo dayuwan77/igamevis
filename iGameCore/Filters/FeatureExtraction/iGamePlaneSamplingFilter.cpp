@@ -1,78 +1,221 @@
-#include "iGamePlaneSamplingFilter.h"
+ï»¿#include "iGamePlaneSamplingFilter.h"
+#include "iGameAttributeSet.h"
+#include "iGameCellArray.h"
+#include "iGameHexahedron.h"
+#include "iGamePointFinder.h"
+#include "iGamePoints.h"
+#include "iGameTetra.h"
+#include "iGameTriangle.h"
 
 #include <cmath>
 #include <iostream>
+#include <limits>
+#include <map>
 #include <vector>
 
 IGAME_NAMESPACE_BEGIN
 
+// è¾…åŠ©å‡½æ•°ï¼šåˆ¤æ–­ç‚¹æ˜¯å¦åœ¨ä¸‰è§’å½¢å†…ï¼ˆé‡å¿ƒåæ ‡ï¼Œå¸¦å®¹å·®ï¼‰
+static bool PointInTriangle(const Vector3d& p, const Vector3d& a, const Vector3d& b, const Vector3d& c,
+                            double eps = 1e-8) {
+    Vector3d v0 = c - a;
+    Vector3d v1 = b - a;
+    Vector3d v2 = p - a;
+
+    double dot00 = v0.dot(v0);
+    double dot01 = v0.dot(v1);
+    double dot02 = v0.dot(v2);
+    double dot11 = v1.dot(v1);
+    double dot12 = v1.dot(v2);
+
+    double denom = dot00 * dot11 - dot01 * dot01;
+    if (std::abs(denom) < 1e-20) return false;
+
+    double u = (dot11 * dot02 - dot01 * dot12) / denom;
+    double v = (dot00 * dot12 - dot01 * dot02) / denom;
+
+    return (u >= -eps && v >= -eps && (u + v) <= 1.0 + eps);
+}
+
+// è¾…åŠ©å‡½æ•°ï¼šåˆ¤æ–­ç‚¹æ˜¯å¦åœ¨å››é¢ä½“å†…ï¼ˆä½“ç§¯åæ ‡ï¼Œå¸¦å®¹å·®ï¼‰
+static bool PointInTetra(const Vector3d& p, const Vector3d& a, const Vector3d& b, const Vector3d& c, const Vector3d& d,
+                         double eps = 1e-8) {
+    Vector3d da = a - d;
+    Vector3d db = b - d;
+    Vector3d dc = c - d;
+    Vector3d dp = p - d;
+
+    double det = da.dot(db.cross(dc));
+    if (std::abs(det) < 1e-20) return false;
+
+    double u = dp.dot(db.cross(dc)) / det;
+    double v = da.dot(dp.cross(dc)) / det;
+    double w = da.dot(db.cross(dp)) / det;
+    double t = 1.0 - u - v - w;
+
+    return (u >= -eps && v >= -eps && w >= -eps && t >= -eps);
+}
+
+// è¾…åŠ©å‡½æ•°ï¼šä¸‰è§’å½¢æ’å€¼ï¼ˆé‡å¿ƒåæ ‡æ’å€¼ï¼‰
+static double InterpolateTriangle(const Vector3d& p, const Vector3d& a, const Vector3d& b, const Vector3d& c, double va,
+                                  double vb, double vc) {
+    Vector3d v0 = c - a;
+    Vector3d v1 = b - a;
+    Vector3d v2 = p - a;
+
+    double dot00 = v0.dot(v0);
+    double dot01 = v0.dot(v1);
+    double dot02 = v0.dot(v2);
+    double dot11 = v1.dot(v1);
+    double dot12 = v1.dot(v2);
+
+    double denom = dot00 * dot11 - dot01 * dot01;
+    if (std::abs(denom) < 1e-20) return va;
+
+    double u = (dot11 * dot02 - dot01 * dot12) / denom;
+    double v = (dot00 * dot12 - dot01 * dot02) / denom;
+
+    return va + u * (vc - va) + v * (vb - va);
+}
+
+// è¾…åŠ©å‡½æ•°ï¼šå››é¢ä½“æ’å€¼ï¼ˆä½“ç§¯åæ ‡æ’å€¼ï¼‰
+static double InterpolateTetra(const Vector3d& p, const Vector3d& a, const Vector3d& b, const Vector3d& c,
+                               const Vector3d& d, double va, double vb, double vc, double vd) {
+    Vector3d da = a - d;
+    Vector3d db = b - d;
+    Vector3d dc = c - d;
+    Vector3d dp = p - d;
+
+    double det = da.dot(db.cross(dc));
+    if (std::abs(det) < 1e-20) return va;
+
+    double u = dp.dot(db.cross(dc)) / det;
+    double v = da.dot(dp.cross(dc)) / det;
+    double w = da.dot(db.cross(dp)) / det;
+    double t = 1.0 - u - v - w;
+
+    u = std::max(0.0, std::min(1.0, u));
+    v = std::max(0.0, std::min(1.0, v));
+    w = std::max(0.0, std::min(1.0, w));
+    t = 1.0 - u - v - w;
+
+    return u * va + v * vb + w * vc + t * vd;
+}
+
+// è¾…åŠ©å‡½æ•°ï¼šè¯»å–é¡¶ç‚¹å±æ€§å€¼ï¼ˆæ”¯æŒæ ‡é‡å’ŒçŸ¢é‡ï¼‰
+static void ReadPointAttribute(ArrayObject* attr, igIndex pointId, std::vector<double>& values) {
+    if (!attr) {
+        values.clear();
+        return;
+    }
+
+    int dim = attr->GetDimension();
+    values.resize(dim);
+
+    if (auto floatArr = DynamicCast<FloatArray>(attr)) {
+        for (int d = 0; d < dim; d++) { values[d] = floatArr->GetValue(pointId * dim + d); }
+    } else if (auto doubleArr = DynamicCast<DoubleArray>(attr)) {
+        for (int d = 0; d < dim; d++) { values[d] = doubleArr->GetValue(pointId * dim + d); }
+    } else {
+        double tmp[16] = {0};
+        attr->GetElement(pointId, tmp);
+        for (int d = 0; d < dim && d < 16; d++) { values[d] = tmp[d]; }
+    }
+}
+
+// è¾…åŠ©å‡½æ•°ï¼šä»çŸ¢é‡å€¼è®¡ç®—å¹…å€¼
+static double ComputeMagnitude(const std::vector<double>& vec) {
+    double sum = 0.0;
+    for (double v: vec) { sum += v * v; }
+    return std::sqrt(sum);
+}
+
+// æ ¸å¿ƒæ‰§è¡Œå‡½æ•°
 bool PlaneSamplingFilter::Execute() {
-    // µÚ1²½£º»ñÈ¡ÊäÈëÊı¾İ
+    // ç¬¬1æ­¥ï¼šè·å–è¾“å…¥æ•°æ®
     auto input = this->GetInput(0);
     if (!input) {
         std::cerr << "PlaneSamplingFilter: no input data" << std::endl;
         return false;
     }
 
-    // µÚ2²½£º×ª»»Îª PointSet£¨Ö§³ÖËùÓĞÍø¸ñÀàĞÍ£©
-    auto pointSet = DynamicCast<PointSet>(input);
-    if (!pointSet) {
-        std::cerr << "PlaneSamplingFilter: input is not a mesh" << std::endl;
+    // ç¬¬2æ­¥ï¼šè½¬æ¢ä¸ºéç»“æ„ç½‘æ ¼
+    auto inputMesh = UnstructuredMesh::TransDataObjToUnstructuredMesh(input);
+    if (!inputMesh) {
+        std::cerr << "PlaneSamplingFilter: failed to convert to unstructured mesh" << std::endl;
         return false;
     }
 
-    // µÚ3²½£º»ñÈ¡Ä£ĞÍµÄµãÊı¾İ
-    auto points = pointSet->GetPoints();
-    auto numPoints = pointSet->GetNumberOfPoints();
-    if (numPoints == 0) {
-        std::cerr << "PlaneSamplingFilter: mesh has no points" << std::endl;
+    auto points = inputMesh->GetPoints();
+    auto numPoints = inputMesh->GetNumberOfPoints();
+    auto numCells = inputMesh->GetNumberOfCells();
+
+    if (numPoints == 0 || numCells == 0) {
+        std::cerr << "PlaneSamplingFilter: mesh has no points or cells" << std::endl;
         return false;
     }
 
-    std::cout << "Model has " << numPoints << " points" << std::endl;
+    std::cout << "Input mesh: " << numPoints << " points, " << numCells << " cells" << std::endl;
 
-    // µÚ4²½£º¼ÆËã°üÎ§ºĞ
+    // ç¬¬3æ­¥ï¼šè®¡ç®—åŒ…å›´ç›’
     double bounds[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    if (numPoints > 0) {
-        Point firstPoint = points->GetPoint(0);
-        bounds[0] = bounds[1] = firstPoint[0];
-        bounds[2] = bounds[3] = firstPoint[1];
-        bounds[4] = bounds[5] = firstPoint[2];
+    Point firstPoint = points->GetPoint(0);
+    bounds[0] = bounds[1] = firstPoint[0];
+    bounds[2] = bounds[3] = firstPoint[1];
+    bounds[4] = bounds[5] = firstPoint[2];
 
-        for (IGsize i = 1; i < numPoints; i++) {
-            Point p = points->GetPoint(i);
-            if (p[0] < bounds[0]) bounds[0] = p[0];
-            if (p[0] > bounds[1]) bounds[1] = p[0];
-            if (p[1] < bounds[2]) bounds[2] = p[1];
-            if (p[1] > bounds[3]) bounds[3] = p[1];
-            if (p[2] < bounds[4]) bounds[4] = p[2];
-            if (p[2] > bounds[5]) bounds[5] = p[2];
-        }
-    } else {
-        bounds[0] = -1.0;
-        bounds[1] = 1.0;
-        bounds[2] = -1.0;
-        bounds[3] = 1.0;
-        bounds[4] = -1.0;
-        bounds[5] = 1.0;
+    for (IGsize i = 1; i < numPoints; i++) {
+        Point p = points->GetPoint(i);
+        if (p[0] < bounds[0]) bounds[0] = p[0];
+        if (p[0] > bounds[1]) bounds[1] = p[0];
+        if (p[1] < bounds[2]) bounds[2] = p[1];
+        if (p[1] > bounds[3]) bounds[3] = p[1];
+        if (p[2] < bounds[4]) bounds[4] = p[2];
+        if (p[2] > bounds[5]) bounds[5] = p[2];
     }
 
     double dx = bounds[1] - bounds[0];
     double dy = bounds[3] - bounds[2];
     double dz = bounds[5] - bounds[4];
-    double diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-    m_HalfRange = diagonal * 0.6;
+    // æ ¹æ®æ³•å‘é€‰æ‹©èŒƒå›´åŸºå‡†
+    double nx = std::abs(m_Normal[0]);
+    double ny = std::abs(m_Normal[1]);
+    double nz = std::abs(m_Normal[2]);
+
+    double scale = 0.5;
+
+    if (nz > 0.9 && nx < 0.1 && ny < 0.1) {
+        double xyRange = std::max(dx, dy);
+        m_HalfRange = xyRange * scale;
+    } else if (nx > 0.9 && ny < 0.1 && nz < 0.1) {
+        double yzRange = std::max(dy, dz);
+        m_HalfRange = yzRange * scale;
+    } else if (ny > 0.9 && nx < 0.1 && nz < 0.1) {
+        double xzRange = std::max(dx, dz);
+        m_HalfRange = xzRange * scale;
+    } else {
+        double total = nx + ny + nz;
+        if (total < 1e-10) {
+            nx = 0.0;
+            ny = 0.0;
+            nz = 1.0;
+            total = 1.0;
+        }
+        nx /= total;
+        ny /= total;
+        nz /= total;
+        double weightedRange = nx * dx + ny * dy + nz * dz;
+        m_HalfRange = weightedRange * scale;
+    }
+
     if (m_HalfRange < 1e-10) { m_HalfRange = 1.0; }
 
-    std::cout << "Plane range: " << m_HalfRange << std::endl;
+    std::cout << "Plane half range: " << m_HalfRange << std::endl;
+    std::cout << "Model bounds: X[" << bounds[0] << ", " << bounds[1] << "], Y[" << bounds[2] << ", " << bounds[3]
+              << "], Z[" << bounds[4] << ", " << bounds[5] << "]" << std::endl;
 
-    // µÚ5²½£º´´½¨ PointFinder
-    auto finder = PointFinder::New();
-    finder->SetPoints(points);
-    finder->Initialize();
-
-    // µÚ6²½£º¼ÆËãÆ½Ãæ·½Ïò
+    // ç¬¬4æ­¥ï¼šè®¡ç®—å¹³é¢æ–¹å‘
     double u[3] = {1.0, 0.0, 0.0};
     double v[3] = {0.0, 1.0, 0.0};
 
@@ -103,9 +246,9 @@ bool PlaneSamplingFilter::Execute() {
     v[1] /= vLen;
     v[2] /= vLen;
 
-    // µÚ7²½£º²éÕÒÊôĞÔ
+    // ç¬¬5æ­¥ï¼šæŸ¥æ‰¾å±æ€§
     ArrayObject::Pointer targetAttr = nullptr;
-    auto attrSet = pointSet->GetAttributeSet();
+    auto attrSet = inputMesh->GetAttributeSet();
     std::string selectedAttrName = "";
 
     if (!m_AttributeName.empty() && attrSet) {
@@ -144,20 +287,21 @@ bool PlaneSamplingFilter::Execute() {
         }
     }
 
-    if (!targetAttr) { std::cout << "No attribute found, using Z coordinate as fallback" << std::endl; }
+    bool useFallback = !targetAttr;
+    if (useFallback) { std::cout << "No attribute found, using Z coordinate as fallback" << std::endl; }
 
-    // µÚ8²½£ºÅĞ¶ÏÊÇ±êÁ¿»¹ÊÇÊ¸Á¿
+    // ç¬¬6æ­¥ï¼šåˆ¤æ–­æ˜¯æ ‡é‡è¿˜æ˜¯çŸ¢é‡
     bool isVector = (targetAttr && targetAttr->GetDimension() > 1);
     std::string baseName = selectedAttrName;
     if (baseName.empty()) { baseName = "Height"; }
 
     int totalSamples = m_Resolution * m_Resolution;
 
+    // ç¬¬7æ­¥ï¼šåˆ›å»ºè¾“å‡ºç½‘æ ¼
     auto outputMesh = UnstructuredMesh::New();
     auto outputPoints = Points::New();
     outputPoints->Resize(totalSamples);
 
-    // ±êÁ¿£ºÉú³É1¸öÊı×é£»Ê¸Á¿£ºÉú³É4¸öÊı×é£¨Magnitude + X + Y + Z£© 
     FloatArray::Pointer scalarData = nullptr;
     FloatArray::Pointer magData = nullptr;
     FloatArray::Pointer xData = nullptr;
@@ -190,9 +334,61 @@ bool PlaneSamplingFilter::Execute() {
     validMask->SetName("vtkValidPointMask");
     validMask->Resize(totalSamples);
 
-    // µÚ9²½£ººËĞÄ²ÉÑùÑ­»· 
-    std::cout << "Sampling " << totalSamples << " points..." << std::endl;
+    // é¢„æ‹†åˆ†æ‰€æœ‰å…­é¢ä½“ä¸ºå››é¢ä½“
+    struct TetraData {
+        std::vector<Vector3d> coords;
+        std::vector<igIndex> pointIds;
+    };
+    std::vector<TetraData> tetraList;
+
+    auto typeArray = inputMesh->GetCellTypes();
+
+    for (IGsize cellId = 0; cellId < numCells; cellId++) {
+        igIndex pointIds[IGAME_CELL_MAX_SIZE];
+        int numCellPoints = inputMesh->GetCellPointIds(cellId, pointIds);
+
+        if (numCellPoints == 8) {
+            std::vector<Vector3d> cellCoords;
+            for (int k = 0; k < 8; k++) {
+                Point p = inputMesh->GetPoint(pointIds[k]);
+                cellCoords.emplace_back(p[0], p[1], p[2]);
+            }
+
+            auto hexa = Hexahedron::New();
+            hexa->m_PointIds->Reset();
+            hexa->m_Points->Reset();
+            for (int k = 0; k < 8; k++) {
+                hexa->m_PointIds->AddId(pointIds[k]);
+                hexa->m_Points->AddPoint(cellCoords[k]);
+            }
+
+            auto tetras = hexa->clipCelltoTetra();
+            for (auto& tetra: tetras) {
+                TetraData data;
+                for (int k = 0; k < 4; k++) {
+                    Point p = tetra->m_Points->GetPoint(k);
+                    data.coords.emplace_back(p[0], p[1], p[2]);
+                    data.pointIds.push_back(tetra->m_PointIds->GetId(k));
+                }
+                tetraList.push_back(data);
+            }
+        }
+    }
+
+    std::cout << "Pre-split " << tetraList.size() << " tetrahedra from hexahedra" << std::endl;
+
+    // ---- åˆ›å»º PointFinderï¼ˆç”¨äºæœ€è¿‘ç‚¹åå¤‡ï¼‰ ----
+    auto finder = PointFinder::New();
+    finder->SetPoints(points);
+    finder->Initialize();
+
+    // ç¬¬9æ­¥ï¼šæ ¸å¿ƒé‡‡æ ·å¾ªç¯
+    std::cout << "Sampling " << totalSamples << " points with tetra interpolation..." << std::endl;
     int validCount = 0;
+    int tetraFoundCount = 0;
+    int fallbackCount = 0;
+
+    double threshold = m_HalfRange * 0.1;
 
     for (int i = 0; i < m_Resolution; i++) {
         for (int j = 0; j < m_Resolution; j++) {
@@ -208,56 +404,96 @@ bool PlaneSamplingFilter::Execute() {
             outputPoints->SetPoint(idx, (float) samplePoint[0], (float) samplePoint[1], (float) samplePoint[2]);
 
             Vector3d query(samplePoint[0], samplePoint[1], samplePoint[2]);
-            double minDist2;
-            igIndex closestId = finder->FindClosestPoint(query, minDist2);
 
+            bool foundCell = false;
             bool isValid = false;
+            double resultScalar = 0.0;
+            double resultMag = 0.0;
+            double resultVx = 0.0, resultVy = 0.0, resultVz = 0.0;
 
-            if (closestId != -1) {
-                isValid = true;
+            // ---- 1ï¼šå•å…ƒæ’å€¼ ----
+            for (size_t tetraIdx = 0; tetraIdx < tetraList.size() && !foundCell; tetraIdx++) {
+                auto& tetra = tetraList[tetraIdx];
+                const auto& coords = tetra.coords;
+                const auto& ids = tetra.pointIds;
+
+                bool inside = PointInTetra(query, coords[0], coords[1], coords[2], coords[3]);
+
+                if (inside) {
+                    tetraFoundCount++;
+                    if (targetAttr) {
+                        int dim = targetAttr->GetDimension();
+                        std::vector<double> v0, v1, v2, v3;
+                        ReadPointAttribute(targetAttr, ids[0], v0);
+                        ReadPointAttribute(targetAttr, ids[1], v1);
+                        ReadPointAttribute(targetAttr, ids[2], v2);
+                        ReadPointAttribute(targetAttr, ids[3], v3);
+
+                        if (dim == 1) {
+                            resultScalar = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3], v0[0],
+                                                            v1[0], v2[0], v3[0]);
+                        } else {
+                            std::vector<double> interpVec(dim, 0.0);
+                            for (int d = 0; d < dim; d++) {
+                                interpVec[d] = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3],
+                                                                v0[d], v1[d], v2[d], v3[d]);
+                            }
+                            resultMag = ComputeMagnitude(interpVec);
+                            resultVx = (dim > 0) ? interpVec[0] : 0.0;
+                            resultVy = (dim > 1) ? interpVec[1] : 0.0;
+                            resultVz = (dim > 2) ? interpVec[2] : 0.0;
+                        }
+                    } else {
+                        resultScalar = query[2];
+                    }
+                    isValid = true;
+                    foundCell = true;
+                    break;
+                }
+            }
+
+            // ---- 2ï¼šå¦‚æœå•å…ƒæ’å€¼å¤±è´¥ï¼Œä½¿ç”¨æœ€è¿‘ç‚¹åå¤‡ ----
+            if (!foundCell) {
+                double minDist2;
+                igIndex closestId = finder->FindClosestPoint(query, minDist2);
+                double dist = std::sqrt(minDist2);
+
+                if (closestId != -1 && dist < threshold) {
+                    fallbackCount++;
+                    if (targetAttr) {
+                        int dim = targetAttr->GetDimension();
+                        if (dim == 1) {
+                            double val = 0.0;
+                            targetAttr->GetElement(closestId, &val);
+                            resultScalar = val;
+                        } else {
+                            std::vector<double> vals;
+                            ReadPointAttribute(targetAttr, closestId, vals);
+                            resultMag = ComputeMagnitude(vals);
+                            resultVx = (dim > 0) ? vals[0] : 0.0;
+                            resultVy = (dim > 1) ? vals[1] : 0.0;
+                            resultVz = (dim > 2) ? vals[2] : 0.0;
+                        }
+                    } else {
+                        Point p = points->GetPoint(closestId);
+                        resultScalar = p[2];
+                    }
+                    isValid = true;
+                }
+            }
+
+            // ---- å¡«å……è¾“å‡ºæ•°æ® ----
+            if (isValid) {
                 validCount++;
-
-                if (targetAttr) {
-                    int dim = targetAttr->GetDimension();
-
-                    if (dim == 1) {
-                        // ±êÁ¿ÊôĞÔ£ºÖ»¶ÁÒ»¸öÖµ 
-                        double val = 0.0;
-                        targetAttr->GetElement(closestId, &val);
-                        scalarData->SetValue(idx, (float) val);
-                    } else {
-                        // Ê¸Á¿ÊôĞÔ£º¶ÁÈ¡ËùÓĞ·ÖÁ¿
-                        std::vector<double> values(dim);
-                        targetAttr->GetElement(closestId, values);
-
-                        double vx = (dim > 0) ? values[0] : 0.0;
-                        double vy = (dim > 1) ? values[1] : 0.0;
-                        double vz = (dim > 2) ? values[2] : 0.0;
-                        double mag = std::sqrt(vx * vx + vy * vy + vz * vz);
-
-                        magData->SetValue(idx, (float) mag);
-                        xData->SetValue(idx, (float) vx);
-                        yData->SetValue(idx, (float) vy);
-                        zData->SetValue(idx, (float) vz);
-                    }
+                if (isVector) {
+                    magData->SetValue(idx, (float) resultMag);
+                    xData->SetValue(idx, (float) resultVx);
+                    yData->SetValue(idx, (float) resultVy);
+                    zData->SetValue(idx, (float) resultVz);
                 } else {
-                    // ±¸ÓÃ£ºÊ¹ÓÃ Z ×ø±ê
-                    Point closestPoint = points->GetPoint(closestId);
-                    if (isVector) {
-                        double vx = closestPoint[0];
-                        double vy = closestPoint[1];
-                        double vz = closestPoint[2];
-                        double mag = std::sqrt(vx * vx + vy * vy + vz * vz);
-                        magData->SetValue(idx, (float) mag);
-                        xData->SetValue(idx, (float) vx);
-                        yData->SetValue(idx, (float) vy);
-                        zData->SetValue(idx, (float) vz);
-                    } else {
-                        scalarData->SetValue(idx, (float) closestPoint[2]);
-                    }
+                    scalarData->SetValue(idx, (float) resultScalar);
                 }
             } else {
-                // ÎŞĞ§µã£ºÌî³ä0
                 if (isVector) {
                     magData->SetValue(idx, 0.0f);
                     xData->SetValue(idx, 0.0f);
@@ -272,10 +508,16 @@ bool PlaneSamplingFilter::Execute() {
         this->UpdateProgress(static_cast<double>(i + 1) / m_Resolution);
     }
 
+    // ---- è¾“å‡ºé‡‡æ ·ç»Ÿè®¡ ----
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "========= Sampling Result =========" << std::endl;
     std::cout << "Valid points: " << validCount << " / " << totalSamples << std::endl;
+    std::cout << "Tetra found: " << tetraFoundCount << std::endl;
+    std::cout << "Fallback used: " << fallbackCount << std::endl;
+    std::cout << "========================================" << std::endl;
 
-    // µÚ10²½£º´´½¨ËÄ±ßĞÎÍø¸ñ
-    auto cellArray = CellArray::New();
+    // ç¬¬10æ­¥ï¼šåˆ›å»ºå››è¾¹å½¢ç½‘æ ¼
+    auto cellArrayOut = CellArray::New();
     int cellsPerRow = m_Resolution - 1;
     for (int i = 0; i < cellsPerRow; i++) {
         for (int j = 0; j < cellsPerRow; j++) {
@@ -284,16 +526,16 @@ bool PlaneSamplingFilter::Execute() {
             igIndex idx3 = (i + 1) * m_Resolution + (j + 1);
             igIndex idx4 = (i + 1) * m_Resolution + j;
             igIndex quad[4] = {idx1, idx2, idx3, idx4};
-            cellArray->AddCellIds(quad, 4);
+            cellArrayOut->AddCellIds(quad, 4);
         }
     }
 
     auto cellTypes = UnsignedIntArray::New();
-    int totalCells = cellsPerRow * cellsPerRow;
-    for (int i = 0; i < totalCells; i++) { cellTypes->AddValue(IG_QUAD); }
-    outputMesh->SetCells(cellArray, cellTypes);
+    int totalCellsOut = cellsPerRow * cellsPerRow;
+    for (int i = 0; i < totalCellsOut; i++) { cellTypes->AddValue(IG_QUAD); }
+    outputMesh->SetCells(cellArrayOut, cellTypes);
 
-    // µÚ11²½£º×é×°Êä³ö
+    // ç¬¬11æ­¥ï¼šç»„è£…è¾“å‡º
     outputMesh->SetPoints(outputPoints);
 
     auto outputAttrSet = AttributeSet::New();
@@ -314,7 +556,7 @@ bool PlaneSamplingFilter::Execute() {
     return true;
 }
 
-// ÓÃ»§²ÎÊıÉèÖÃº¯Êı
+// ç”¨æˆ·å‚æ•°è®¾ç½®å‡½æ•°
 void PlaneSamplingFilter::SetPlaneOrigin(double ox, double oy, double oz) {
     m_Origin[0] = ox;
     m_Origin[1] = oy;
