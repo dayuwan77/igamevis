@@ -6,8 +6,8 @@
 #include <iGameUnstructuredMesh.h>
 #include <Attribute/iGameExtractComponentFilter.h>
 
-// 「提取分量」统一验证文件：test/Streamline Test/StreamTest.vtk（8499 点 VECTORS V float）
-// 用法：testExtractComponent.exe "<仓库根>/test/Streamline Test/StreamTest.vtk"
+// 「提取分量」测试模型：AI 生成，位于 Examples/Models（构建时自动拷贝到 Examples 构建目录）。
+// 示例以相对路径加载，无需任何手动输入；请在 Examples 构建目录下运行。
 
 // 程序化构造：4 点四面体 + 指定维度的点向量属性（值 = i*dim + j）
 iGame::UnstructuredMesh::Pointer CreateMeshWithDimVector(int dim) {
@@ -58,18 +58,15 @@ iGame::UnstructuredMesh::Pointer CreateMeshWithCellVector() {
     return mesh;
 }
 
-// 仿 TestGenerateProcessIds：带 argv 时读取真实模型，否则用程序化网格
-iGame::UnstructuredMesh::Pointer CreateMesh(int argc, char* argv[]) {
-    if (argc > 1) {
-        auto obj = iGame::FileIO::ReadFile(argv[1]);
-        auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
-        if (mesh == nullptr) {
-            std::cout << "FAIL: read model " << argv[1] << "\n";
-            return nullptr;
-        }
-        return mesh;
+// 读取 AI 生成的测试模型（相对路径，需在 Examples 构建目录下运行）
+iGame::UnstructuredMesh::Pointer ReadModelFromFile(const std::string& fileName) {
+    auto obj = iGame::FileIO::ReadFile(fileName);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
+    if (mesh == nullptr) {
+        std::cout << "FAIL: read model " << fileName << "\n";
+        return nullptr;
     }
-    return CreateMeshWithPointVector();
+    return mesh;
 }
 
 // 3 维向量 test_1：第 i 个元素的第 comp 个分量，期望值 = 0 + 3*i + comp（comp 0/1/2）
@@ -543,24 +540,28 @@ bool VerifyAttachmentSelection() {
 }
 }  // namespace
 
-int main(int argc, char* argv[]) {
+int main() {
     bool allOk = true;
 
-    // 真实模型数据验证（带 argv 时，如：testExtractComponent.exe "<仓库根>/test/Streamline Test/StreamTest.vtk"）
-    if (argc > 1) {
-        auto mesh = CreateMesh(argc, argv);
-        if (mesh == nullptr) return 1;
+    // 真实模型数据验证：自动读取 AI 生成的测试模型（相对路径，无需手动输入）
+    // 直管道螺旋流：空名取首向量 X、显式名 V 取 Y；90° 弯管：显式名 V 取 Z
+    auto pipeMesh = ReadModelFromFile("./Models/ExtractComponent_FlowPipe.vtk");
+    if (pipeMesh == nullptr) return 1;
 
-        bool defaultOk = VerifyRealData(mesh, "", 0, "Result");
-        std::cout << (defaultOk ? "PASS" : "FAIL") << ": real data, empty input name -> first vector, X\n";
-        allOk = allOk && defaultOk;
+    bool pipeDefaultOk = VerifyRealData(pipeMesh, "", 0, "Result");
+    std::cout << (pipeDefaultOk ? "PASS" : "FAIL") << ": real data (FlowPipe), empty input name -> first vector, X\n";
+    allOk = allOk && pipeDefaultOk;
 
-        bool explicitOk = VerifyRealData(mesh, "V", 1, "ResultV");
-        std::cout << (explicitOk ? "PASS" : "FAIL") << ": real data, explicit input name V, Y\n";
-        allOk = allOk && explicitOk;
+    bool pipeExplicitOk = VerifyRealData(pipeMesh, "V", 1, "ResultV");
+    std::cout << (pipeExplicitOk ? "PASS" : "FAIL") << ": real data (FlowPipe), explicit input name V, Y\n";
+    allOk = allOk && pipeExplicitOk;
 
-        return allOk ? 0 : 1;
-    }
+    auto bendMesh = ReadModelFromFile("./Models/ExtractComponent_BendPipe.vtk");
+    if (bendMesh == nullptr) return 1;
+
+    bool bendZOk = VerifyRealData(bendMesh, "V", 2, "ResultZ");
+    std::cout << (bendZOk ? "PASS" : "FAIL") << ": real data (BendPipe), explicit input name V, Z\n";
+    allOk = allOk && bendZOk;
 
     bool xOk = VerifyExtract(0, "Result", IG_POINT);
     std::cout << (xOk ? "PASS" : "FAIL") << ": extract X -> Result\n";
