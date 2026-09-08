@@ -186,7 +186,13 @@ bool CheckGeneratedCell(const std::vector<iGame::Point>& points, int cellType,
 }
 
 bool RunSupportedCellModelCases() {
-    return CheckGeneratedCell({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+    return CheckModelLocation("./Models/ExtractLocationTetraPair.vtk",
+                              {0.2, 0.2, 0.2}, 0,
+                              "model: upper tetrahedron") &&
+           CheckModelLocation("./Models/ExtractLocationTetraPair.vtk",
+                              {0.2, 0.2, -0.2}, 1,
+                              "model: lower tetrahedron") &&
+           CheckGeneratedCell({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
                                {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}},
                               iGame::IG_HEXAHEDRON, {0.5, 0.5, 0.5}, "hexahedron") &&
            CheckGeneratedCell({{0, 0, 0}, {1, 0, 0}, {0, 1, 0},
