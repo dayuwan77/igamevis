@@ -122,24 +122,19 @@ bool VerifyExternalProcessId(iGame::DataObject::Pointer mesh, bool pointData, co
 }
 }  // namespace
 
-iGame::UnstructuredMesh::Pointer CreateMesh(int argc, char* argv[]) {
-    if (argc > 1) {
-        auto obj = iGame::FileIO::ReadFile(argv[1]);
-        auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
-        if (mesh == nullptr) {
-            std::cout << "FAIL: read model " << argv[1] << "\n";
-            return nullptr;
-        }
-        return mesh;
+// 读取 AI 生成的测试模型（相对路径，需在 Examples 构建目录下运行，模型由构建时自动拷贝）
+iGame::UnstructuredMesh::Pointer LoadModel(const std::string& fileName) {
+    auto obj = iGame::FileIO::ReadFile(fileName);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
+    if (mesh == nullptr) {
+        std::cout << "FAIL: read model " << fileName << "\n";
+        return nullptr;
     }
-    auto mesh = iGame::UnstructuredMesh::New();
-    mesh->AddPoint(iGame::Point(0.f, 0.f, 0.f));
-    mesh->AddPoint(iGame::Point(1.f, 0.f, 0.f));
-    mesh->AddPoint(iGame::Point(0.f, 1.f, 0.f));
-    mesh->AddPoint(iGame::Point(0.f, 0.f, 1.f));
-    igIndex cell[4] = {0, 1, 2, 3};
-    mesh->AddCell(cell, 4, iGame::IG_TETRA);
     return mesh;
+}
+
+iGame::UnstructuredMesh::Pointer CreateMesh() {
+    return LoadModel("./Models/GenerateProcessIds_SteppedPipe.vtk");
 }
 
 iGame::SurfaceMesh::Pointer CreateSurfaceMesh() {
@@ -206,10 +201,10 @@ bool VerifyUnsupportedCellData() {
     return (arr != nullptr) && (arr->GetNumberOfElements() == 1) && (arr->GetValue(0) == 3);
 }
 
-int main(int argc, char* argv[]) {
+int main() {
     bool allOk = true;
 
-    auto mesh = CreateMesh(argc, argv);
+    auto mesh = CreateMesh();
     if (mesh == nullptr) return 1;
 
     IGsize pointNum = mesh->GetNumberOfPoints();
@@ -222,7 +217,7 @@ int main(int argc, char* argv[]) {
     std::cout << (cellOk ? "PASS" : "FAIL") << ": cell CellProcessIds count=" << cellNum << " value=7\n";
     allOk = allOk && cellOk;
 
-    auto partMesh = CreateMesh(argc, argv);
+    auto partMesh = CreateMesh();
     if (partMesh == nullptr) return 1;
 
     IGsize partPointNum = partMesh->GetNumberOfPoints();
@@ -244,7 +239,7 @@ int main(int argc, char* argv[]) {
     std::cout << (cellIdemOk ? "PASS" : "FAIL") << ": idempotent cell CellProcessIds count=" << cellNum << "\n";
     allOk = allOk && cellIdemOk;
 
-    auto extMesh = CreateMesh(argc, argv);
+    auto extMesh = CreateMesh();
     if (extMesh == nullptr) return 1;
 
     IGsize extPointNum = extMesh->GetNumberOfPoints();
@@ -256,6 +251,32 @@ int main(int argc, char* argv[]) {
     bool extCellOk = VerifyExternalProcessId(extMesh, false, "CellProcessIds", extCellNum);
     std::cout << (extCellOk ? "PASS" : "FAIL") << ": external cell CellProcessIds count=" << extCellNum << "\n";
     allOk = allOk && extCellOk;
+
+    // 第二个 AI 测试模型（文丘里缩放喷管）：自动完成常数/分区两类校验
+    auto venturiMesh = LoadModel("./Models/GenerateProcessIds_VenturiTube.vtk");
+    if (venturiMesh == nullptr) return 1;
+
+    IGsize venturiPointNum = venturiMesh->GetNumberOfPoints();
+    bool venturiPointOk = VerifyConstant(venturiMesh, true, "PointProcessIds", venturiPointNum, 7);
+    std::cout << (venturiPointOk ? "PASS" : "FAIL") << ": venturi point PointProcessIds count=" << venturiPointNum
+              << " value=7\n";
+    allOk = allOk && venturiPointOk;
+
+    IGsize venturiCellNum = venturiMesh->GetNumberOfCells();
+    bool venturiCellOk = VerifyConstant(venturiMesh, false, "CellProcessIds", venturiCellNum, 7);
+    std::cout << (venturiCellOk ? "PASS" : "FAIL") << ": venturi cell CellProcessIds count=" << venturiCellNum
+              << " value=7\n";
+    allOk = allOk && venturiCellOk;
+
+    bool venturiPointPartOk = VerifyPartitioned(venturiMesh, true, "PointProcessIds", venturiPointNum);
+    std::cout << (venturiPointPartOk ? "PASS" : "FAIL") << ": venturi partitioned point PointProcessIds count="
+              << venturiPointNum << "\n";
+    allOk = allOk && venturiPointPartOk;
+
+    bool venturiCellPartOk = VerifyPartitioned(venturiMesh, false, "CellProcessIds", venturiCellNum);
+    std::cout << (venturiCellPartOk ? "PASS" : "FAIL") << ": venturi partitioned cell CellProcessIds count="
+              << venturiCellNum << "\n";
+    allOk = allOk && venturiCellPartOk;
 
     auto surfMesh = CreateSurfaceMesh();
     IGsize surfFaceNum = surfMesh->GetNumberOfFaces();
