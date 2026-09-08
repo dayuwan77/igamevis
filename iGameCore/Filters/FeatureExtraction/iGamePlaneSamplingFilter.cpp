@@ -7,6 +7,7 @@
 #include "iGameTetra.h"
 #include "iGameTriangle.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -39,7 +40,7 @@ static bool PointInTriangle(const Vector3d& p, const Vector3d& a, const Vector3d
 
 // 辅助函数：判断点是否在四面体内（体积坐标，带容差）
 static bool PointInTetra(const Vector3d& p, const Vector3d& a, const Vector3d& b, const Vector3d& c, const Vector3d& d,
-                         double eps = 1e-8) {
+                         double eps = 1e-6) {
     Vector3d da = a - d;
     Vector3d db = b - d;
     Vector3d dc = c - d;
@@ -155,6 +156,7 @@ bool PlaneSamplingFilter::Execute() {
         return false;
     }
 
+    std::cout << "========================================" << std::endl;
     std::cout << "Input mesh: " << numPoints << " points, " << numCells << " cells" << std::endl;
 
     // 第3步：计算包围盒
@@ -177,6 +179,9 @@ bool PlaneSamplingFilter::Execute() {
     double dx = bounds[1] - bounds[0];
     double dy = bounds[3] - bounds[2];
     double dz = bounds[5] - bounds[4];
+
+    std::cout << "Model bounds: X[" << bounds[0] << ", " << bounds[1] << "], Y[" << bounds[2] << ", " << bounds[3]
+              << "], Z[" << bounds[4] << ", " << bounds[5] << "]" << std::endl;
 
     // 根据法向选择范围基准
     double nx = std::abs(m_Normal[0]);
@@ -212,8 +217,6 @@ bool PlaneSamplingFilter::Execute() {
     if (m_HalfRange < 1e-10) { m_HalfRange = 1.0; }
 
     std::cout << "Plane half range: " << m_HalfRange << std::endl;
-    std::cout << "Model bounds: X[" << bounds[0] << ", " << bounds[1] << "], Y[" << bounds[2] << ", " << bounds[3]
-              << "], Z[" << bounds[4] << ", " << bounds[5] << "]" << std::endl;
 
     // 第4步：计算平面方向
     double u[3] = {1.0, 0.0, 0.0};
@@ -245,6 +248,13 @@ bool PlaneSamplingFilter::Execute() {
     v[0] /= vLen;
     v[1] /= vLen;
     v[2] /= vLen;
+
+    m_U[0] = u[0];
+    m_U[1] = u[1];
+    m_U[2] = u[2];
+    m_V[0] = v[0];
+    m_V[1] = v[1];
+    m_V[2] = v[2];
 
     // 第5步：查找属性
     ArrayObject::Pointer targetAttr = nullptr;
@@ -287,8 +297,7 @@ bool PlaneSamplingFilter::Execute() {
         }
     }
 
-    bool useFallback = !targetAttr;
-    if (useFallback) { std::cout << "No attribute found, using Z coordinate as fallback" << std::endl; }
+    if (!targetAttr) { std::cout << "No attribute found, using Z coordinate as fallback" << std::endl; }
 
     // 第6步：判断是标量还是矢量
     bool isVector = (targetAttr && targetAttr->GetDimension() > 1);
@@ -334,26 +343,43 @@ bool PlaneSamplingFilter::Execute() {
     validMask->SetName("vtkValidPointMask");
     validMask->Resize(totalSamples);
 
-    // 预拆分所有六面体为四面体
-    struct TetraData {
+    // 第8步：获取单元类型数组
+    auto typeArray = inputMesh->GetCellTypes();
+
+    // ---- 诊断：打印单元类型分布 ----
+    std::cout << "========== Cell Type Diagnostics ==========" << std::endl;
+    std::map<IGenum, int> typeCount;
+    for (IGsize i = 0; i < numCells; i++) {
+        IGenum type = typeArray->GetValue(i);
+        typeCount[type]++;
+    }
+    for (auto& pair: typeCount) {
+        std::cout << "Cell type " << pair.first << ": " << pair.second << " cells" << std::endl;
+    }
+    std::cout << "============================================" << std::endl;
+
+    // 收集所有可用的单元
+    struct CellData {
         std::vector<Vector3d> coords;
         std::vector<igIndex> pointIds;
+        int numPoints;
     };
-    std::vector<TetraData> tetraList;
-
-    auto typeArray = inputMesh->GetCellTypes();
+    std::vector<CellData> cellList;
 
     for (IGsize cellId = 0; cellId < numCells; cellId++) {
         igIndex pointIds[IGAME_CELL_MAX_SIZE];
         int numCellPoints = inputMesh->GetCellPointIds(cellId, pointIds);
 
-        if (numCellPoints == 8) {
-            std::vector<Vector3d> cellCoords;
-            for (int k = 0; k < 8; k++) {
-                Point p = inputMesh->GetPoint(pointIds[k]);
-                cellCoords.emplace_back(p[0], p[1], p[2]);
-            }
+        if (numCellPoints < 3) continue;
 
+        std::vector<Vector3d> cellCoords;
+        for (int k = 0; k < numCellPoints; k++) {
+            Point p = inputMesh->GetPoint(pointIds[k]);
+            cellCoords.emplace_back(p[0], p[1], p[2]);
+        }
+
+        // 六面体拆分为四面体
+        if (numCellPoints == 8) {
             auto hexa = Hexahedron::New();
             hexa->m_PointIds->Reset();
             hexa->m_Points->Reset();
@@ -361,21 +387,41 @@ bool PlaneSamplingFilter::Execute() {
                 hexa->m_PointIds->AddId(pointIds[k]);
                 hexa->m_Points->AddPoint(cellCoords[k]);
             }
-
             auto tetras = hexa->clipCelltoTetra();
             for (auto& tetra: tetras) {
-                TetraData data;
+                CellData data;
+                data.numPoints = 4;
                 for (int k = 0; k < 4; k++) {
                     Point p = tetra->m_Points->GetPoint(k);
                     data.coords.emplace_back(p[0], p[1], p[2]);
                     data.pointIds.push_back(tetra->m_PointIds->GetId(k));
                 }
-                tetraList.push_back(data);
+                cellList.push_back(data);
             }
+        }
+        // 四面体直接加入
+        else if (numCellPoints == 4) {
+            CellData data;
+            data.numPoints = 4;
+            for (int k = 0; k < 4; k++) {
+                data.coords.emplace_back(cellCoords[k]);
+                data.pointIds.push_back(pointIds[k]);
+            }
+            cellList.push_back(data);
+        }
+        // 三角形直接加入
+        else if (numCellPoints == 3) {
+            CellData data;
+            data.numPoints = 3;
+            for (int k = 0; k < 3; k++) {
+                data.coords.emplace_back(cellCoords[k]);
+                data.pointIds.push_back(pointIds[k]);
+            }
+            cellList.push_back(data);
         }
     }
 
-    std::cout << "Pre-split " << tetraList.size() << " tetrahedra from hexahedra" << std::endl;
+    std::cout << "Collected " << cellList.size() << " cells for interpolation" << std::endl;
 
     // ---- 创建 PointFinder（用于最近点后备） ----
     auto finder = PointFinder::New();
@@ -383,12 +429,17 @@ bool PlaneSamplingFilter::Execute() {
     finder->Initialize();
 
     // 第9步：核心采样循环
-    std::cout << "Sampling " << totalSamples << " points with tetra interpolation..." << std::endl;
+    std::cout << "Sampling " << totalSamples << " points..." << std::endl;
     int validCount = 0;
     int tetraFoundCount = 0;
+    int triangleFoundCount = 0;
     int fallbackCount = 0;
 
-    double threshold = m_HalfRange * 0.1;
+    // 吸附阈值：采样范围的 0.5%
+    double snapThreshold = m_HalfRange * 0.005;
+
+    // ---- 调试计数器 ----
+    int debugSampleIdx = 0;
 
     for (int i = 0; i < m_Resolution; i++) {
         for (int j = 0; j < m_Resolution; j++) {
@@ -396,9 +447,9 @@ bool PlaneSamplingFilter::Execute() {
             double t_v = -m_HalfRange + 2.0 * m_HalfRange * j / (m_Resolution - 1);
 
             double samplePoint[3] = {0.0, 0.0, 0.0};
-            samplePoint[0] = m_Origin[0] + t_u * u[0] + t_v * v[0];
-            samplePoint[1] = m_Origin[1] + t_u * u[1] + t_v * v[1];
-            samplePoint[2] = m_Origin[2] + t_u * u[2] + t_v * v[2];
+            samplePoint[0] = m_Origin[0] + t_u * m_U[0] + t_v * m_V[0];
+            samplePoint[1] = m_Origin[1] + t_u * m_U[1] + t_v * m_V[1];
+            samplePoint[2] = m_Origin[2] + t_u * m_U[2] + t_v * m_V[2];
 
             int idx = i * m_Resolution + j;
             outputPoints->SetPoint(idx, (float) samplePoint[0], (float) samplePoint[1], (float) samplePoint[2]);
@@ -411,54 +462,89 @@ bool PlaneSamplingFilter::Execute() {
             double resultMag = 0.0;
             double resultVx = 0.0, resultVy = 0.0, resultVz = 0.0;
 
-            // ---- 1：单元插值 ----
-            for (size_t tetraIdx = 0; tetraIdx < tetraList.size() && !foundCell; tetraIdx++) {
-                auto& tetra = tetraList[tetraIdx];
-                const auto& coords = tetra.coords;
-                const auto& ids = tetra.pointIds;
+            // ---- 第1步：尝试单元定位 + 插值 ----
+            for (size_t cellIdx = 0; cellIdx < cellList.size() && !foundCell; cellIdx++) {
+                auto& cell = cellList[cellIdx];
+                const auto& coords = cell.coords;
+                const auto& ids = cell.pointIds;
+                bool inside = false;
 
-                bool inside = PointInTetra(query, coords[0], coords[1], coords[2], coords[3]);
+                if (cell.numPoints == 4) {
+                    inside = PointInTetra(query, coords[0], coords[1], coords[2], coords[3]);
+                    if (inside) {
+                        tetraFoundCount++;
+                        if (targetAttr) {
+                            int dim = targetAttr->GetDimension();
+                            std::vector<double> v0, v1, v2, v3;
+                            ReadPointAttribute(targetAttr, ids[0], v0);
+                            ReadPointAttribute(targetAttr, ids[1], v1);
+                            ReadPointAttribute(targetAttr, ids[2], v2);
+                            ReadPointAttribute(targetAttr, ids[3], v3);
 
-                if (inside) {
-                    tetraFoundCount++;
-                    if (targetAttr) {
-                        int dim = targetAttr->GetDimension();
-                        std::vector<double> v0, v1, v2, v3;
-                        ReadPointAttribute(targetAttr, ids[0], v0);
-                        ReadPointAttribute(targetAttr, ids[1], v1);
-                        ReadPointAttribute(targetAttr, ids[2], v2);
-                        ReadPointAttribute(targetAttr, ids[3], v3);
-
-                        if (dim == 1) {
-                            resultScalar = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3], v0[0],
-                                                            v1[0], v2[0], v3[0]);
-                        } else {
-                            std::vector<double> interpVec(dim, 0.0);
-                            for (int d = 0; d < dim; d++) {
-                                interpVec[d] = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3],
-                                                                v0[d], v1[d], v2[d], v3[d]);
+                            if (dim == 1) {
+                                resultScalar = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3],
+                                                                v0[0], v1[0], v2[0], v3[0]);
+                            } else {
+                                std::vector<double> interpVec(dim, 0.0);
+                                for (int d = 0; d < dim; d++) {
+                                    interpVec[d] = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3],
+                                                                    v0[d], v1[d], v2[d], v3[d]);
+                                }
+                                resultMag = ComputeMagnitude(interpVec);
+                                resultVx = (dim > 0) ? interpVec[0] : 0.0;
+                                resultVy = (dim > 1) ? interpVec[1] : 0.0;
+                                resultVz = (dim > 2) ? interpVec[2] : 0.0;
                             }
-                            resultMag = ComputeMagnitude(interpVec);
-                            resultVx = (dim > 0) ? interpVec[0] : 0.0;
-                            resultVy = (dim > 1) ? interpVec[1] : 0.0;
-                            resultVz = (dim > 2) ? interpVec[2] : 0.0;
+                        } else {
+                            resultScalar = query[2];
                         }
-                    } else {
-                        resultScalar = query[2];
+                        isValid = true;
+                        foundCell = true;
+                        break;
                     }
-                    isValid = true;
-                    foundCell = true;
-                    break;
+                } else if (cell.numPoints == 3) {
+                    inside = PointInTriangle(query, coords[0], coords[1], coords[2]);
+                    if (inside) {
+                        triangleFoundCount++;
+                        if (targetAttr) {
+                            int dim = targetAttr->GetDimension();
+                            std::vector<double> v0, v1, v2;
+                            ReadPointAttribute(targetAttr, ids[0], v0);
+                            ReadPointAttribute(targetAttr, ids[1], v1);
+                            ReadPointAttribute(targetAttr, ids[2], v2);
+
+                            if (dim == 1) {
+                                resultScalar = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[0], v1[0],
+                                                                   v2[0]);
+                            } else {
+                                std::vector<double> interpVec(dim, 0.0);
+                                for (int d = 0; d < dim; d++) {
+                                    interpVec[d] = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[d],
+                                                                       v1[d], v2[d]);
+                                }
+                                resultMag = ComputeMagnitude(interpVec);
+                                resultVx = (dim > 0) ? interpVec[0] : 0.0;
+                                resultVy = (dim > 1) ? interpVec[1] : 0.0;
+                                resultVz = (dim > 2) ? interpVec[2] : 0.0;
+                            }
+                        } else {
+                            resultScalar = query[2];
+                        }
+                        isValid = true;
+                        foundCell = true;
+                        break;
+                    }
                 }
             }
 
-            // ---- 2：如果单元插值失败，使用最近点后备 ----
+            // ---- 第2步：如果单元定位失败，使用最近点后备（带吸附阈值） ----
             if (!foundCell) {
                 double minDist2;
                 igIndex closestId = finder->FindClosestPoint(query, minDist2);
                 double dist = std::sqrt(minDist2);
 
-                if (closestId != -1 && dist < threshold) {
+                // 如果距离小于吸附阈值，使用最近点的属性值
+                if (closestId != -1 && dist < snapThreshold) {
                     fallbackCount++;
                     if (targetAttr) {
                         int dim = targetAttr->GetDimension();
@@ -481,6 +567,22 @@ bool PlaneSamplingFilter::Execute() {
                     isValid = true;
                 }
             }
+
+            //// ---- 调试：前几个采样点的详细信息 ----
+            //if (debugSampleIdx < 5) {
+            //    std::cout << "\n[DEBUG Sample " << debugSampleIdx << "]" << std::endl;
+            //    std::cout << "  Point: (" << samplePoint[0] << ", " << samplePoint[1] << ", " << samplePoint[2] << ")"
+            //              << std::endl;
+            //    std::cout << "  Found cell: " << (foundCell ? "YES" : "NO") << std::endl;
+            //    if (foundCell) {
+            //        std::cout << "  Method: INTERPOLATION" << std::endl;
+            //    } else {
+            //        std::cout << "  Method: FALLBACK (nearest point)" << std::endl;
+            //    }
+            //    std::cout << "  Valid: " << (isValid ? "YES" : "NO") << std::endl;
+            //    if (isValid) { std::cout << "  Result: " << resultScalar << std::endl; }
+            //    debugSampleIdx++;
+            //}
 
             // ---- 填充输出数据 ----
             if (isValid) {
@@ -512,8 +614,11 @@ bool PlaneSamplingFilter::Execute() {
     std::cout << "\n========================================" << std::endl;
     std::cout << "========= Sampling Result =========" << std::endl;
     std::cout << "Valid points: " << validCount << " / " << totalSamples << std::endl;
-    std::cout << "Tetra found: " << tetraFoundCount << std::endl;
-    std::cout << "Fallback used: " << fallbackCount << std::endl;
+    std::cout << "Tetra interpolation: " << tetraFoundCount << std::endl;
+    std::cout << "Triangle interpolation: " << triangleFoundCount << std::endl;
+    std::cout << "Fallback (nearest point, dist < threshold): " << fallbackCount << std::endl;
+    std::cout << "Unsampled points: " << (totalSamples - validCount) << std::endl;
+    std::cout << "Snap threshold: " << snapThreshold << std::endl;
     std::cout << "========================================" << std::endl;
 
     // 第10步：创建四边形网格
