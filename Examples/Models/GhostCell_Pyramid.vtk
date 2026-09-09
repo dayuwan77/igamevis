@@ -1,0 +1,25 @@
+# vtk DataFile Version 3.0
+GhostCell demo: square pyramid, apex (point 4) is a ghost point
+ASCII
+DATASET POLYDATA
+POINTS 5 float
+0.0 0.0 0.0
+2.0 0.0 0.0
+2.0 2.0 0.0
+0.0 2.0 0.0
+1.0 1.0 2.0
+POLYGONS 6 24
+3 0 1 4
+3 1 2 4
+3 2 3 4
+3 3 0 4
+3 0 1 2
+3 0 2 3
+POINT_DATA 5
+SCALARS GhostPoints int 1
+LOOKUP_TABLE default
+0
+0
+0
+0
+1
