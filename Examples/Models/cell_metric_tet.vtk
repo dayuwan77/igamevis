@@ -1,0 +1,19 @@
+# vtk DataFile Version 3.0
+Cell Mesh Metrics Test Component 1 - Tetrahedral Mesh
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 6 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+0.5 0.866025 0.0
+0.5 0.288675 0.816497
+2.0 0.0 0.0
+1.5 0.866025 0.0
+
+CELLS 2 10
+4 0 1 2 3
+4 1 4 5 3
+
+CELL_TYPES 2
+10
+10
