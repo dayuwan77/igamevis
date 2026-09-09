@@ -1,5 +1,6 @@
 #include <PointCoordinates/iGamePointCoordinatesFilter.h>
 #include <iGameDataObject.h>
+#include <iGameFileIO.h>
 #include <iGameUnstructuredMesh.h>
 
 #include <cmath>
@@ -7,6 +8,8 @@
 #include <string>
 
 namespace {
+
+constexpr const char* PointCoordinatesModelPath = "./Models/PointCoordinatesFilter_Test.vtk";
 
 bool Check(bool condition, const std::string& message) {
     if (!condition) { std::cerr << "FAILED: " << message << '\n'; }
@@ -36,13 +39,17 @@ bool TestEmptyPointSet() {
 }
 
 bool TestCoordinatesArray() {
-    auto mesh = iGame::UnstructuredMesh::New();
-    mesh->AddPoint(iGame::Point(1.0f, 2.0f, 3.0f));
-    mesh->AddPoint(iGame::Point(-4.0f, 5.5f, 6.0f));
-    mesh->AddPoint(iGame::Point(7.0f, 8.0f, -9.0f));
+    std::cout << "Loading model: " << PointCoordinatesModelPath << '\n';
+    auto dataObject = iGame::FileIO::ReadFile(PointCoordinatesModelPath);
+    if (!Check(dataObject != nullptr, "the PointCoordinates test model must load automatically")) { return false; }
 
-    igIndex triangle[3]{0, 1, 2};
-    mesh->AddCell(triangle, 3, iGame::IG_TRIANGLE);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(dataObject);
+    if (!Check(mesh != nullptr, "the PointCoordinates test model must be an unstructured mesh")) { return false; }
+    if (!Check(mesh->GetNumberOfPoints() == 5 && mesh->GetNumberOfCells() == 2,
+               "the PointCoordinates test model must contain five points and two tetrahedra")) {
+        return false;
+    }
+
     auto originalCells = mesh->GetCells();
 
     auto filter = iGame::PointCoordinatesFilter::New();
@@ -68,8 +75,9 @@ bool TestCoordinatesArray() {
         return false;
     }
 
-    const float expected[9]{1.0f, 2.0f, 3.0f, -4.0f, 5.5f, 6.0f, 7.0f, 8.0f, -9.0f};
-    for (IGsize i = 0; i < 9; ++i) {
+    const float expected[15]{-2.5f, 1.25f, 0.0f, 0.0f, -3.5f, 2.0f, 4.75f, 0.5f,
+                             -1.25f, 1.5f, 2.5f, 3.25f, -1.0f, 0.75f, 4.5f};
+    for (IGsize i = 0; i < 15; ++i) {
         if (!Check(NearlyEqual(coordinates->GetValue(i), expected[i]), "coordinate values must match mesh points")) {
             return false;
         }
