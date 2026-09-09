@@ -6,9 +6,11 @@
 
 // 中等任务 #28 配套测试用例：提取网格边（去重）
 // 运行：cd Examples && ./testExtractEdges
+// 测试模型：AI 生成的 2x2x1 六面体网格 Examples/Models/ExtractEdges_hexa_grid.vtk
+//   （18 点 / 4 六面体单元，共享点共享棱 → 期望输出 33 条唯一边）
 // 通过条件：输出网格全为 IG_LINE 单元，且每条边恰有 2 个互异端点
 int main() {
-    const std::string fileName = "./Models/ContourExtraction_cylinder_UnstructedGrid.vtk";
+    const std::string fileName = "./Models/ExtractEdges_hexa_grid.vtk";
     std::cerr << "[testExtractEdges] cwd=" << std::filesystem::current_path().string() << " file=" << fileName
               << " exists=" << std::filesystem::exists(fileName) << "\n"
               << std::flush;

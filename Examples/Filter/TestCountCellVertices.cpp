@@ -6,9 +6,12 @@
 
 // 简单任务 #5 配套测试用例：统计每个单元的顶点数
 // 运行：cd Examples && ./testCountCellVertices
+// 测试模型：AI 生成的混合单元网格 Examples/Models/CountCellVertices_mixed_cells.vtk
+//   （hexa/wedge/pyramid/tetra/tetra/quad/triangle/triangle/line
+//     → 期望顶点数 8/6/5/4/4/4/3/3/2）
 // 通过条件：cell_vertex_count 数组存在、长度 == 单元数、每个值与单元点数一致
 int main() {
-    const std::string fileName = "./Models/ContourExtraction_cylinder_UnstructedGrid.vtk";
+    const std::string fileName = "./Models/CountCellVertices_mixed_cells.vtk";
     std::cerr << "[testCountCellVertices] cwd=" << std::filesystem::current_path().string() << " file=" << fileName
               << " exists=" << std::filesystem::exists(fileName) << "\n"
               << std::flush;
