@@ -9,46 +9,51 @@
 #include <iGameVolumeMesh.h>
 #include <iostream>
 
-/* TestIsoVolume: 提取标量值落在 [lower, upper] 区间内的体网格
- * 输入: ./Models/ClipTest_Plane_UnstructuredGrid.vtk (带标量场的四面体网格)
- * 区间取标量范围的 [1/3, 2/3], 打印输出点数/单元数验证, 并弹窗可视化展示结果 */
-int main() {
+/*
+ * TestIsoVolume: 等值面之间的体提取(IsoVolume)自动化测试
+ * 读取 Examples/Models 下 AI 生成的测试模型(相对路径,无需手动输入),运行 Filter 并打印输出点数/单元数。
+ * 测试模型:
+ *   1) IsoVolumeTest_RadialShell.vtk  -- Radius 场(到球心距离), 区间 [0.5, 0.9] -> 球壳
+ *   2) IsoVolumeTest_DoubleBlob.vtk    -- BlobLevel 场(两个高斯团), 区间 [0.2, 0.6] -> 两个分离区域
+ */
+static iGame::DataObject::Pointer RunIsoVolumeTest(const std::string& fileName, const std::string& scalarName,
+                                                   double lower, double upper, int dim) {
+    std::cout << "==== Test: " << fileName << "  scalar=" << scalarName
+              << "  [" << lower << ", " << upper << "] (dim " << dim << ")\n";
 
-    /* 读取模型 */
-    const std::string fileName = "./Models/ClipTest_Plane_UnstructuredGrid.vtk";
-    iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
+    auto obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
-        std::cout << "Read ERROR!\n";
-        return 1;
+        std::cout << "  Read ERROR!\n";
+        return nullptr;
     }
 
-    /* 取第一个点标量数组, 区间取数据范围的 [1/3, 2/3] */
+    /* 按名称取点属性数组 */
     auto attrs = obj->GetAttributeSet()->GetAllPointAttributes();
     if (attrs == nullptr || attrs->GetNumberOfElements() == 0) {
-        std::cout << "No point attributes ERROR!\n";
-        return 1;
+        std::cout << "  No point attributes ERROR!\n";
+        return nullptr;
     }
-    auto& attr = attrs->GetElement(0);
-    auto range = attr.GetDataRange();
+    int found = -1;
+    for (int i = 0; i < (int)attrs->GetNumberOfElements(); i++) {
+        if (attrs->GetElement(i).pointer->GetName() == scalarName) {
+            found = i;
+            break;
+        }
+    }
+    if (found < 0) { found = 0; }
+    auto& attr = attrs->GetElement(found);
     auto array = attr.pointer;
-    /* GetDataRange 布局: [0]/[1]=向量模长范围, [2]/[3]=分量0范围, [4]/[5]=分量1范围...
-     * 测试数据 test_1 是 3 分量向量, 这里取分量 0 的范围作为标量范围 */
-    double smin = range->GetValue(2);
-    double smax = range->GetValue(3);
-    double lower = smin + (smax - smin) / 3.0;
-    double upper = smin + (smax - smin) * 2.0 / 3.0;
 
     /* 等值面之间的体提取 */
     auto filter = iGame::IsoVolumeFilter::New();
     filter->SetInput(obj);
-    filter->SetIsoScalarData(array, lower, upper, 0);
+    filter->SetIsoScalarData(array, lower, upper, dim);
     filter->Execute();
 
-    /* 打印结果 */
     auto res = filter->GetOutput();
     if (res == nullptr) {
-        std::cout << "Output NULL ERROR!\n";
-        return 1;
+        std::cout << "  Output NULL ERROR!\n";
+        return nullptr;
     }
     unsigned long long np = 0, nc = 0;
     if (auto m = iGame::DynamicCast<iGame::UnstructuredMesh>(res)) {
@@ -61,26 +66,37 @@ int main() {
         np = m->GetNumberOfPoints();
         nc = m->GetNumberOfVolumes();
     }
-    std::cout << "IsoVolume range = [" << lower << ", " << upper << "]\n";
-    std::cout << "Input  scalar range = [" << smin << ", " << smax << "]\n";
-    std::cout << "Output points = " << np << ", cells = " << nc << "\n";
+    std::cout << "  Output points = " << np << ", cells = " << nc << "\n";
+    return res;
+}
+
+int main() {
+    /* 模型 1: 径向球壳 (Radius = 到球心距离, [0.5, 0.9] -> 两层等值面包夹的球壳) */
+    auto res1 = RunIsoVolumeTest("./Models/IsoVolumeTest_RadialShell.vtk", "Radius", 0.5, 0.9, 0);
+
+    /* 模型 2: 双高斯团 (BlobLevel, [0.7, 0.95] -> 两个高斯核心附近的等值体) */
+    auto res2 = RunIsoVolumeTest("./Models/IsoVolumeTest_DoubleBlob.vtk", "BlobLevel", 0.7, 0.95, 0);
+
     std::cout << "TestIsoVolume DONE\n";
 
-    /* 可视化展示 (参照 TestClip / TestSlice 标准写法) */
-    auto scene = iGame::Scene::New();
-    auto draw = iGame::DynamicCast<iGame::DrawObject>(res);
-    if (draw != nullptr) {
-        draw->SetViewStyle(IG_SURFACE);
-        draw->ViewCloudPicture(scene, 0);
+    /* 可视化展示 RadialShell 结果 (单个体, 最接近此前 ClipTest 的可渲染结果) */
+    if (res1) {
+        auto scene = iGame::Scene::New();
+        auto draw = iGame::DynamicCast<iGame::DrawObject>(res1);
+        if (draw != nullptr) {
+            draw->SetViewStyle(IG_SURFACE);
+            draw->ViewCloudPicture(scene, 0);
+        }
+        scene->AddModel(res1);
+        iGame::RenderWindow::Pointer window = iGame::RenderWindow::New();
+        window->SetSize(1280, 720);
+        window->SetScene(scene);
+        auto interactor = iGame::Interactor::New();
+        interactor->Initialize(scene);
+        interactor->CreateDefaultStyle();
+        window->SetInteractor(interactor);
+        window->Show();
+        window->RenderOneFrame();
     }
-    if (res != nullptr) { scene->AddModel(res); }
-    iGame::RenderWindow::Pointer window = iGame::RenderWindow::New();
-    window->SetSize(1920, 1080);
-    window->SetScene(scene);
-    auto interactor = iGame::Interactor::New();
-    interactor->Initialize(scene);
-    interactor->CreateDefaultStyle();
-    window->SetInteractor(interactor);
-    window->Show();
     return 0;
 }
