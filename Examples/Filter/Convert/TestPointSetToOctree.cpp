@@ -9,7 +9,7 @@ int main() {
     auto scene = iGame::Scene::New();
 
     /* 读取点集文件 */
-    const std::string fileName = "./Models/Tet_Plane.vtk";
+    const std::string fileName = "./Models/OctreePoints.vtk";
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
         std::cout << "Read ERROR!\n";

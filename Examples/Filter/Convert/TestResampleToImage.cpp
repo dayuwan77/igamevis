@@ -19,7 +19,7 @@ int main() {
     auto scene = iGame::Scene::New();
 
     /* 读取网格文件作为重采样输入 */
-    const std::string fileName = "./Models/Tet_Plane.vtk";
+    const std::string fileName = "./Models/ResampleCubeVector.vtk";
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
         std::cout << "Read ERROR!\n";
@@ -55,7 +55,7 @@ int main() {
             if (attr.isDeleted || attr.pointer == nullptr) continue;
             if (attr.pointer->GetName() == "vtkValidPointMask") {
                 maskArr = attr.pointer;
-            } else if (attr.pointer->GetName() == "test_1") {
+            } else if (attr.pointer->GetName() == "field") {
                 fieldArr = attr.pointer;
                 fieldType = attr.type;
                 fieldDim = attr.pointer->GetDimension();
@@ -85,7 +85,7 @@ int main() {
     for (IGsize p = 0; p < nPts; ++p) {
         if (maskArr != nullptr && maskArr->GetElementValue(p, 0) != 0.0) {
             if (fieldArr != nullptr) {
-                std::cout << "[ResampleToImage] firstValid grid idx=" << p << " test_1=(";
+                std::cout << "[ResampleToImage] firstValid grid idx=" << p << " field=(";
                 for (int d = 0; d < fieldDim; ++d) {
                     if (d) std::cout << ", ";
                     std::cout << fieldArr->GetElementValue(p, d);
@@ -111,7 +111,8 @@ int main() {
 
     /* ---- 显示整幅图像（262144 点 / 250047 单元）----
        渲染时 ModelGeometryFilter 读取 "vtkGhostType" 单元数组做空白化，抽出有效单元表面，
-       从而显示成飞机形状，与 ParaView 的 Adaptive Resample To Image 效果一致。 */
+       从而显示成缺角立方体形状（输入模型挖掉一个角部小立方体），与 VTK vtkResampleToImage
+       的 ghost 空白化行为一致。 */
     scene->AddModel(resMesh);
     auto outDraw = iGame::DynamicCast<iGame::DrawObject>(resMesh);
     if (outDraw != nullptr) {
