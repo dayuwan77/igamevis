@@ -11,20 +11,9 @@
 #include <iostream>
 #include <string>
 
-int main(
-    int argc,
-    char** argv) {
-    if (argc != 2) {
-        std::cerr
-            << "Usage: "
-            << "testFeatureEdgesVisualization.exe "
-            << "<model-file>"
-            << std::endl;
-        return 1;
-    }
-
+int main() {
     const std::string fileName =
-        argv[1];
+        "./Models/FeatureEdges_Cube.vtk";
 
     std::cout
         << "Input file: "
