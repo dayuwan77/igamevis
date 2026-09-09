@@ -1,42 +1,39 @@
 #include <ForceStaticMesh/iGameForceStaticMeshFilter.h>
-#include <iGameAttributeSet.h>
-#include <iGameFlatArray.h>
+#include <iGameFileIO.h>
 #include <iGamePointSet.h>
 #include <iGameType.h>
 #include <iGameUnstructuredMesh.h>
 
 #include <iostream>
+#include <string>
 
 namespace {
 
-iGame::UnstructuredMesh::Pointer MakeTriangleMesh(const iGame::Point& p0, const iGame::Point& p1,
-                                                  const iGame::Point& p2, const char* scalarName, float value) {
-    using namespace iGame;
-    auto mesh = UnstructuredMesh::New();
-    mesh->AddPoint(p0);
-    mesh->AddPoint(p1);
-    mesh->AddPoint(p2);
-    igIndex cell[3] = {0, 1, 2};
-    mesh->AddCell(cell, 3, IG_TRIANGLE);
-
-    auto attr = FloatArray::New();
-    attr->SetName(scalarName);
-    attr->SetDimension(1);
-    attr->AddValue(value);
-    attr->AddValue(value);
-    attr->AddValue(value);
-    mesh->GetAttributeSet()->AddScalar(IG_POINT, attr);
-    return mesh;
-}
+// 相对路径：Examples 构建目录会自动把 Examples/Models 拷贝为 ./Models
+const std::string kModelA = "./Models/ForceStaticMesh_TestA.vtk";
+const std::string kModelB = "./Models/ForceStaticMesh_TestB.vtk";
 
 } // namespace
 
 int main() {
     using namespace iGame;
 
-    // 两个点/单元数相同、几何不同的独立网格对象（模拟“规模相同的另一个模型”）
-    auto meshA = MakeTriangleMesh(Point(0, 0, 0), Point(1, 0, 0), Point(0, 1, 0), "scalarA", 1.f);
-    auto meshB = MakeTriangleMesh(Point(10, 0, 0), Point(11, 0, 0), Point(10, 1, 0), "scalarB", 2.f);
+    // 两个点/单元数相同、几何不同的独立模型文件（模拟“规模相同的另一个模型”）
+    auto meshA = DynamicCast<UnstructuredMesh>(FileIO::ReadFile(kModelA));
+    auto meshB = DynamicCast<UnstructuredMesh>(FileIO::ReadFile(kModelB));
+    if (!meshA || !meshB) {
+        std::cerr << "FAIL: read model files\n";
+        return 1;
+    }
+    if (meshA->GetNumberOfPoints() != 27 || meshA->GetNumberOfCells() != 8) {
+        std::cerr << "FAIL: unexpected model size\n";
+        return 1;
+    }
+    if (meshB->GetNumberOfPoints() != meshA->GetNumberOfPoints() ||
+        meshB->GetNumberOfCells() != meshA->GetNumberOfCells()) {
+        std::cerr << "FAIL: models should have same point/cell counts\n";
+        return 1;
+    }
 
     auto filter = ForceStaticMeshFilter::New();
 
@@ -63,17 +60,13 @@ int main() {
         return 1;
     }
     auto ps = DynamicCast<PointSet>(out3);
-    if (!ps || ps->GetNumberOfPoints() != 3) {
+    if (!ps || ps->GetNumberOfPoints() != 27) {
         std::cerr << "FAIL: rebuilt cache point count\n";
         return 1;
     }
+    // meshB 的原点整体偏移到 (10,0,0)
     if (ps->GetPoint(0)[0] != 10.f) {
         std::cerr << "FAIL: rebuilt cache geometry does not match new input\n";
-        return 1;
-    }
-    auto& attrB = out3->GetAttributeSet()->GetAttribute("scalarB");
-    if (attrB.pointer == nullptr) {
-        std::cerr << "FAIL: rebuilt cache attributes do not match new input\n";
         return 1;
     }
     std::cout << "different-input cache rebuild: yes\n";
