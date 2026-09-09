@@ -5395,9 +5395,13 @@ void igQtMainWindow::initAllFilters() {
                     res->SetViewStyle(IG_SURFACE);
                     rendererWidget->update();
                     modelTreeWidget->updateAllAttriubute(res);
+                    QMessageBox::information(dialog, "ResampleToLine", "运行完毕", QMessageBox::Close);
                 }
+            } else {
+                std::string message = filter->GetMessage();
+                showDarkFramelessMessage(QStringLiteral("Warning"), QString::fromStdString(message));
             }
-            QMessageBox::information(dialog, "ResampleToLine", "运行完毕", QMessageBox::Close);
+            
         });
     });
 
