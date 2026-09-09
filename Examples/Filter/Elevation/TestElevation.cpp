@@ -12,6 +12,7 @@
 #include <cmath>
 #include <functional>
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -21,6 +22,10 @@ namespace
 {
 
 using namespace iGame;
+
+// ===== 模型文件路径（相对构建目录；Examples/CMakeLists.txt 会把 Models/ 复制过去）=====
+std::string SlopeModelPath = "Models/ElevationSlopeTerrain.vtk";
+std::string TerracesModelPath = "Models/ElevationTerraces.vtk";
 
 // 主测试网格：4 点 2 三角形，z = x + 2y（斜面）
 //   p0(0,0,0)  p1(1,0,1)  p2(0,1,2)  p3(1,1,3)
@@ -92,6 +97,15 @@ void CheckValues(const FloatArray::Pointer& array, const std::vector<double>& ex
                                      ", expected " + std::to_string(expected[i]));
         }
     }
+}
+
+// 读取模型文件并转型为 PointSet（ElevationFilter 的输入类型）
+PointSet::Pointer LoadPointSetModel(const std::string& path) {
+    auto object = FileIO::ReadFile(path);
+    Check(object != nullptr, "failed to read model file: " + path);
+    auto pointSet = DynamicCast<PointSet>(object);
+    Check(pointSet != nullptr, path + " is not a PointSet-compatible mesh.");
+    return pointSet;
 }
 
 // 用例 1：默认方向 +Z、默认范围 [0,1]（端点钉扎 + 中间值）
@@ -182,6 +196,73 @@ void TestInvalidInputs() {
           "empty range must be rejected.");
 }
 
+// ===== 模型文件用例（Examples/Models 下的配套测试模型）=====
+
+// 用例 7：斜坡地形模型 + 任意方向 (1,1,0) + 默认范围 [0,1]
+// 模型 ElevationSlopeTerrain.vtk：11x11 顶点，x,y ∈ {0..10}，z = 0.1*(x+y)
+// 沿 (1,1,0) 投影 h = x+y ∈ [0,20]，期望 elevation = (x+y)/20（端点钉扎：(0,0)→0，(10,10)→1）
+void TestSlopeModelArbitraryDirection() {
+    auto mesh = LoadPointSetModel(SlopeModelPath);
+    Check(mesh->GetNumberOfPoints() == 121, "slope model must have 121 points.");
+
+    auto filter = ElevationFilter::New();
+    Check(filter->SetDirection(1.f, 1.f, 0.f), "SetDirection should accept (1,1,0).");
+    filter->SetInput(mesh);
+    Check(filter->Execute(), "Execute should succeed on the slope model.");
+
+    auto array = FindElevationArray(mesh);
+    Check(array != nullptr, "slope model: Elevation array is missing.");
+    Check(array->GetNumberOfElements() == 121, "slope model: unexpected element count.");
+
+    const float* values = array->RawPointer();
+    for (IGsize i = 0; i < 121; ++i) {
+        const Point& p = mesh->GetPoint(i);
+        const double expected = (p[0] + p[1]) / 20.0;
+        if (std::fabs(values[i] - expected) > 1e-5) {
+            throw std::runtime_error("slope model: point " + std::to_string(i) +
+                                     " elevation is " + std::to_string(values[i]) +
+                                     ", expected " + std::to_string(expected));
+        }
+    }
+    // 端点钉扎：首点 (0,0) → 0；末点 (10,10) → 1
+    Check(std::fabs(values[0]) < 1e-6, "slope model: first point must map to 0.");
+    Check(std::fabs(values[120] - 1.0) < 1e-6, "slope model: last point must map to 1.");
+}
+
+// 用例 8：梯田地形模型 + 默认方向 +Z + 范围 [10,20]
+// 模型 ElevationTerraces.vtk：11x11 顶点，z = floor((x+y)/4) ∈ {0..5} 六层台阶
+// h = z 为精确整数，期望 elevation = 10 + 2z ∈ {10,12,...,20}，且恰好出现六个离散值
+void TestTerracesModelAxisMapping() {
+    auto mesh = LoadPointSetModel(TerracesModelPath);
+    Check(mesh->GetNumberOfPoints() == 121, "terraces model must have 121 points.");
+
+    auto filter = ElevationFilter::New();
+    filter->SetOutputRange(10.0, 20.0);
+    filter->SetInput(mesh);
+    Check(filter->Execute(), "Execute should succeed on the terraces model.");
+
+    auto array = FindElevationArray(mesh);
+    Check(array != nullptr, "terraces model: Elevation array is missing.");
+    Check(array->GetNumberOfElements() == 121, "terraces model: unexpected element count.");
+
+    std::set<int> distinctLevels;
+    const float* values = array->RawPointer();
+    for (IGsize i = 0; i < 121; ++i) {
+        const Point& p = mesh->GetPoint(i);
+        const double expected = 10.0 + 2.0 * p[2];
+        if (std::fabs(values[i] - expected) > 1e-6) {
+            throw std::runtime_error("terraces model: point " + std::to_string(i) +
+                                     " elevation is " + std::to_string(values[i]) +
+                                     ", expected " + std::to_string(expected));
+        }
+        distinctLevels.insert(static_cast<int>(std::lround(values[i])));
+    }
+    // 六层台阶映射后应恰好产生 {10,12,14,16,18,20}
+    const std::set<int> expectedLevels{10, 12, 14, 16, 18, 20};
+    Check(distinctLevels == expectedLevels,
+          "terraces model: mapped values must form six discrete levels {10..20}.");
+}
+
 } // namespace
 
 int main() {
@@ -192,6 +273,8 @@ int main() {
             {"direction scale invariance", TestScaleInvariance},
             {"flat mesh degenerate", TestFlatMeshDegenerate},
             {"invalid input rejection", TestInvalidInputs},
+            {"slope model with arbitrary direction", TestSlopeModelArbitraryDirection},
+            {"terraces model with Z axis and range [10,20]", TestTerracesModelAxisMapping},
     };
 
     int failures = 0;
