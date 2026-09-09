@@ -17,7 +17,7 @@ int main() {
     auto scene = iGame::Scene::New();
 
     /* 2. Read Model File (supports .ex2, .vtu, .vtm, .vtk, etc.) */
-    const std::string fileName = "./Models/multiblock_test.vtm";
+    const std::string fileName = "./Models/assembly_primitives.vtm";
     iGame::DataObject::Pointer root = iGame::FileIO::ReadFile(fileName);
 
     /* 3. Instantiate MultiBlock Geometry Filter */
@@ -44,6 +44,12 @@ int main() {
         std::cout << "   -> Extracted Sub-block Count: " << res->GetNumberOfSubDataObjects() << std::endl;
         for (auto it = res->SubDataObjectIteratorBegin(); it != res->SubDataObjectIteratorEnd(); ++it) {
             auto subMesh = it->second;
+            auto surfaceMesh = iGame::DynamicCast<iGame::SurfaceMesh>(subMesh);
+            if (surfaceMesh) {
+                std::cout << "      * Block [" << subMesh->GetName() << "]: "
+                          << "Points = " << surfaceMesh->GetNumberOfPoints() << ", "
+                          << "Faces = " << surfaceMesh->GetNumberOfFaces() << std::endl;
+            }
             auto drawObj = iGame::DynamicCast<iGame::DrawObject>(subMesh);
             if (drawObj) {
                 drawObj->SetViewStyle(IG_SURFACE);     // Surface shading
@@ -53,6 +59,12 @@ int main() {
             }
         }
     } else {
+        auto surfaceMesh = iGame::DynamicCast<iGame::SurfaceMesh>(res);
+        if (surfaceMesh) {
+            std::cout << "      * Model [" << res->GetName() << "]: "
+                      << "Points = " << surfaceMesh->GetNumberOfPoints() << ", "
+                      << "Faces = " << surfaceMesh->GetNumberOfFaces() << std::endl;
+        }
         auto drawObj = iGame::DynamicCast<iGame::DrawObject>(res);
         if (drawObj) {
             drawObj->SetViewStyle(IG_SURFACE);
