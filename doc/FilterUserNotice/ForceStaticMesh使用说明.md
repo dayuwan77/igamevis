@@ -41,7 +41,7 @@ bool on = filter->GetForceCacheComputation();
 
 ### GUI 使用
 
-菜单：**滤镜 → 数据处理 (Data Processing) → 强制静态网格 (Force Static Mesh)**
+菜单：**算法处理 → 数据处理 (Data Processing) → 强制静态网格 (Force Static Mesh)**
 
 - 需先加载并选中一个网格模型（非网格模型会提示不支持）。
 - 首次执行：在模型树中新增 `xxx_ForceStaticMesh` 模型（缓存几何固定）。
