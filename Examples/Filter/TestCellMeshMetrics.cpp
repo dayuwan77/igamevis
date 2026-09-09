@@ -131,9 +131,9 @@ int main() {
     // 1. 创建场景
     auto scene = iGame::Scene::New();
 
-    // ========== 步骤 1：读取 .vtm 多块模型（两个重叠的飞机） ==========
+    // ========== 步骤 1：读取 .vtm 多块模型 ==========
     std::cout << "\n[步骤 1] 读取多块模型 (.vtm)...\n";
-    const std::string vtmPath = FindModelPath("multiblock_test.vtm");
+    const std::string vtmPath = FindModelPath("cell_metric_assembly.vtm");
     std::cout << "  文件: " << vtmPath << "\n";
     auto multiBlockObj = iGame::FileIO::ReadFile(vtmPath);
     if (!multiBlockObj) {
