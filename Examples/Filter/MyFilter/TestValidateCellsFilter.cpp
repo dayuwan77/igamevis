@@ -8,7 +8,7 @@
 int main() {
     auto scene = iGame::Scene::New();
 
-    const std::string fileName = "././Models/iGameValidateCellsFilter_test.vtk";
+    const std::string fileName = "././Models/iGameValidateCellsFilter_mixed.vtk";
     auto obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
         std::cout << "读取文件失败!\n";

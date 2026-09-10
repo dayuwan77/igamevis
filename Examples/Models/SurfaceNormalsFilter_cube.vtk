@@ -1,0 +1,40 @@
+# vtk DataFile Version 3.0
+SurfaceNormalsFilter cube test model: 8 points, 6 quad faces with sharp edges
+ASCII
+DATASET POLYDATA
+POINTS 8 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+1.0 1.0 0.0
+0.0 1.0 0.0
+0.0 0.0 1.0
+1.0 0.0 1.0
+1.0 1.0 1.0
+0.0 1.0 1.0
+POLYGONS 6 30
+4 0 3 2 1
+4 4 5 6 7
+4 0 4 7 3
+4 1 2 6 5
+4 0 1 5 4
+4 3 7 6 2
+POINT_DATA 8
+SCALARS Temperature float 1
+LOOKUP_TABLE default
+0.0
+1.0
+2.0
+3.0
+4.0
+5.0
+6.0
+7.0
+CELL_DATA 6
+SCALARS FaceId float 1
+LOOKUP_TABLE default
+0.0
+1.0
+2.0
+3.0
+4.0
+5.0

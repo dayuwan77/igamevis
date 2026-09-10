@@ -83,7 +83,7 @@ void PrintNormals(const iGame::SurfaceMesh::Pointer& mesh) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
-    std::string fileName = "././Models/SurfaceNormalsFilter_test.vtk";
+    std::string fileName = "././Models/SurfaceNormalsFilter_cube.vtk";
 
     if (argc > 1 && argv[1] != nullptr) {
         fileName = argv[1];
