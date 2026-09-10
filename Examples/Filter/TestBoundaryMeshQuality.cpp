@@ -11,13 +11,14 @@
 //   2. DistanceFromCellCenterToFacePlane
 //   3. AngleFaceNormalAndCellCenterToFaceCenterVector
 //
+// 测试模型: Boundary_Mesh_Quality_Test.vtk (不规则 4x4x4 布点四面体体网格，64 点，108 个单元)
 // 每次跑一个 filter，往同一个 DrawObject 的 AttributeSet 追加一个新属性；
 // 然后弹一个独立窗口显示该属性云图。关闭当前窗口后才进入下一个指标。
 
 int main() {
 
     auto baseScene = iGame::Scene::New();
-    const std::string fileName = "./Models/Tet_Plane.vtk";
+    const std::string fileName = "./Models/Boundary_Mesh_Quality_Test.vtk";
     iGame::DataObject::Pointer dataObj = iGame::FileIO::ReadFile(fileName);
     if (dataObj != nullptr) {
         baseScene->AddModel(dataObj);
