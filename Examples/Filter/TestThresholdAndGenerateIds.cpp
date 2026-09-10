@@ -1,6 +1,22 @@
+/**
+ * @file TestThresholdAndGenerateIds.cpp
+ * @brief GenerateIds 与 Threshold 两个滤波器的自动测试示例。
+ *
+ * 测试数据全部来自仓库内 Examples/Models 目录(构建时由 iGameCopyExampleAssets
+ * 拷贝到运行目录下的 ./Models/),示例代码写死相对路径,无需任何手动输入,
+ * 直接运行即可自动完成全部测试项并输出结果。
+ *
+ * 覆盖内容:
+ *   1. GenerateIds:点/单元 Id 生成,同名 Point/Cell 属性共存,64 位 Id 精度
+ *   2. GenerateIds:混合单元类型(四边形 + 三角形)网格上的 Id 生成
+ *   3. Threshold:点关联标量 + AllScalars,筛选后 Id 数组无损传递
+ *   4. Threshold:单元关联标量筛选
+ *   5. Threshold:边界模式(Closed / Open)语义对比
+ */
 #include "Threshold/iGameThresholdFilter.h"
-#include "iGameFileIO.h"
 #include "GenerateIds/iGameGenerateIdsFilter.h"
+#include "iGameFileIO.h"
+#include "iGameFlatArray.h"
 #include "iGameUnstructuredMesh.h"
 
 #include <algorithm>
@@ -10,8 +26,25 @@
 
 namespace {
 
-const char* AssociationName(iGame::ThresholdFilter::Association association) {
-    return association == iGame::ThresholdFilter::Association::Cell ? "Cell" : "Point";
+// ---------------- 测试模型(相对 Examples 运行目录,无需手动输入) ----------------
+const char* kThresholdScalarModel = "./Models/ThresholdScalarField.vtk";
+const char* kThresholdVolumeModel = "./Models/ThresholdVolumeData.vtk";
+const char* kGenerateIdsModel = "./Models/GenerateIdsTestData.vtk";
+const char* kGenerateIdsMixedModel = "./Models/GenerateIdsMixedCells.vtk";
+
+// 2^53 + 1:double 无法精确表示的奇数(该区间 double 间距为 2),
+// 用于验证 64 位 Id 不经过 double 丢失精度
+const long long kLargeStartId = 9007199254740993LL;
+
+int g_Failures = 0;
+
+void Check(bool ok, const std::string& what) {
+    std::cout << (ok ? "  [ok]   " : "  [FAIL] ") << what << "\n";
+    if (!ok) { ++g_Failures; }
+}
+
+const char* AssociationName(IGenum attachmentType) {
+    return attachmentType == IG_CELL ? "Cell" : "Point";
 }
 
 const char* DataTypeName(IGenum type) {
@@ -52,23 +85,39 @@ void PrintMeshSummary(const char* title, iGame::DataObject::Pointer obj) {
         if (attr.isDeleted || !attr.pointer) continue;
         std::cout << "    [" << i << "] " << attr.pointer->GetName()
                   << " type=" << (attr.type == IG_VECTOR ? "vector" : "scalar")
-                  << " attach=" << (attr.attachmentType == IG_CELL ? "cell" : "point")
+                  << " attach=" << AssociationName(attr.attachmentType)
                   << " dim=" << attr.pointer->GetDimension()
                   << " count=" << attr.pointer->GetNumberOfElements() << "\n";
     }
 }
 
-iGame::AttributeSet::Attribute* FindAttribute(iGame::AttributeSet* attrs, const std::string& name) {
+// 按名称与(可选的)挂载类型查找属性,attachmentType == IG_NONE 表示不限挂载类型
+iGame::AttributeSet::Attribute* FindAttribute(iGame::AttributeSet* attrs, const std::string& name,
+                                              IGenum attachmentType = IG_NONE) {
     if (!attrs) return nullptr;
     for (IGsize i = 0; i < attrs->GetNumberOfAttributes(); ++i) {
         auto& attr = attrs->GetAttribute(i);
         if (attr.isDeleted || !attr.pointer) continue;
-        if (attr.pointer->GetName() == name) return &attr;
+        if (attr.pointer->GetName() != name) continue;
+        if (attachmentType != IG_NONE && attr.attachmentType != attachmentType) continue;
+        return &attr;
     }
     return nullptr;
 }
 
-bool ComputeScalarRange(iGame::ArrayObject::Pointer array, int dimension, double& minValue, double& maxValue) {
+int CountAttributes(iGame::AttributeSet* attrs, const std::string& name, IGenum attachmentType) {
+    if (!attrs) return 0;
+    int found = 0;
+    for (IGsize i = 0; i < attrs->GetNumberOfAttributes(); ++i) {
+        auto& attr = attrs->GetAttribute(i);
+        if (attr.isDeleted || !attr.pointer) continue;
+        if (attr.pointer->GetName() == name && attr.attachmentType == attachmentType) ++found;
+    }
+    return found;
+}
+
+bool ComputeScalarRange(iGame::ArrayObject::Pointer array, int dimension, double& minValue,
+                        double& maxValue) {
     if (!array || dimension < 0 || dimension >= array->GetDimension()) return false;
     const IGsize count = array->GetNumberOfElements();
     if (count == 0) return false;
@@ -86,97 +135,253 @@ bool ComputeScalarRange(iGame::ArrayObject::Pointer array, int dimension, double
     return finiteCount > 0;
 }
 
+iGame::DataObject::Pointer ReadModel(const char* path) {
+    std::cout << "\n[Read] " << path << "\n";
+    auto object = iGame::FileIO::ReadFile(path);
+    if (!object) {
+        std::cerr << "[FAIL] 读取测试模型失败: " << path << "\n";
+        ++g_Failures;
+    }
+    return object;
+}
+
 iGame::DataObject::Pointer RunGenerateIds(iGame::DataObject::Pointer input, IGenum dataType,
-                                          const std::string& arrayName) {
+                                          const std::string& arrayName, long long startId = 0) {
     auto filter = iGame::iGameGenerateIdsFilter::New(dataType);
     filter->SetInput(input);
     filter->SetArrayName(arrayName);
-    filter->SetStartId(0);
+    filter->SetStartId(startId);
     if (!filter->Execute()) {
-        std::cerr << "[FAIL] iGameGenerateIdsFilter Execute() failed for " << arrayName << "\n";
+        std::cerr << "[FAIL] iGameGenerateIdsFilter::Execute() 失败: " << arrayName << "\n";
+        ++g_Failures;
         return nullptr;
     }
     auto output = filter->GetOutput();
     if (!output) {
-        std::cerr << "[FAIL] iGameGenerateIdsFilter produced null output for " << arrayName << "\n";
-        return nullptr;
+        std::cerr << "[FAIL] iGameGenerateIdsFilter 输出为空: " << arrayName << "\n";
+        ++g_Failures;
     }
     return output;
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    // 默认使用仓库内置测试数据(相对 Examples 运行目录的 ./Models/,由
-    // iGameCopyExampleAssets 自动拷贝);也可通过 argv[1] 传入任意数据集。
-    const std::string fileName = argc > 1 ? argv[1] : "./Models/ThresholdTestData.vtk";
-
-    std::cout << "Reading: " << fileName << std::endl;
-    auto input = iGame::FileIO::ReadFile(fileName);
-    if (!input) {
-        std::cerr << "[FAIL] Failed to read VTK file.\n";
-        return 1;
+// 校验 Id 以 LongLongArray 保存,且超过 2^53 的取值精确无损
+void CheckIdPrecision(iGame::AttributeSet* attrs, const std::string& name, long long startId) {
+    auto attr = FindAttribute(attrs, name, IG_POINT);
+    if (!attr) {
+        Check(false, "找到点关联 Id 数组 " + name);
+        return;
     }
-    PrintMeshSummary("[Input]", input);
 
-    auto withPointIds = RunGenerateIds(input, IG_POINT, "PointIds");
-    if (!withPointIds) return 1;
-    PrintMeshSummary("[GenerateIds PointIds]", withPointIds);
+    Check(attr->pointer->GetArrayType() == IG_LongLongArray, name + " 使用 LongLongArray 存储");
 
-    auto withCellIds = RunGenerateIds(withPointIds, IG_CELL, "CellIds");
-    if (!withCellIds) return 1;
-    PrintMeshSummary("[GenerateIds CellIds]", withCellIds);
+    auto typed = iGame::DynamicCast<iGame::LongLongArray>(attr->pointer);
+    if (!typed) {
+        Check(false, name + " 可转换为 LongLongArray");
+        return;
+    }
 
-    auto attrs = withCellIds->GetAttributeSet();
-    auto curvature = FindAttribute(attrs, "Curvature");
-    if (!curvature) {
-        std::cerr << "[FAIL] Point scalar 'Curvature' not found.\n";
-        return 1;
+    const long long first = typed->ValueAt(0);
+    const long long second = typed->ValueAt(1);
+    Check(first == startId, name + " 首元素精确等于起始编号(" + std::to_string(startId) + ")");
+    Check(second == startId + 1,
+          name + " 次元素精确等于起始编号 + 1(" + std::to_string(startId + 1) + ")");
+    Check(static_cast<long long>(static_cast<double>(first)) != first,
+          name + " 若经 double 中转会丢失精度(证明类型化直写必要)");
+}
+
+// 在一个模型上执行 GenerateIds + Threshold,并校验 Id 数组无损传递
+void RunThresholdCase(const char* title, const char* modelPath, const std::string& scalarName,
+                      iGame::ThresholdFilter::Association association) {
+    std::cout << "\n=== " << title << " ===\n";
+    auto input = ReadModel(modelPath);
+    if (!input) return;
+    PrintMeshSummary("[输入模型]", input);
+
+    auto withIds = RunGenerateIds(input, IG_POINT, "PointIds");
+    if (!withIds) return;
+    withIds = RunGenerateIds(withIds, IG_CELL, "CellIds");
+    if (!withIds) return;
+    PrintMeshSummary("[GenerateIds 之后]", withIds);
+
+    const IGenum attachment =
+            association == iGame::ThresholdFilter::Association::Cell ? IG_CELL : IG_POINT;
+    auto attrs = withIds->GetAttributeSet();
+    auto scalar = FindAttribute(attrs, scalarName, attachment);
+    if (!scalar) {
+        Check(false, "找到标量数组 " + scalarName + "(" + AssociationName(attachment) + " 关联)");
+        return;
     }
 
     double minValue = 0.0;
     double maxValue = 0.0;
-    if (!ComputeScalarRange(curvature->pointer, 0, minValue, maxValue)) {
-        std::cerr << "[FAIL] Could not compute Curvature range.\n";
-        return 1;
+    if (!ComputeScalarRange(scalar->pointer, 0, minValue, maxValue)) {
+        Check(false, "计算标量 " + scalarName + " 的取值范围");
+        return;
     }
     const double span = maxValue - minValue;
     const double lower = minValue + 0.2 * span;
     const double upper = minValue + 0.8 * span;
-    std::cout << "[Threshold] scalar=Curvature attach=" << AssociationName(iGame::ThresholdFilter::Association::Point)
-              << " range=[" << lower << ", " << upper << "] (data min=" << minValue << ", max=" << maxValue << ")\n";
+    std::cout << "  标量 " << scalarName << " 范围=[" << minValue << ", " << maxValue
+              << "],阈值区间=[" << lower << ", " << upper << "]\n";
+
+    auto inputMesh = iGame::UnstructuredMesh::TransDataObjToUnstructuredMesh(withIds);
+    const IGsize inputCellCount = inputMesh ? inputMesh->GetNumberOfCells() : 0;
 
     auto threshold = iGame::ThresholdFilter::New();
-    threshold->SetInput(withCellIds);
-    threshold->SetScalarData(curvature->pointer, iGame::ThresholdFilter::Association::Point, 0);
+    threshold->SetInput(withIds);
+    threshold->SetScalarData(scalar->pointer, association, 0);
     threshold->SetThreshold(lower, upper);
     threshold->SetBoundaryMode(iGame::ThresholdFilter::BoundaryMode::Closed);
     threshold->SetPointEvaluation(iGame::ThresholdFilter::PointEvaluation::AllScalars);
     if (!threshold->Execute()) {
-        std::cerr << "[FAIL] ThresholdFilter Execute() failed.\n";
-        return 1;
+        Check(false, "ThresholdFilter::Execute()");
+        return;
     }
 
     auto output = threshold->GetOutput();
-    PrintMeshSummary("[Threshold Curvature]", output);
+    PrintMeshSummary("[Threshold 之后]", output);
     if (!output) {
-        std::cerr << "[FAIL] ThresholdFilter produced null output.\n";
-        return 1;
+        Check(false, "ThresholdFilter 输出非空");
+        return;
     }
 
     auto outMesh = iGame::UnstructuredMesh::TransDataObjToUnstructuredMesh(output);
-    if (!outMesh || outMesh->GetNumberOfCells() == 0) {
-        std::cerr << "[FAIL] Threshold output has no cells.\n";
-        return 1;
+    Check(outMesh && outMesh->GetNumberOfCells() > 0, "筛选结果包含单元");
+    Check(outMesh && outMesh->GetNumberOfCells() < inputCellCount,
+          "筛选结果单元数少于输入(阈值区间有效收紧)");
+
+    auto outPointIds = FindAttribute(output->GetAttributeSet(), "PointIds", IG_POINT);
+    auto outCellIds = FindAttribute(output->GetAttributeSet(), "CellIds", IG_CELL);
+    Check(outPointIds != nullptr, "点关联 Id 数组穿过滤波器");
+    Check(outCellIds != nullptr, "单元关联 Id 数组穿过滤波器");
+    if (outMesh && outPointIds && outCellIds) {
+        Check(outPointIds->pointer->GetNumberOfElements() == outMesh->GetNumberOfPoints(),
+              "点 Id 数量与新网格点数一致");
+        Check(outCellIds->pointer->GetNumberOfElements() == outMesh->GetNumberOfCells(),
+              "单元 Id 数量与新网格单元数一致");
+    }
+}
+
+// 校验边界模式:开区间保留单元数不多于闭区间
+void CheckBoundaryModes(const char* modelPath, const std::string& scalarName) {
+    std::cout << "\n=== Threshold 边界模式对比(Closed / Open) ===\n";
+    auto input = ReadModel(modelPath);
+    if (!input) return;
+
+    auto attrs = input->GetAttributeSet();
+    auto scalar = FindAttribute(attrs, scalarName, IG_POINT);
+    if (!scalar) {
+        Check(false, "找到标量数组 " + scalarName);
+        return;
     }
 
-    auto outPointIds = FindAttribute(output->GetAttributeSet(), "PointIds");
-    auto outCellIds = FindAttribute(output->GetAttributeSet(), "CellIds");
-    if (!outPointIds || !outCellIds) {
-        std::cerr << "[FAIL] Threshold output is missing generated Id arrays.\n";
-        return 1;
+    double minValue = 0.0;
+    double maxValue = 0.0;
+    if (!ComputeScalarRange(scalar->pointer, 0, minValue, maxValue)) {
+        Check(false, "计算标量 " + scalarName + " 的取值范围");
+        return;
+    }
+    const double span = maxValue - minValue;
+    const double lower = minValue + 0.2 * span;
+    const double upper = minValue + 0.8 * span;
+
+    IGsize cellCounts[2] = {0, 0};
+    const iGame::ThresholdFilter::BoundaryMode modes[2] = {
+            iGame::ThresholdFilter::BoundaryMode::Closed,
+            iGame::ThresholdFilter::BoundaryMode::Open};
+    for (int m = 0; m < 2; ++m) {
+        auto threshold = iGame::ThresholdFilter::New();
+        threshold->SetInput(input);
+        threshold->SetScalarData(scalar->pointer, iGame::ThresholdFilter::Association::Point, 0);
+        threshold->SetThreshold(lower, upper);
+        threshold->SetBoundaryMode(modes[m]);
+        threshold->SetPointEvaluation(iGame::ThresholdFilter::PointEvaluation::AnyScalar);
+        if (!threshold->Execute()) {
+            Check(false, "边界模式 Execute()");
+            return;
+        }
+        auto mesh = iGame::UnstructuredMesh::TransDataObjToUnstructuredMesh(threshold->GetOutput());
+        cellCounts[m] = mesh ? mesh->GetNumberOfCells() : 0;
     }
 
-    std::cout << "[PASS] GenerateIds + Threshold completed.\n";
-    return 0;
+    std::cout << "  Closed 保留单元: " << cellCounts[0] << ", Open 保留单元: " << cellCounts[1]
+              << "\n";
+    Check(cellCounts[0] >= cellCounts[1], "闭区间保留单元数不少于开区间");
+}
+
+} // namespace
+
+int main() {
+    std::cout << "=== iGameVis 滤波器自动测试:GenerateIds / Threshold ===\n";
+    std::cout << "测试模型:Examples/Models 内置数据,直接运行即可,无需手动输入\n";
+
+    // 1) GenerateIds:标准四边形网格
+    std::cout << "\n=== GenerateIds 基础用例(GenerateIdsTestData) ===\n";
+    auto base = ReadModel(kGenerateIdsModel);
+    if (base) {
+        PrintMeshSummary("[输入模型]", base);
+
+        auto withPointIds = RunGenerateIds(base, IG_POINT, "PointIds");
+        if (withPointIds) PrintMeshSummary("[GenerateIds 点关联]", withPointIds);
+
+        auto withCellIds = RunGenerateIds(withPointIds, IG_CELL, "CellIds");
+        if (withCellIds) {
+            PrintMeshSummary("[GenerateIds 单元关联]", withCellIds);
+            auto attrs = withCellIds->GetAttributeSet();
+            Check(FindAttribute(attrs, "PointIds", IG_POINT) != nullptr, "存在点关联 PointIds");
+            Check(FindAttribute(attrs, "CellIds", IG_CELL) != nullptr, "存在单元关联 CellIds");
+        }
+
+        // 同名 Point/Cell 属性:两个 "Ids" 应共存且各仅一份,重复执行不新增
+        auto sameName = RunGenerateIds(withCellIds, IG_POINT, "Ids");
+        sameName = RunGenerateIds(sameName, IG_CELL, "Ids");
+        sameName = RunGenerateIds(sameName, IG_POINT, "Ids");
+        if (sameName) {
+            auto attrs = sameName->GetAttributeSet();
+            Check(CountAttributes(attrs, "Ids", IG_POINT) == 1, "同名点属性 Ids 仅一份");
+            Check(CountAttributes(attrs, "Ids", IG_CELL) == 1, "同名单元属性 Ids 仅一份");
+        }
+
+        // 64 位 Id 精度(起始编号 > 2^53)
+        auto bigIds = RunGenerateIds(sameName, IG_POINT, "BigIds", kLargeStartId);
+        if (bigIds) {
+            PrintMeshSummary("[大整数 Id]", bigIds);
+            CheckIdPrecision(bigIds->GetAttributeSet(), "BigIds", kLargeStartId);
+        }
+    }
+
+    // 2) GenerateIds:混合单元类型
+    std::cout << "\n=== GenerateIds 混合单元类型(GenerateIdsMixedCells) ===\n";
+    auto mixed = ReadModel(kGenerateIdsMixedModel);
+    if (mixed) {
+        PrintMeshSummary("[输入模型]", mixed);
+        auto mixedIds = RunGenerateIds(mixed, IG_POINT, "PointIds");
+        mixedIds = RunGenerateIds(mixedIds, IG_CELL, "CellIds");
+        if (mixedIds) {
+            PrintMeshSummary("[GenerateIds 之后]", mixedIds);
+            auto attrs = mixedIds->GetAttributeSet();
+            Check(FindAttribute(attrs, "PointIds", IG_POINT) != nullptr, "混合单元网格生成点 Id");
+            Check(FindAttribute(attrs, "CellIds", IG_CELL) != nullptr, "混合单元网格生成单元 Id");
+        }
+    }
+
+    // 3) Threshold:点关联 + AllScalars(平滑标量场)
+    RunThresholdCase("[3] Threshold 点关联(ThresholdScalarField / Pressure)", kThresholdScalarModel,
+                     "Pressure", iGame::ThresholdFilter::Association::Point);
+
+    // 4) Threshold:单元关联(体网格 + 单元标量)
+    RunThresholdCase("[4] Threshold 单元关联(ThresholdVolumeData / CellQuality)",
+                     kThresholdVolumeModel, "CellQuality",
+                     iGame::ThresholdFilter::Association::Cell);
+
+    // 5) Threshold:边界模式语义
+    CheckBoundaryModes(kThresholdScalarModel, "Pressure");
+
+    std::cout << "\n";
+    if (g_Failures == 0) {
+        std::cout << "[PASS] GenerateIds + Threshold 自动测试全部通过。\n";
+        return 0;
+    }
+    std::cout << "[FAIL] 自动测试存在 " << g_Failures << " 项失败。\n";
+    return 1;
 }
