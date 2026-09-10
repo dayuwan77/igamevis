@@ -15,6 +15,11 @@
 #include <stdexcept>
 
 namespace {
+constexpr const char* ModelFilePath = "Models/TriangleStripTestModel.vtk";
+constexpr const char* ExpectedTriangleCount = "8";
+constexpr IGsize ExpectedBoundarySegmentCount = 10;
+constexpr int ExpectedJoinedPointCount = 11;
+
 void Check(bool condition, const char* message) {
     if (!condition) { throw std::runtime_error(message); }
 }
@@ -26,23 +31,8 @@ T* Control(QWidget* panel, const char* name) {
     return result;
 }
 
-iGame::SurfaceMesh::Pointer OpenTriangle() {
-    auto mesh = iGame::SurfaceMesh::New();
-    auto points = iGame::Points::New();
-    points->AddPoint(0, 0, 0);
-    points->AddPoint(1, 0, 0);
-    points->AddPoint(0, 1, 0);
-    auto faces = iGame::CellArray::New();
-    faces->AddCellId3(0, 1, 2);
-    mesh->SetPoints(points);
-    mesh->SetFaces(faces);
-    mesh->SetName("OpenTriangle");
-    return mesh;
-}
 }
 
-// argv[1] optionally overrides the cylinder VTK file (default: Models/...).
-// Optional argv[2] saves a panel preview for visual regression review.
 int main(int argc, char** argv) {
     Q_INIT_RESOURCE(iGameQtMainWindow);
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) { qputenv("QT_QPA_PLATFORM", "offscreen"); }
@@ -55,7 +45,6 @@ int main(int argc, char** argv) {
         const auto families = QFontDatabase::applicationFontFamilies(fontId);
         Check(!families.isEmpty(), "The bundled font has no family");
         app.setFont(QFont(families.first(), 10));
-        const char* modelFile = argc >= 2 ? argv[1] : "Models/ContourExtraction_cylinder_UnstructedGrid.vtk";
         iGame::Log::Init();
         std::unique_ptr<QDockWidget> dock(igQtTriangleStripWidget::createDockWidget(nullptr));
         auto* panel = dock->findChild<igQtTriangleStripWidget*>();
@@ -81,41 +70,44 @@ int main(int argc, char** argv) {
                              Check(!lines || panel->isOutput(lines), "Line output is not recognized");
                          });
 
-        auto cylinder = iGame::FileIO::ReadFile(modelFile);
-        Check(cylinder != nullptr, "Cannot read the cylinder model");
-        panel->setInput(cylinder);
+        auto testModel = iGame::FileIO::ReadFile(ModelFilePath);
+        Check(testModel != nullptr, "Cannot read the triangle-strip test model");
+        panel->setInput(testModel);
         Check(apply->isEnabled(), "Valid input did not enable Apply");
         apply->click();
         Check(resultCount == 1 && panel->lastFilter(), "Apply was not connected to the filter");
         Check(panel->lastFilter()->GetMaximumLength() == 1000, "Length was not passed to filter");
-        Check(Control<QLabel>(panel, "trianglesBefore")->text() == "3976", "Wrong input triangle count");
-        Check(Control<QLabel>(panel, "trianglesAfter")->text() == "3976", "Wrong output triangle count");
-        Check(panel->lastFilter()->GetNumberOfStrips() > 0, "No strips generated");
-        Check(panel->polyLineOutput() == nullptr, "Closed cylinder should have no boundary lines");
-        Check(panel->input() == cylinder.get(), "Apply changed the source to its output");
+        Check(Control<QLabel>(panel, "trianglesBefore")->text() == ExpectedTriangleCount, "Wrong input triangle count");
+        Check(Control<QLabel>(panel, "trianglesAfter")->text() == ExpectedTriangleCount, "Wrong output triangle count");
+        Check(panel->lastFilter()->GetNumberOfStrips() == 1, "Model was not converted into one full strip");
+        Check(panel->lastFilter()->GetLongestStripLength() == 8, "Full strip has the wrong length");
+        Check(panel->polyLineOutput() &&
+                      panel->polyLineOutput()->GetNumberOfCells() == ExpectedBoundarySegmentCount,
+              "Open test model has an unexpected boundary-segment count");
+        Check(Control<QLabel>(panel, "polyLineCount")->text() == QStringLiteral("10 → 10"),
+              "Wrong unmerged boundary statistics");
+        Check(panel->input() == testModel.get(), "Apply changed the source to its output");
 
         length->setValue(4);
         Check(panel->apply() && resultCount == 2, "Cannot reapply modified parameters");
-        Check(panel->lastFilter()->GetLongestStripLength() <= 4, "New length limit ignored");
-        Check(Control<QLabel>(panel, "trianglesAfter")->text() == "3976", "Reapply lost triangles");
+        Check(panel->lastFilter()->GetNumberOfStrips() == 2, "Length limit did not split the full strip in two");
+        Check(panel->lastFilter()->GetLongestStripLength() == 4, "New length limit ignored");
+        Check(Control<QLabel>(panel, "trianglesAfter")->text() == ExpectedTriangleCount, "Reapply lost triangles");
 
-        auto patch = OpenTriangle();
-        panel->setInput(patch);
-        Check(Control<QLabel>(panel, "trianglesBefore")->text() == QStringLiteral("—"), "Input change left stale statistics");
-        join->setChecked(false);
-        Check(panel->apply(), "Open patch failed");
-        Check(panel->polyLineOutput() && panel->polyLineOutput()->GetNumberOfCells() == 3, "Unmerged boundary should have three segments");
         join->setChecked(true);
         apply->click();
         Check(panel->lastFilter()->GetJoinContiguousSegments(), "Merge checkbox not passed to filter");
         auto* lines = panel->polyLineOutput();
-        Check(lines && lines->GetNumberOfCells() == 1, "Three boundary segments did not join");
-        Check(lines->GetCellType(0) == iGame::IG_POLY_LINE && lines->GetCells()->GetCellSize(0) == 4,
+        Check(lines && lines->GetNumberOfCells() == 1, "Model boundary segments did not join");
+        Check(lines->GetCellType(0) == iGame::IG_POLY_LINE &&
+                      lines->GetCells()->GetCellSize(0) == ExpectedJoinedPointCount,
               "Joined output must be one closed polyline, not a polygon");
         const igIndex* ids = nullptr;
         lines->GetCells()->GetCellIds(0, ids);
-        Check(ids[0] == ids[3], "Polyline should close at its starting point");
-        Check(Control<QLabel>(panel, "polyLineCount")->text() == QStringLiteral("3 → 1"), "Wrong line statistics");
+        Check(ids[0] == ids[ExpectedJoinedPointCount - 1],
+              "Polyline should close at its starting point");
+        Check(Control<QLabel>(panel, "polyLineCount")->text() == QStringLiteral("10 → 1"),
+              "Wrong joined boundary statistics");
 
         // Unsupported explicit lines must not be silently dropped by extraction.
         iGame::UnstructuredMesh::Pointer explicitLines = lines;
@@ -128,16 +120,10 @@ int main(int argc, char** argv) {
         panel->setInput(nullptr);
         Check(!apply->isEnabled() && panel->lastFilter() == nullptr, "Clearing source left an active result");
 
-        panel->setInput(cylinder);
+        panel->setInput(testModel);
         length->setValue(1000);
         join->setChecked(false);
-        Check(panel->apply(), "Final cylinder run failed");
-        if (argc >= 3) {
-            dock->resize(470, 780);
-            dock->show();
-            app.processEvents();
-            Check(dock->grab().save(QString::fromLocal8Bit(argv[2])), "Cannot save panel preview");
-        }
+        Check(panel->apply(), "Final triangle-strip test model run failed");
         std::cout << "Triangle-strip Qt panel tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

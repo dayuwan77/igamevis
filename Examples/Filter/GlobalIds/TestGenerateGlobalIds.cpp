@@ -26,7 +26,7 @@ namespace
 
 using namespace iGame;
 
-std::string TestModelFilePath = "Models/ContourExtraction_cylinder_UnstructedGrid.vtk";
+constexpr const char* TestModelFilePath = "Models/GlobalIdsTestModel.vtk";
 
 void Check(bool condition, const std::string& message) {
     if (!condition) { throw std::runtime_error(message); }
@@ -132,8 +132,8 @@ void CheckIdRange(const DoubleArray::Pointer& ids, IGsize count, iguIndex64 star
 void TestFileModelAndExistingPolicies() {
     constexpr iguIndex64 initialPointOffset = 10000;
     constexpr iguIndex64 initialCellOffset = 2000;
-    constexpr IGsize expectedPointCount = 8499;
-    constexpr IGsize expectedCellCount = 7472;
+    constexpr IGsize expectedPointCount = 12;
+    constexpr IGsize expectedCellCount = 4;
 
     std::cout << "  Model file: " << TestModelFilePath << '\n';
     auto mesh = FileIO::ReadFile(TestModelFilePath);
@@ -182,7 +182,7 @@ void TestFileModelAndExistingPolicies() {
     Check(initial->GetPointOffset() == initialPointOffset &&
                   initial->GetCellOffset() == initialCellOffset,
           "Execute unexpectedly modified the configured start offsets.");
-    Check(nextPointOffset == 18499 && nextCellOffset == 9472,
+    Check(nextPointOffset == 10012 && nextCellOffset == 2004,
           "The completed next offsets are incorrect.");
 
     auto rejectExisting = GenerateGlobalIdsFilter::New();
@@ -513,13 +513,7 @@ void TestDoublePrecisionBoundary() {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
-    if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " [model.vtk]\n";
-        return 2;
-    }
-    if (argc == 2) { TestModelFilePath = argv[1]; }
-
+int main() {
     const std::vector<std::pair<std::string, std::function<void()>>> tests{
             {"VTK file model and existing-ID policies", TestFileModelAndExistingPolicies},
             {"simulated process-prefix offsets", TestSimulatedProcessOffsets},

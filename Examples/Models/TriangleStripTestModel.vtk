@@ -1,0 +1,57 @@
+# vtk DataFile Version 3.0
+AI-generated open triangle ribbon for TriangleStripFilter
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 10 float
+0 0 0
+1 0 0.1
+2 0 0
+3 0 -0.1
+4 0 0
+0 1 0.2
+1 1 0.3
+2 1 0.2
+3 1 0.1
+4 1 0.2
+CELLS 8 32
+3 0 6 5
+3 0 1 6
+3 1 7 6
+3 1 2 7
+3 2 8 7
+3 2 3 8
+3 3 9 8
+3 3 4 9
+CELL_TYPES 8
+5
+5
+5
+5
+5
+5
+5
+5
+POINT_DATA 10
+SCALARS RibbonHeight float 1
+LOOKUP_TABLE default
+0
+0.1
+0
+-0.1
+0
+0.2
+0.3
+0.2
+0.1
+0.2
+CELL_DATA 8
+SCALARS PatchId int 1
+LOOKUP_TABLE default
+1
+1
+2
+2
+3
+3
+4
+4
