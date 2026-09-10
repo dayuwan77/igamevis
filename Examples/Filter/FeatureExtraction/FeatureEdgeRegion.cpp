@@ -13,7 +13,7 @@
 
 
 int main() { 
-	const std::string fileName = "./Models/Quad_Bicycle.vtk"; 
+	const std::string fileName = "./Models/FeatureRegion_MountingPlate.vtk"; 
 	auto scene = iGame::Scene::New();
     auto input = iGame::FileIO::ReadFile(fileName);
 
