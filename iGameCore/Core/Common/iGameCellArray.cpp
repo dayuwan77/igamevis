@@ -39,6 +39,7 @@ bool CellArray::DeepCopy(CellArray::Pointer o) {
     if (o == nullptr) return false;
     m_Buffer = IdArray::New();
     m_Buffer->DeepCopy(o->m_Buffer);
+    m_Offsets = UnsignedIntArray::New();
     m_Offsets->DeepCopy(o->m_Offsets);
     m_DeleteMasker->DeepCopy(o->m_DeleteMasker);
     m_NumberOfCells = o->m_NumberOfCells;

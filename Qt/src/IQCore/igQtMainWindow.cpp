@@ -79,6 +79,7 @@
 #include <IQWidgets/igQtDeformationWidget.h>
 #include <IQWidgets/igQtExtractCellsByTypeWidget.h>
 #include <IQWidgets/igQtExtractLocationWidget.h>
+#include <IQWidgets/igQtValidateCellsResultDialog.h>
 #include <IQWidgets/igQtGlobalIdWidget.h>
 #include <IQWidgets/igQtMergeVectorComponentsWidget.h>
 #include <IQWidgets/igQtModelClipWidget.h>
@@ -2284,26 +2285,45 @@ void igQtMainWindow::initAllFilters() {
                                              QStringLiteral("当前模型没有可用的网格数据。"));
                     return;
                 }
+                if (DynamicCast<UnstructuredMesh>(obj).IsNull() &&
+                    DynamicCast<SurfaceMesh>(obj).IsNull()) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("单元几何校验"),
+                            QStringLiteral("当前输入数据类型不支持。%1")
+                                    .arg(QString::fromStdString(
+                                            ValidateCellsFilter::GetSupportedCellTypesDescription())));
+                    return;
+                }
+
                 ValidateCellsFilter::Pointer filter = ValidateCellsFilter::New();
                 filter->SetInput(obj);
-                filter->SetModel(model);
                 if (!filter->Execute()) {
-                    showDarkFramelessMessage(QStringLiteral("校验失败"),
-                                             QStringLiteral("该数据类型不支持单元几何校验。"));
+                    showDarkFramelessMessage(
+                            QStringLiteral("单元几何校验"),
+                            QStringLiteral("执行失败：%1")
+                                    .arg(filter->GetLastError().empty()
+                                                 ? QStringLiteral("未知错误。")
+                                                 : QString::fromStdString(filter->GetLastError())));
                     return;
                 }
-                const auto& invalidIds = filter->GetInvalidCellIds();
-                if (invalidIds.empty()) {
-                    showDarkFramelessMessage(QStringLiteral("校验通过"),
-                                             QStringLiteral("未发现无效单元，当前网格几何体有效。"), true);
+
+                auto output = filter->GetOutput();
+                if (output == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("单元几何校验"),
+                                             QStringLiteral("执行失败：无法生成独立输出节点。"));
                     return;
                 }
-                modelTreeWidget->addDataObjectToModelTree(obj, Algorithm);
+
+                modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+                auto outputModel = scene->GetCurrentModel();
                 rendererWidget->update();
-                showDarkFramelessMessage(QStringLiteral("单元几何校验"),
-                                         QString(QStringLiteral("发现 %1 个无效单元，已高亮显示。"))
-                                                 .arg(static_cast<int>(invalidIds.size())),
-                                         false);
+
+                auto* resultDialog = new igQtValidateCellsResultDialog(
+                        filter, outputModel != nullptr ? outputModel.GetPointer() : model.GetPointer(),
+                        rendererWidget, this);
+                resultDialog->show();
+                resultDialog->raise();
+                resultDialog->activateWindow();
             });
 
     connect(ui->menu_filters->addAction(QStringLiteral("面/点法向量计算 (Surface Normals)")), &QAction::triggered, this,
