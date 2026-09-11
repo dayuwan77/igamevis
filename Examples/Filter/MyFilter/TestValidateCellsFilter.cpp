@@ -8,7 +8,7 @@
 int main() {
     auto scene = iGame::Scene::New();
 
-    const std::string fileName = "././Models/iGameValidateCellsFilter_test.vtk";
+    const std::string fileName = "././Models/iGameValidateCellsFilter_mixed.vtk";
     auto obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
         std::cout << "读取文件失败!\n";
@@ -17,15 +17,8 @@ int main() {
         return 0;
     }
 
-    // 先将数据对象加入场景，创建关联的 Model。
-    // 无效单元格的高亮绘制依赖 Model 持有的 SelectedCell Painter3D，
-    // 因此必须在 filter->Execute() 之前让 Model 存在并关联到 filter。
-    scene->AddModel(obj);
-    auto model = scene->GetCurrentModel();
-
     auto filter = iGame::ValidateCellsFilter::New();
     filter->SetInput(obj);
-    filter->SetModel(model);  // 关键：设置 Model，Execute() 中的选择高亮才会生效
 
     if (!filter->Execute()) {
         std::cout << "单元校验执行失败!\n";
@@ -33,6 +26,9 @@ int main() {
         std::cin.get();
         return 0;
     }
+
+    // ValidateCellsFilter 会生成独立的 *_ValidateCells 输出节点，原始数据不会被修改。
+    scene->AddModel(filter->GetOutput());
 
     int invalidCount = filter->GetInvalidCellCount();
     std::cout << "无效单元数量: " << invalidCount << std::endl;
