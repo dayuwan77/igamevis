@@ -2468,6 +2468,7 @@ void igQtMainWindow::initAllFilters() {
         if (scene == nullptr || scene->GetCurrentModel() == nullptr) return;
 
         const auto model = scene->GetCurrentModel();
+        const auto sourceModelId = scene->GetCurrentModelID();
         const auto dataObject = model == nullptr ? nullptr : model->GetDataObject();
         if (model == nullptr || dataObject == nullptr ||
             (DynamicCast<UnstructuredMesh>(dataObject).IsNull() && DynamicCast<VolumeMesh>(dataObject).IsNull())) {
@@ -2486,7 +2487,7 @@ void igQtMainWindow::initAllFilters() {
         const int toleranceId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
                                                      QStringLiteral("公差 (Tolerance)"), "0.0");
         dialog->show();
-        dialog->setApplyFunctor([this, dialog, model, toleranceId]() {
+        dialog->setApplyFunctor([this, dialog, model, scene, sourceModelId, toleranceId]() {
             bool toleranceOk = false;
             const double tolerance = dialog->getDouble(toleranceId, toleranceOk);
             if (!toleranceOk || tolerance < 0.0) {
@@ -2507,11 +2508,18 @@ void igQtMainWindow::initAllFilters() {
                 return;
             }
 
-            // Filter 直接向当前网格附加单元标量；刷新模型树并立即切换到该标量云图。
-            auto data = model->GetDataObject();
+            // Filter 返回独立网格；原模型及其属性保持不变。
+            auto data = filter->GetOutput();
+            if (data == nullptr) {
+                showDarkFramelessMessage(QStringLiteral("检测重叠单元"),
+                                         QStringLiteral("执行失败：未生成有效输出。"));
+                return;
+            }
+            const auto outputModelId = modelTreeWidget->addDataObjectToModelTree(
+                    data, ItemSource::Algorithm);
+            auto outputModel = scene->GetModelById(outputModelId);
             const int attributeIndex = data->GetAttributeSet()->GetAttributeIndex(
                     OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName());
-            modelTreeWidget->updateAllAttriubute(data);
             auto item = modelTreeWidget->getItemFromObject(data);
             if (item != nullptr && attributeIndex >= 0 && attributeIndex < item->childCount()) {
                 item->setExpanded(true);
@@ -2537,13 +2545,39 @@ void igQtMainWindow::initAllFilters() {
                     overlapCounts.size() <= kPreviewCount
                             ? QStringLiteral("[%1]").arg(overlapCountPreview.join(QStringLiteral(", ")))
                             : QStringLiteral("[%1, ...]").arg(overlapCountPreview.join(QStringLiteral(", ")));
-            auto selection = model->GetSelection();
+            auto selection = outputModel == nullptr ? nullptr : outputModel->GetSelection();
             if (selection != nullptr) {
                 selection->Reset();
                 if (!overlappingCellIds.empty()) {
                     selection->SelectionCallBackEvent(IG_CELL, overlappingCellIds, Selection::Operate::Add);
                     selection->SetSelectItemVisable(true);
                 }
+            }
+            if (outputModel != nullptr) {
+                model->SetVisibility(false);
+                outputModel->SetVisibility(true);
+                scene->SetCurrentModel(outputModel);
+
+                // 该结果与输入节点采用互斥显示：选择输入时恢复原始外观，
+                // 选择结果时显示标量和重叠高亮，避免结果轮廓覆盖原模型。
+                const bool hasOverlaps = !overlappingCellIds.empty();
+                connect(modelTreeWidget, &igQtModelDialogWidget::CurrendModelChanged, this,
+                        [this, scene, sourceModelId, outputModelId, hasOverlaps]() {
+                            auto sourceModel = scene->GetModelById(sourceModelId);
+                            auto resultModel = scene->GetModelById(outputModelId);
+                            if (resultModel == nullptr) return;
+
+                            const auto currentModelId = scene->GetCurrentModelID();
+                            const bool resultSelected = currentModelId == outputModelId;
+                            resultModel->SetVisibility(resultSelected);
+                            if (auto resultSelection = resultModel->GetSelection())
+                                resultSelection->SetSelectItemVisable(resultSelected && hasOverlaps);
+
+                            if (sourceModel != nullptr &&
+                                (currentModelId == sourceModelId || resultSelected))
+                                sourceModel->SetVisibility(!resultSelected);
+                            rendererWidget->update();
+                        });
             }
             rendererWidget->update();
 
