@@ -3,6 +3,9 @@
 #include "iGameStructuredMesh.h"
 
 #include <exception>
+#include <algorithm>
+#include <stdexcept>
+#include <vector>
 
 IGAME_NAMESPACE_BEGIN
 
@@ -86,16 +89,113 @@ bool TryGetPolyhedronFaceCount(UnstructuredMesh* mesh, IGsize cellId, unsigned i
     faceCount = static_cast<unsigned int>(parsedFaceCount);
     return true;
 }
+
+template<class T>
+typename T::Pointer CopyArray(typename T::Pointer source) {
+    if (source.IsNull()) return nullptr;
+    auto copy = T::New();
+    if (!copy->DeepCopy(source)) throw std::runtime_error("Failed to copy mesh data.");
+    return copy;
+}
+
+// AttributeSet::DeepCopy only handles floating-point arrays. Preserve integer
+// attributes as well.
+ArrayObject::Pointer CopyAttribute(ArrayObject::Pointer source) {
+    if (source.IsNull()) return nullptr;
+    ArrayObject::Pointer copy;
+    switch (source->GetArrayType()) {
+#define COPY_ATTRIBUTE(Type) case IG_##Type: copy = CopyArray<Type>(DynamicCast<Type>(source)); break;
+        COPY_ATTRIBUTE(FloatArray)
+        COPY_ATTRIBUTE(DoubleArray)
+        COPY_ATTRIBUTE(IntArray)
+        COPY_ATTRIBUTE(UnsignedIntArray)
+        COPY_ATTRIBUTE(CharArray)
+        COPY_ATTRIBUTE(UnsignedCharArray)
+        COPY_ATTRIBUTE(ShortArray)
+        COPY_ATTRIBUTE(UnsignedShortArray)
+        COPY_ATTRIBUTE(LongLongArray)
+        COPY_ATTRIBUTE(UnsignedLongLongArray)
+#undef COPY_ATTRIBUTE
+        default: throw std::runtime_error("Unsupported attribute array type.");
+    }
+    if (!copy) throw std::runtime_error("Inconsistent attribute array type.");
+    copy->SetName(source->GetName());
+    return copy;
+}
+
+PointSet::Pointer CopyGeometry(DataObject::Pointer input) {
+    PointSet::Pointer output;
+    if (auto mesh = DynamicCast<StructuredMesh>(input); mesh) {
+        auto copy = StructuredMesh::New();
+        output = copy;
+        igIndex size[3];
+        std::copy_n(mesh->GetDimensionSize(), 3, size);
+        copy->SetDimensionSize(size);
+        std::copy_n(mesh->GetExtent(), 6, copy->GetExtent());
+        copy->GenStructuredCellConnectivities();
+    } else if (auto mesh = DynamicCast<LagrangeUnstructuredMesh>(input); mesh) {
+        auto copy = LagrangeUnstructuredMesh::New();
+        output = copy;
+        for (IGsize id = 0; id < mesh->GetNumberOfCells(); ++id) {
+            const igIndex* ids = nullptr;
+            const int size = mesh->GetCellPointIds(id, ids);
+            if (size <= 0 || !ids) throw std::runtime_error("Invalid Lagrange connectivity.");
+            std::vector<igIndex> nodes(ids, ids + size);
+            copy->AddCell(nodes.data(), size, mesh->GetSpecificCellType(id), mesh->GetCellOrder(id));
+        }
+    } else if (auto mesh = DynamicCast<UnstructuredMesh>(input); mesh) {
+        auto copy = UnstructuredMesh::New();
+        output = copy;
+        copy->SetCells(CopyArray<CellArray>(mesh->GetCells()),
+                       CopyArray<UnsignedIntArray>(mesh->GetCellTypes()));
+    } else if (auto mesh = DynamicCast<VolumeMesh>(input); mesh) {
+        auto copy = VolumeMesh::New();
+        output = copy;
+        if (mesh->GetIsPolyhedronType() && mesh->GetNumberOfVolumes() > 0) {
+            if (!mesh->GetFaces() || mesh->GetNumberOfFaces() == 0)
+                throw std::runtime_error("Missing polyhedron faces.");
+            auto volumeFaces = CellArray::New();
+            std::vector<igIndex> ids(mesh->GetNumberOfFaces());
+            for (IGsize id = 0; id < mesh->GetNumberOfVolumes(); ++id) {
+                const int size = mesh->GetVolumeFaceIds(id, ids.data());
+                if (size <= 0 || size > IGAME_CELL_MAX_SIZE)
+                    throw std::runtime_error("Invalid or oversized polyhedron connectivity.");
+                volumeFaces->AddCellIds(ids.data(), size);
+            }
+            copy->InitVolumesWithPolyhedron(CopyArray<CellArray>(mesh->GetFaces()), volumeFaces);
+        } else {
+            copy->SetVolumes(CopyArray<CellArray>(mesh->GetVolumes()));
+        }
+    } else if (auto mesh = DynamicCast<SurfaceMesh>(input); mesh) {
+        auto copy = SurfaceMesh::New();
+        output = copy;
+        copy->SetFaces(CopyArray<CellArray>(mesh->GetFaces()));
+        copy->SetEdges(CopyArray<CellArray>(mesh->GetEdges()));
+    }
+    if (!output) throw std::runtime_error("Unsupported output mesh type.");
+    auto points = input->GetPoints();
+    if (points.IsNull()) throw std::runtime_error("Input mesh has no points.");
+    output->SetPoints(CopyArray<Points>(points));
+    output->SetName("CountCellFaces");
+    return output;
+}
+
 } // namespace
 
 bool CountCellFacesFilter::Execute() {
+    SetOutput(nullptr);
+    m_FaceCounts = nullptr;
     try {
-        return ExecuteInternal();
+        if (ExecuteInternal()) return true;
+        m_FaceCounts = nullptr;
+        return false;
     } catch (const std::exception& exception) {
+        SetOutput(nullptr);
         m_FaceCounts = nullptr;
         m_Message = std::string("Exception while counting cell faces: ") + exception.what();
         igError("[CountCellFacesFilter] {}", m_Message);
     } catch (...) {
+        SetOutput(nullptr);
         m_FaceCounts = nullptr;
         m_Message = "Unknown exception while counting cell faces.";
         igError("[CountCellFacesFilter] {}", m_Message);
@@ -169,11 +269,16 @@ bool CountCellFacesFilter::ExecuteInternal() {
             igError("[CountCellFacesFilter] {}", m_Message);
             return false;
         }
+        std::vector<igIndex> faceIds;
+        if (mesh->GetIsPolyhedronType() && cellCount > 0) {
+            if (!mesh->GetFaces() || mesh->GetNumberOfFaces() == 0)
+                throw std::runtime_error("Missing polyhedron faces.");
+            faceIds.resize(mesh->GetNumberOfFaces());
+        }
         m_FaceCounts->Resize(cellCount);
         for (IGsize cellId = 0; cellId < cellCount; ++cellId) {
             if (mesh->GetIsPolyhedronType()) {
-                igIndex faceIds[IGAME_CELL_MAX_SIZE]{};
-                const int faceCount = mesh->GetVolumeFaceIds(cellId, faceIds);
+                const int faceCount = mesh->GetVolumeFaceIds(cellId, faceIds.data());
                 if (faceCount > 0) {
                     m_FaceCounts->SetValue(cellId, static_cast<unsigned int>(faceCount));
                     continue;
@@ -216,27 +321,22 @@ bool CountCellFacesFilter::ExecuteInternal() {
                 unsupportedCellCount);
     }
 
-    auto* newAttrs = input->GetAttributeSet();
-    if (!newAttrs) {
-        m_Message = "Input mesh has no attribute set.";
-        igError("[CountCellFacesFilter] {}", m_Message);
-        return false;
-    }
-
-    const int oldAttributeIndex = newAttrs->GetAttributeIndex(ResultAttributeName);
-    if (oldAttributeIndex >= 0) {
-        newAttrs->DeleteAttribute(static_cast<IGsize>(oldAttributeIndex));
+    auto output = CopyGeometry(input);
+    auto newAttrs = AttributeSet::New();
+    if (auto* attributes = input->GetAttributeSet()) {
+        for (IGsize id = 0; id < attributes->GetNumberOfAttributes(); ++id) {
+            const auto& attribute = attributes->GetAttribute(id);
+            if (attribute.isDeleted || attribute.pointer.IsNull()
+                || attribute.pointer->GetName() == ResultAttributeName) continue;
+            newAttrs->AddAttribute(attribute.type, attribute.attachmentType,
+                                  CopyAttribute(attribute.pointer));
+        }
     }
     newAttrs->AddScalar(IG_CELL, m_FaceCounts);
-    if (newAttrs->GetAttributeIndex(ResultAttributeName) < 0) {
-        m_Message = std::string("Failed to add IG_CELL attribute '")
-                    + ResultAttributeName + "'.";
-        igError("[CountCellFacesFilter] {}", m_Message);
-        return false;
-    }
-    newAttrs->ForceReConvertToDrawableData();
-
-    SetOutput(input);
+    output->SetAttributeSet(newAttrs);
+    // A new output has no GPU state to invalidate. In particular, do not call
+    // AttributeSet::ForceReConvertToDrawableData on the input's owner pointer.
+    SetOutput(output);
     m_Message = std::string("IG_CELL attribute '") + ResultAttributeName +
                 "' computed: " + std::to_string(cellCount);
     igDebug("[CountCellFacesFilter] {}", m_Message);
