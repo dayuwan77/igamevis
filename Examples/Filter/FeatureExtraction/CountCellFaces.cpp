@@ -1,41 +1,44 @@
 #include "FeatureExtraction/iGameCountCellFacesFilter.h"
 #include "iGameFileIO.h"
 
+#include <initializer_list>
 #include <iostream>
-#include <string>
+#include <stdexcept>
 
-int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: testCountCellFaces <input-model>\n";
-        return 1;
-    }
-
-    const std::string inputFile = argv[1];
-    auto input = iGame::FileIO::ReadFile(inputFile);
-    if (input.IsNull()) {
-        std::cerr << "Failed to read input model: " << inputFile << '\n';
-        return 2;
-    }
-
+namespace {
+void CheckModel(const char* path, std::initializer_list<unsigned int> expected) {
+    auto input = iGame::FileIO::ReadFile(path);
+    if (!input) throw std::runtime_error("Failed to read model; run from the example directory.");
     auto filter = iGame::CountCellFacesFilter::New();
     filter->SetInput(input);
-    if (!filter->Execute()) {
-        std::cerr << "CountCellFacesFilter failed: " << filter->GetMessage() << '\n';
-        return 3;
-    }
+    if (!filter->Execute()) throw std::runtime_error(filter->GetMessage());
+    auto output = filter->GetOutput();
+    auto counts = filter->GetResult();
+    if (!output || !counts || counts->GetNumberOfValues() != expected.size())
+        throw std::runtime_error("Unexpected output or result length.");
+    const auto& attribute = output->GetAttributeSet()->GetAttribute("cellFaceCounts");
+    if (attribute.pointer != counts || attribute.attachmentType != IG_CELL)
+        throw std::runtime_error("Missing cellFaceCounts cell attribute.");
 
-    const auto faceCounts = filter->GetResult();
-    if (faceCounts.IsNull()) {
-        std::cerr << "CountCellFacesFilter returned no result.\n";
-        return 4;
+    std::cout << "Input: " << path << '\n';
+    IGsize id = 0;
+    for (auto value : expected) {
+        if (counts->GetValue(id) != value) throw std::runtime_error("Wrong face count.");
+        std::cout << "cell[" << id << "] = " << counts->GetValue(id) << '\n';
+        ++id;
     }
+    std::cout << "Face counts and cell attribute: PASS\n";
+}
+} // namespace
 
-    std::cout << "Input: " << inputFile << '\n';
-    std::cout << "Attribute: " << iGame::CountCellFacesFilter::ResultAttributeName << '\n';
-    std::cout << "Number of cells: " << faceCounts->GetNumberOfValues() << '\n';
-    for (IGsize cellId = 0; cellId < faceCounts->GetNumberOfValues(); ++cellId) {
-        std::cout << "cell[" << cellId << "] = " << faceCounts->GetValue(cellId) << '\n';
+int main() {
+    try {
+        CheckModel("Models/CountCellFaces_MixedCells.vtk", {4, 6, 5, 5, 0, 0, 0});
+        CheckModel("Models/CountCellFaces_QuadTensor.vtk", {0, 0});
+        std::cout << "CountCellFaces: all tests passed.\n";
+        return 0;
+    } catch (const std::exception& error) {
+        std::cerr << error.what() << '\n';
+        return 1;
     }
-
-    return 0;
 }
