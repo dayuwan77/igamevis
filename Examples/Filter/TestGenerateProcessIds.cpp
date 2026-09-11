@@ -26,8 +26,70 @@ IGAME_NAMESPACE_END
 
 namespace {
 
-bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
-                    IGsize expectCount, int expectValue) {
+// 统计指定挂载类型上同名数组的个数：用于校验输入未被写入、结果中同名数组唯一
+int CountArrays(iGame::DataObject::Pointer object, bool pointData, const std::string& arrayName) {
+    if (object == nullptr || object->GetAttributeSet() == nullptr) return 0;
+    auto attrs = pointData ? object->GetAttributeSet()->GetAllPointAttributes()
+                           : object->GetAttributeSet()->GetAllCellAttributes();
+    int count = 0;
+    if (attrs != nullptr) {
+        for (int i = 0; i < attrs->GetNumberOfElements(); ++i) {
+            auto arr = attrs->GetElement(i).pointer;
+            if (arr != nullptr && arr->GetName() == arrayName) ++count;
+        }
+    }
+    return count;
+}
+
+// 独立输出节点的公共校验：结果非空、是新对象、类型不变、几何共享、输入未被修改、结果数组唯一
+bool VerifyIndependentOutput(iGame::DataObject::Pointer input, iGame::DataObject::Pointer output, bool pointData,
+                             const std::string& arrayName) {
+    const char* label = pointData ? "point" : "cell";
+    if (output == nullptr) {
+        std::cout << "FAIL: " << label << " output is null\n";
+        return false;
+    }
+    if (output == input) {
+        std::cout << "FAIL: " << label << " output should be a new DataObject\n";
+        return false;
+    }
+    if (output->GetDataObjectType() != input->GetDataObjectType()) {
+        std::cout << "FAIL: " << label << " output type should stay unchanged\n";
+        return false;
+    }
+    auto inputPointSet = iGame::DynamicCast<iGame::PointSet>(input);
+    auto outputPointSet = iGame::DynamicCast<iGame::PointSet>(output);
+    if (inputPointSet == nullptr || outputPointSet == nullptr ||
+        inputPointSet->GetPoints() != outputPointSet->GetPoints()) {
+        std::cout << "FAIL: " << label << " output should share input geometry\n";
+        return false;
+    }
+    if (CountArrays(input, pointData, arrayName) != 0) {
+        std::cout << "FAIL: " << label << " input should not be modified\n";
+        return false;
+    }
+    if (CountArrays(output, pointData, arrayName) != 1) {
+        std::cout << "FAIL: " << label << " result array should be unique\n";
+        return false;
+    }
+    return true;
+}
+
+// 结果数组逐元素校验（含挂载类型）
+template <typename ExpectValue>
+bool VerifyResultValues(iGame::DataObject::Pointer output, bool pointData, const std::string& arrayName,
+                        IGsize expectCount, ExpectValue expectValue) {
+    auto& attr = output->GetAttributeSet()->GetScalar(arrayName);
+    auto arr = attr.pointer;
+    bool ok = (arr != nullptr) && (arr->GetNumberOfElements() == expectCount) &&
+              (attr.attachmentType == (pointData ? IG_POINT : IG_CELL));
+    for (IGsize i = 0; ok && i < expectCount; ++i) ok = (arr->GetValue(i) == expectValue(i));
+    return ok;
+}
+
+// 常数进程号：结果为独立节点，值全部等于常数
+bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName, IGsize expectCount,
+                    int expectValue) {
     auto filter = iGame::GenerateProcessIdsFilter::New();
     filter->SetInput(mesh);
     filter->SetGeneratePointData(pointData);
@@ -37,13 +99,13 @@ bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::
         std::cout << "FAIL: Execute\n";
         return false;
     }
-    auto& attr = mesh->GetAttributeSet()->GetScalar(arrayName);
-    auto arr = attr.pointer;
-    bool ok = (arr != nullptr) && (arr->GetNumberOfElements() == expectCount);
-    for (IGsize i = 0; ok && i < expectCount; ++i) ok = (arr->GetValue(i) == expectValue);
-    return ok;
+    auto output = filter->GetOutput();
+    if (!VerifyIndependentOutput(mesh, output, pointData, arrayName)) return false;
+    return VerifyResultValues(output, pointData, arrayName, expectCount,
+                              [expectValue](IGsize) { return static_cast<long long>(expectValue); });
 }
 
+// 分区进程号：派生类按 index % 2 分配
 bool VerifyPartitioned(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
                        IGsize expectCount) {
     auto filter = iGame::MockPartitionedProcessIdsFilter::New();
@@ -54,15 +116,15 @@ bool VerifyPartitioned(iGame::DataObject::Pointer mesh, bool pointData, const st
         std::cout << "FAIL: Execute (partitioned)\n";
         return false;
     }
-    auto& attr = mesh->GetAttributeSet()->GetScalar(arrayName);
-    auto arr = attr.pointer;
-    bool ok = (arr != nullptr) && (arr->GetNumberOfElements() == expectCount);
-    for (IGsize i = 0; ok && i < expectCount; ++i) ok = (arr->GetValue(i) == static_cast<long long>(i % 2));
-    return ok;
+    auto output = filter->GetOutput();
+    if (!VerifyIndependentOutput(mesh, output, pointData, arrayName)) return false;
+    return VerifyResultValues(output, pointData, arrayName, expectCount,
+                              [](IGsize i) { return static_cast<long long>(i % 2); });
 }
 
-bool VerifyIdempotent(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
-                      IGsize expectCount, int expectValue) {
+// 重复执行：每次都得到新的独立结果，输入始终不被写入、结果中同名数组始终唯一
+bool VerifyRepeatedExecution(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
+                             IGsize expectCount, int expectValue) {
     for (int run = 0; run < 2; ++run) {
         auto filter = iGame::GenerateProcessIdsFilter::New();
         filter->SetInput(mesh);
@@ -70,30 +132,21 @@ bool VerifyIdempotent(iGame::DataObject::Pointer mesh, bool pointData, const std
         filter->SetGenerateCellData(!pointData);
         filter->SetProcessId(expectValue);
         if (!filter->Execute()) {
-            std::cout << "FAIL: Execute (idempotent run " << run << ")\n";
+            std::cout << "FAIL: Execute (repeated run " << run << ")\n";
+            return false;
+        }
+        auto output = filter->GetOutput();
+        if (!VerifyIndependentOutput(mesh, output, pointData, arrayName)) return false;
+        if (!VerifyResultValues(output, pointData, arrayName, expectCount,
+                                [expectValue](IGsize) { return static_cast<long long>(expectValue); })) {
+            std::cout << "FAIL: repeated run " << run << " values\n";
             return false;
         }
     }
-    auto attrs = pointData ? mesh->GetAttributeSet()->GetAllPointAttributes()
-                           : mesh->GetAttributeSet()->GetAllCellAttributes();
-    int count = 0;
-    if (attrs != nullptr) {
-        for (int i = 0; i < attrs->GetNumberOfElements(); ++i) {
-            auto arr = attrs->GetElement(i).pointer;
-            if (arr != nullptr && arr->GetName() == arrayName) ++count;
-        }
-    }
-    if (count != 1) {
-        std::cout << "FAIL: idempotent array count=" << count << " (expect 1)\n";
-        return false;
-    }
-    auto& attr = mesh->GetAttributeSet()->GetScalar(arrayName);
-    auto arr = attr.pointer;
-    bool ok = (arr != nullptr) && (arr->GetNumberOfElements() == expectCount);
-    for (IGsize i = 0; ok && i < expectCount; ++i) ok = (arr->GetValue(i) == expectValue);
-    return ok;
+    return true;
 }
 
+// 外部 process_id 数组：结果沿用其值，该数组被拷入结果，输入保持不变
 bool VerifyExternalProcessId(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
                              IGsize expectCount) {
     auto pidArray = iGame::LongLongArray::New();
@@ -114,10 +167,22 @@ bool VerifyExternalProcessId(iGame::DataObject::Pointer mesh, bool pointData, co
         std::cout << "FAIL: Execute (external process_id)\n";
         return false;
     }
-    auto& attr = mesh->GetAttributeSet()->GetScalar(arrayName);
-    auto arr = attr.pointer;
-    bool ok = (arr != nullptr) && (arr->GetNumberOfElements() == expectCount);
-    for (IGsize i = 0; ok && i < expectCount; ++i) ok = (arr->GetValue(i) == static_cast<long long>(i % 3));
+    auto output = filter->GetOutput();
+    if (!VerifyIndependentOutput(mesh, output, pointData, arrayName)) return false;
+    if (!VerifyResultValues(output, pointData, arrayName, expectCount,
+                            [](IGsize i) { return static_cast<long long>(i % 3); })) {
+        return false;
+    }
+
+    // 输入上的 process_id 未被修改，且被拷贝到结果属性集中
+    auto& inputPid = mesh->GetAttributeSet()->GetScalar("process_id");
+    auto& outputPid = output->GetAttributeSet()->GetScalar("process_id");
+    bool ok = (inputPid.pointer != nullptr) && (outputPid.pointer != nullptr) &&
+              (outputPid.pointer->GetNumberOfElements() == expectCount);
+    for (IGsize i = 0; ok && i < expectCount; ++i) {
+        ok = (inputPid.pointer->GetValue(i) == static_cast<long long>(i % 3)) &&
+             (outputPid.pointer->GetValue(i) == static_cast<long long>(i % 3));
+    }
     return ok;
 }
 }  // namespace
@@ -191,6 +256,10 @@ bool VerifyUnsupportedCellData() {
         std::cout << "FAIL: GetMessage should be non-empty\n";
         return false;
     }
+    if (cellOnly->GetOutput() != nullptr) {
+        std::cout << "FAIL: failed execution should not keep an output\n";
+        return false;
+    }
 
     auto pointOnly = iGame::GenerateProcessIdsFilter::New();
     pointOnly->SetInput(mesh);
@@ -201,9 +270,10 @@ bool VerifyUnsupportedCellData() {
         std::cout << "FAIL: point data on PointSet should succeed\n";
         return false;
     }
-    auto& attr = mesh->GetAttributeSet()->GetScalar("PointProcessIds");
-    auto arr = attr.pointer;
-    return (arr != nullptr) && (arr->GetNumberOfElements() == 1) && (arr->GetValue(0) == 3);
+    // 点云只生成点进程号：结果仍是独立对象（PointSet -> PointSet）
+    auto output = pointOnly->GetOutput();
+    if (!VerifyIndependentOutput(mesh, output, true, "PointProcessIds")) return false;
+    return VerifyResultValues(output, true, "PointProcessIds", 1, [](IGsize) { return 3LL; });
 }
 
 int main(int argc, char* argv[]) {
@@ -236,13 +306,13 @@ int main(int argc, char* argv[]) {
     std::cout << (cellPartOk ? "PASS" : "FAIL") << ": partitioned cell CellProcessIds count=" << partCellNum << "\n";
     allOk = allOk && cellPartOk;
 
-    bool pointIdemOk = VerifyIdempotent(mesh, true, "PointProcessIds", pointNum, 7);
-    std::cout << (pointIdemOk ? "PASS" : "FAIL") << ": idempotent point PointProcessIds count=" << pointNum << "\n";
-    allOk = allOk && pointIdemOk;
+    bool pointRepeatOk = VerifyRepeatedExecution(mesh, true, "PointProcessIds", pointNum, 7);
+    std::cout << (pointRepeatOk ? "PASS" : "FAIL") << ": repeated point PointProcessIds count=" << pointNum << "\n";
+    allOk = allOk && pointRepeatOk;
 
-    bool cellIdemOk = VerifyIdempotent(mesh, false, "CellProcessIds", cellNum, 7);
-    std::cout << (cellIdemOk ? "PASS" : "FAIL") << ": idempotent cell CellProcessIds count=" << cellNum << "\n";
-    allOk = allOk && cellIdemOk;
+    bool cellRepeatOk = VerifyRepeatedExecution(mesh, false, "CellProcessIds", cellNum, 7);
+    std::cout << (cellRepeatOk ? "PASS" : "FAIL") << ": repeated cell CellProcessIds count=" << cellNum << "\n";
+    allOk = allOk && cellRepeatOk;
 
     auto extMesh = CreateMesh(argc, argv);
     if (extMesh == nullptr) return 1;

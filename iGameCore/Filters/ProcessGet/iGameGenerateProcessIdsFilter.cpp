@@ -1,20 +1,174 @@
 #include "iGameGenerateProcessIdsFilter.h"
 
+#include "iGameAttributeSet.h"
+#include "iGameFlatArray.h"
 #include "iGameLagrangeUnstructuredMesh.h"
 #include "iGameStructuredMesh.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
 #include "iGameVolumeMesh.h"
 
+#include <vector>
+
 IGAME_NAMESPACE_BEGIN
+
+namespace {
+
+// 输入上用于提供进程号的外部数组名（只读来源）
+const char* const ProcessIdSourceName = "process_id";
+// 生成结果数组名（固定命名，便于 GUI 与测试直接引用）
+const char* const PointProcessIdsName = "PointProcessIds";
+const char* const CellProcessIdsName = "CellProcessIds";
+
+// 在输入属性集中查找指定挂载类型上的 process_id(LongLong) 数组。
+LongLongArray::Pointer FindProcessIdArray(AttributeSet* attributes, IGenum attachmentType) {
+    if (attributes == nullptr) { return nullptr; }
+    auto allAttributes = attributes->GetAllAttributes();
+    if (allAttributes == nullptr) { return nullptr; }
+    for (IGsize i = 0; i < allAttributes->GetNumberOfElements(); ++i) {
+        auto& attribute = allAttributes->GetElement(i);
+        if (attribute.IsNone() || attribute.pointer == nullptr) { continue; }
+        if (attribute.attachmentType != attachmentType) { continue; }
+        if (attribute.pointer->GetName() != ProcessIdSourceName) { continue; }
+        if (auto ids = DynamicCast<LongLongArray>(attribute.pointer)) { return ids; }
+    }
+    return nullptr;
+}
+
+// 结果属性集 = 输入属性集的拷贝，跳过与输出同名的旧数组（覆盖语义，避免 isDeleted 残留）。
+// Float/Double 数组做深拷贝，其余类型共享指针（只读属性，避免无谓的数据复制）。
+void CopyInputAttributes(const AttributeSet::Pointer& source, const AttributeSet::Pointer& target) {
+    if (source == nullptr || target == nullptr) { return; }
+    auto allAttributes = source->GetAllAttributes();
+    if (allAttributes == nullptr) { return; }
+    for (IGsize i = 0; i < allAttributes->GetNumberOfElements(); ++i) {
+        auto& attribute = allAttributes->GetElement(i);
+        if (attribute.IsNone() || attribute.pointer == nullptr) { continue; }
+        const std::string name = attribute.pointer->GetName();
+        if (attribute.attachmentType == IG_POINT && name == PointProcessIdsName) { continue; }
+        if (attribute.attachmentType == IG_CELL && name == CellProcessIdsName) { continue; }
+
+        ArrayObject::Pointer copied;
+        if (auto floats = DynamicCast<FloatArray>(attribute.pointer)) {
+            auto clone = FloatArray::New();
+            clone->DeepCopy(floats);
+            clone->SetName(name);
+            copied = clone;
+        } else if (auto doubles = DynamicCast<DoubleArray>(attribute.pointer)) {
+            auto clone = DoubleArray::New();
+            clone->DeepCopy(doubles);
+            clone->SetName(name);
+            copied = clone;
+        } else {
+            copied = attribute.pointer;
+        }
+        target->AddAttribute(attribute.type, attribute.attachmentType, copied);
+    }
+}
+
+// 依据输入网格类型创建结果对象，几何（点/单元）与输入共享，不复制几何数据。
+DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
+    switch (input->GetDataObjectType()) {
+        case IG_POINT_SET: {
+            auto source = DynamicCast<PointSet>(input);
+            if (source == nullptr) { return nullptr; }
+            auto result = PointSet::New();
+            result->SetPoints(source->GetPoints());
+            return result;
+        }
+        case IG_UNSTRUCTURED_MESH: {
+            auto source = DynamicCast<UnstructuredMesh>(input);
+            if (source == nullptr) { return nullptr; }
+            auto result = UnstructuredMesh::New();
+            result->SetPoints(source->GetPoints());
+            if (source->GetCells() && source->GetCellTypes()) {
+                result->SetCells(source->GetCells(), UnsignedIntArray::Pointer(source->GetCellTypes()));
+            }
+            return result;
+        }
+        case IG_SURFACE_MESH: {
+            auto source = DynamicCast<SurfaceMesh>(input);
+            if (source == nullptr) { return nullptr; }
+            auto result = SurfaceMesh::New();
+            result->SetPoints(source->GetPoints());
+            if (source->GetFaces()) { result->SetFaces(CellArray::Pointer(source->GetFaces())); }
+            return result;
+        }
+        case IG_VOLUME_MESH: {
+            auto source = DynamicCast<VolumeMesh>(input);
+            if (source == nullptr) { return nullptr; }
+            auto result = VolumeMesh::New();
+            result->SetPoints(source->GetPoints());
+            if (source->GetFaces()) { result->SetFaces(CellArray::Pointer(source->GetFaces())); }
+            if (source->GetVolumes()) { result->SetVolumes(CellArray::Pointer(source->GetVolumes())); }
+            return result;
+        }
+        case IG_STRUCTURED_MESH: {
+            auto source = DynamicCast<StructuredMesh>(input);
+            if (source == nullptr) { return nullptr; }
+            auto result = StructuredMesh::New();
+            result->SetPoints(source->GetPoints());
+            result->SetDimensionSize(source->GetDimensionSize());
+            result->SetExtent(source->GetExtent());
+            result->GenStructuredCellConnectivities();
+            return result;
+        }
+        case IG_LAGRANGE_UNSTRUCTURED_MESH: {
+            auto source = DynamicCast<LagrangeUnstructuredMesh>(input);
+            if (source == nullptr) { return nullptr; }
+            auto result = LagrangeUnstructuredMesh::New();
+            result->SetPoints(source->GetPoints());
+            const IGsize cellNum = source->GetNumberOfCells();
+            for (IGsize i = 0; i < cellNum; ++i) {
+                const igIndex* ids = nullptr;
+                const int count = source->GetCellPointIds(i, ids);
+                if (count <= 0 || ids == nullptr) { continue; }
+                std::vector<igIndex> cellIds(ids, ids + count);
+                result->AddCell(cellIds.data(), count, source->GetSpecificCellType(i), source->GetCellOrder(i));
+            }
+            return result;
+        }
+        default:
+            return nullptr;
+    }
+}
+
+// 按输入元素数量生成进程号数组。
+template <typename ValueOf>
+LongLongArray::Pointer CreateProcessIds(const char* const name, const IGsize count, ValueOf valueOf) {
+    auto ids = LongLongArray::New();
+    ids->SetName(name);
+    ids->SetDimension(1);
+    ids->Resize(count);
+    for (IGsize i = 0; i < count; ++i) { ids->SetValue(i, valueOf(i)); }
+    return ids;
+}
+
+}  // namespace
 
 GenerateProcessIdsFilter::GenerateProcessIdsFilter() {
     SetNumberOfInputs(1);
     SetNumberOfOutputs(1);
 }
 
+long long GenerateProcessIdsFilter::GetPointProcessId(IGsize index) {
+    if (m_InputPointProcessIdArray != nullptr && index < m_InputPointProcessIdArray->GetNumberOfElements()) {
+        return static_cast<long long>(m_InputPointProcessIdArray->GetValue(index));
+    }
+    return m_ProcessId;
+}
+
+long long GenerateProcessIdsFilter::GetCellProcessId(IGsize index) {
+    if (m_InputCellProcessIdArray != nullptr && index < m_InputCellProcessIdArray->GetNumberOfElements()) {
+        return static_cast<long long>(m_InputCellProcessIdArray->GetValue(index));
+    }
+    return m_ProcessId;
+}
+
 bool GenerateProcessIdsFilter::Execute() {
     m_Message.clear();
+    // 执行失败时不保留上一次的结果
+    this->SetOutput(0, nullptr);
 
     auto input = GetInput(0);
     if (input == nullptr) {
@@ -34,70 +188,48 @@ bool GenerateProcessIdsFilter::Execute() {
         return false;
     }
 
-    m_PointProcessIdArray = nullptr;
-    m_CellProcessIdArray = nullptr;
+    if (!m_GeneratePointData && !m_GenerateCellData) {
+        m_Message = "Neither point nor cell process ids were requested.";
+        return false;
+    }
+
+    // 输入上已有的 process_id 数组：只读来源，输入本身不被修改
+    m_InputPointProcessIdArray = FindProcessIdArray(attributeSet, IG_POINT);
+    m_InputCellProcessIdArray = FindProcessIdArray(attributeSet, IG_CELL);
+
+    const IGsize pointNum = mesh->GetNumberOfPoints();
+    IGsize cellNum = 0;
+    if (m_GenerateCellData && !GetCellCount(mesh, cellNum)) {
+        m_Message = "GenerateProcessIdsFilter cannot generate cell data on this mesh type.";
+        return false;
+    }
+
+    // 结果属性集：输入属性拷贝 + 新生成的进程号数组
+    auto resultAttributeSet = AttributeSet::New();
+    CopyInputAttributes(attributeSet, resultAttributeSet);
 
     if (m_GeneratePointData) {
-        auto pointAttrs = attributeSet->GetAllPointAttributes();
-        if (pointAttrs != nullptr) {
-            for (int i = 0; i < pointAttrs->GetNumberOfElements(); ++i) {
-                auto& attr = pointAttrs->GetElement(i);
-                if (attr.pointer != nullptr && attr.pointer->GetName() == "process_id") {
-                    m_PointProcessIdArray = DynamicCast<LongLongArray>(attr.pointer);
-                    break;
-                }
-            }
-        }
-        LongLongArray::Pointer ids = nullptr;
-        auto& attr = attributeSet->GetScalar("PointProcessIds");
-        if (!attr.IsNone()) ids = DynamicCast<LongLongArray>(attr.pointer);
-        if (ids == nullptr) {
-            int idx = attributeSet->GetAttributeIndex("PointProcessIds");
-            if (idx >= 0) attributeSet->DeleteAttribute(idx);
-            ids = LongLongArray::New();
-            ids->SetName("PointProcessIds");
-            attributeSet->AddScalar(IG_POINT, ids);
-        }
-        IGsize pointNum = mesh->GetNumberOfPoints();
-        ids->Resize(pointNum);
-        for (IGsize i = 0; i < pointNum; ++i) {
-            ids->SetValue(i, GetPointProcessId(i));
-        }
+        auto pointIds = CreateProcessIds(PointProcessIdsName, pointNum,
+                                         [this](IGsize index) { return this->GetPointProcessId(index); });
+        resultAttributeSet->AddScalar(IG_POINT, pointIds);
     }
-
     if (m_GenerateCellData) {
-        IGsize cellNum = 0;
-        if (!GetCellCount(mesh, cellNum)) {
-            m_Message = "GenerateProcessIdsFilter cannot generate cell data on this mesh type.";
-            return false;
-        }
-        auto cellAttrs = attributeSet->GetAllCellAttributes();
-        if (cellAttrs != nullptr) {
-            for (int i = 0; i < cellAttrs->GetNumberOfElements(); ++i) {
-                auto& attr = cellAttrs->GetElement(i);
-                if (attr.pointer != nullptr && attr.pointer->GetName() == "process_id") {
-                    m_CellProcessIdArray = DynamicCast<LongLongArray>(attr.pointer);
-                    break;
-                }
-            }
-        }
-        LongLongArray::Pointer ids = nullptr;
-        auto& attr = attributeSet->GetScalar("CellProcessIds");
-        if (!attr.IsNone()) ids = DynamicCast<LongLongArray>(attr.pointer);
-        if (ids == nullptr) {
-            int idx = attributeSet->GetAttributeIndex("CellProcessIds");
-            if (idx >= 0) attributeSet->DeleteAttribute(idx);
-            ids = LongLongArray::New();
-            ids->SetName("CellProcessIds");
-            attributeSet->AddScalar(IG_CELL, ids);
-        }
-        ids->Resize(cellNum);
-        for (IGsize i = 0; i < cellNum; ++i) {
-            ids->SetValue(i, GetCellProcessId(i));
-        }
+        auto cellIds = CreateProcessIds(CellProcessIdsName, cellNum,
+                                        [this](IGsize index) { return this->GetCellProcessId(index); });
+        resultAttributeSet->AddScalar(IG_CELL, cellIds);
     }
 
-    SetOutput(input);
+    // 结果对象：几何与输入共享
+    auto result = CreateResultObject(input);
+    if (result == nullptr) {
+        m_Message = "GenerateProcessIdsFilter does not support an independent output for this mesh type.";
+        return false;
+    }
+
+    const std::string inputName = input->GetName();
+    result->SetName(inputName.empty() ? std::string("ProcessIds") : inputName + "_ProcessIds");
+    result->SetAttributeSet(resultAttributeSet);
+    SetOutput(result);
     return true;
 }
 
@@ -137,20 +269,6 @@ bool GenerateProcessIdsFilter::GetCellCount(PointSet* mesh, IGsize& cellCount) {
         default:
             return false;
     }
-}
-
-long long GenerateProcessIdsFilter::GetPointProcessId(IGsize index) {
-    if (m_PointProcessIdArray != nullptr && index < m_PointProcessIdArray->GetNumberOfElements()) {
-        return static_cast<long long>(m_PointProcessIdArray->GetValue(index));
-    }
-    return m_ProcessId;
-}
-
-long long GenerateProcessIdsFilter::GetCellProcessId(IGsize index) {
-    if (m_CellProcessIdArray != nullptr && index < m_CellProcessIdArray->GetNumberOfElements()) {
-        return static_cast<long long>(m_CellProcessIdArray->GetValue(index));
-    }
-    return m_ProcessId;
 }
 
 IGAME_NAMESPACE_END
