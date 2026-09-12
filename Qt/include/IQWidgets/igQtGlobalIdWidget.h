@@ -1,5 +1,7 @@
 #pragma once
 
+#include <iGameDataObject.h>
+
 #include <QWidget>
 
 class QComboBox;
@@ -10,7 +12,6 @@ class QPushButton;
 namespace iGame
 {
 class ArrayObject;
-class DataObject;
 class Model;
 }
 
@@ -33,6 +34,7 @@ public:
 
 signals:
     void cancelRequested();
+    void resultReady(iGame::DataObject::Pointer output);
 
 private slots:
     void generateGlobalIds();
@@ -41,7 +43,7 @@ private slots:
 private:
     Ui::igQtGlobalId* ui;
     iGame::Model* m_currentModel{nullptr};
-    iGame::DataObject* m_currentModelData{nullptr};
+    iGame::DataObject::Pointer m_currentModelData;
 
     QWidget* m_paginationWidget{nullptr};
     QPushButton* m_previousPageButton{nullptr};

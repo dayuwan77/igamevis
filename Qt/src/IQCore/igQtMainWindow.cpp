@@ -896,6 +896,11 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     GlobalIdDockWidget->resize(400, 600);
     GlobalIdDockWidget->hide();
     connect(GlobalIdWidget, &igQtGlobalIdWidget::cancelRequested, GlobalIdDockWidget, &QDockWidget::hide);
+    connect(GlobalIdWidget, &igQtGlobalIdWidget::resultReady, this, [this](DataObject::Pointer output) {
+        if (!output) return;
+        modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+        rendererWidget->update();
+    });
     connect(GlobalIdDockWidget, &QDockWidget::visibilityChanged, this, [this](bool visible) {
         if (!visible && GlobalIdWidget) GlobalIdWidget->resetOffsets();
     });

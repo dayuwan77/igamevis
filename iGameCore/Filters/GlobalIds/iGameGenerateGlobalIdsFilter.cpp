@@ -1,6 +1,8 @@
 #include "iGameGenerateGlobalIdsFilter.h"
 
 #include "iGameAttributeSet.h"
+#include "iGameCompositeDataObject.h"
+#include "iGameDrawObject.h"
 #include "iGameFlatArray.h"
 #include "iGameLagrangeUnstructuredMesh.h"
 #include "iGamePointSet.h"
@@ -65,6 +67,239 @@ struct PendingAttribute {
 };
 
 constexpr iguIndex64 MaximumExactDoubleInteger = iguIndex64{1} << std::numeric_limits<double>::digits;
+
+struct CloneContext {
+    // 多个叶子共享 Points 时，输出中也必须继续共享同一份克隆，否则会改变点 ID 的去重语义。
+    std::unordered_map<const Points*, Points::Pointer> PointCopies;
+    std::unordered_set<const DataObject*> VisitedObjects;
+};
+
+Points::Pointer ClonePoints(const PointSet::Pointer& source, CloneContext& context,
+                            std::string& errorMessage) {
+    if (!source || !source->GetPoints()) {
+        errorMessage = "A PointSet has no Points object.";
+        return nullptr;
+    }
+
+    const auto* pointIdentity = source->GetPoints().get();
+    const auto existing = context.PointCopies.find(pointIdentity);
+    if (existing != context.PointCopies.end()) { return existing->second; }
+
+    auto points = Points::New();
+    if (!points->DeepCopy(source->GetPoints())) {
+        errorMessage = "Failed to clone a Points object.";
+        return nullptr;
+    }
+
+    context.PointCopies.emplace(pointIdentity, points);
+    return points;
+}
+
+CellArray::Pointer CloneCells(CellArray* source, std::string& errorMessage) {
+    if (!source) { return nullptr; }
+
+    auto cells = CellArray::New();
+    if (!cells->DeepCopy(source)) {
+        errorMessage = "Failed to clone a CellArray.";
+        return nullptr;
+    }
+    return cells;
+}
+
+bool CloneAttributes(const DataObject::Pointer& source, const DataObject::Pointer& destination,
+                     std::string& errorMessage) {
+    if (!source || !source->GetAttributeSet()) {
+        errorMessage = "A DataObject has no AttributeSet.";
+        return false;
+    }
+
+    auto attributes = AttributeSet::New();
+    if (!attributes->DeepCopy(source->GetAttributeSet())) {
+        errorMessage = "Failed to clone a DataObject AttributeSet.";
+        return false;
+    }
+    destination->SetAttributeSet(attributes);
+    return true;
+}
+
+DataObject::Pointer CloneDataObjectTreeImpl(const DataObject::Pointer& source, CloneContext& context,
+                                            std::string& errorMessage) {
+    if (!source) {
+        errorMessage = "GenerateGlobalIdsFilter encountered a null DataObject while cloning.";
+        return nullptr;
+    }
+
+    if (!context.VisitedObjects.insert(source.get()).second) {
+        errorMessage = "GenerateGlobalIdsFilter cannot clone a cyclic or multiply referenced DataObject hierarchy.";
+        return nullptr;
+    }
+
+    DataObject::Pointer destination;
+
+    switch (source->GetDataObjectType()) {
+        case IG_DATA_OBJECT:
+            destination = DataObject::New();
+            break;
+
+        case IG_COMPOSITE_DATA_OBJECT:
+            destination = CompositeDataObject::New();
+            break;
+
+        case IG_DRAW_OBJECT:
+            destination = DrawObject::New();
+            break;
+
+        case IG_POINT_SET: {
+            auto sourceMesh = DynamicCast<PointSet>(source);
+            auto destinationMesh = PointSet::New();
+            auto points = ClonePoints(sourceMesh, context, errorMessage);
+            if (!points) { return nullptr; }
+            destinationMesh->SetPoints(points);
+            destination = destinationMesh;
+            break;
+        }
+
+        case IG_SURFACE_MESH: {
+            auto sourceMesh = DynamicCast<SurfaceMesh>(source);
+            auto destinationMesh = SurfaceMesh::New();
+            auto points = ClonePoints(sourceMesh, context, errorMessage);
+            if (!points) { return nullptr; }
+            destinationMesh->SetPoints(points);
+            if (sourceMesh->GetFaces()) {
+                auto faces = CloneCells(sourceMesh->GetFaces(), errorMessage);
+                if (!faces) { return nullptr; }
+                destinationMesh->SetFaces(faces);
+            }
+            if (sourceMesh->GetEdges()) {
+                auto edges = CloneCells(sourceMesh->GetEdges(), errorMessage);
+                if (!edges) { return nullptr; }
+                destinationMesh->SetEdges(edges);
+            }
+            destination = destinationMesh;
+            break;
+        }
+
+        case IG_VOLUME_MESH: {
+            auto sourceMesh = DynamicCast<VolumeMesh>(source);
+            auto destinationMesh = VolumeMesh::New();
+            auto points = ClonePoints(sourceMesh, context, errorMessage);
+            if (!points) { return nullptr; }
+            destinationMesh->SetPoints(points);
+            if (sourceMesh->GetVolumes()) {
+                auto volumes = CloneCells(sourceMesh->GetVolumes(), errorMessage);
+                if (!volumes) { return nullptr; }
+                destinationMesh->SetVolumes(volumes);
+            }
+            if (sourceMesh->GetFaces()) {
+                auto faces = CloneCells(sourceMesh->GetFaces(), errorMessage);
+                if (!faces) { return nullptr; }
+                destinationMesh->SetFaces(faces);
+            }
+            if (sourceMesh->GetEdges()) {
+                auto edges = CloneCells(sourceMesh->GetEdges(), errorMessage);
+                if (!edges) { return nullptr; }
+                destinationMesh->SetEdges(edges);
+            }
+            destination = destinationMesh;
+            break;
+        }
+
+        case IG_STRUCTURED_MESH: {
+            auto sourceMesh = DynamicCast<StructuredMesh>(source);
+            auto destinationMesh = StructuredMesh::New();
+            auto points = ClonePoints(sourceMesh, context, errorMessage);
+            if (!points) { return nullptr; }
+            destinationMesh->SetPoints(points);
+            destinationMesh->SetDimensionSize(sourceMesh->GetDimensionSize());
+            if (sourceMesh->GetVolumes()) {
+                auto volumes = CloneCells(sourceMesh->GetVolumes(), errorMessage);
+                if (!volumes) { return nullptr; }
+                destinationMesh->SetVolumes(volumes);
+            }
+            if (sourceMesh->GetFaces()) {
+                auto faces = CloneCells(sourceMesh->GetFaces(), errorMessage);
+                if (!faces) { return nullptr; }
+                destinationMesh->SetFaces(faces);
+            }
+            if (sourceMesh->GetEdges()) {
+                auto edges = CloneCells(sourceMesh->GetEdges(), errorMessage);
+                if (!edges) { return nullptr; }
+                destinationMesh->SetEdges(edges);
+            }
+            destination = destinationMesh;
+            break;
+        }
+
+        case IG_UNSTRUCTURED_MESH: {
+            auto sourceMesh = DynamicCast<UnstructuredMesh>(source);
+            auto destinationMesh = UnstructuredMesh::New();
+            auto points = ClonePoints(sourceMesh, context, errorMessage);
+            if (!points) { return nullptr; }
+            destinationMesh->SetPoints(points);
+
+            auto cells = CloneCells(sourceMesh->GetCells().get(), errorMessage);
+            if (!cells) { return nullptr; }
+            auto cellTypes = UnsignedIntArray::New();
+            if (!cellTypes->DeepCopy(sourceMesh->GetCellTypes())) {
+                errorMessage = "Failed to clone UnstructuredMesh cell types.";
+                return nullptr;
+            }
+            destinationMesh->SetCells(cells, cellTypes);
+            destination = destinationMesh;
+            break;
+        }
+
+        case IG_LAGRANGE_UNSTRUCTURED_MESH: {
+            auto sourceMesh = DynamicCast<LagrangeUnstructuredMesh>(source);
+            auto destinationMesh = LagrangeUnstructuredMesh::New();
+            auto points = ClonePoints(sourceMesh, context, errorMessage);
+            if (!points) { return nullptr; }
+            destinationMesh->SetPoints(points);
+
+            for (IGsize cellId = 0; cellId < sourceMesh->GetNumberOfCells(); ++cellId) {
+                const igIndex* sourceIds = nullptr;
+                const int pointCount = sourceMesh->GetCellPointIds(cellId, sourceIds);
+                if (pointCount <= 0 || !sourceIds) {
+                    errorMessage = "Failed to read a LagrangeUnstructuredMesh cell.";
+                    return nullptr;
+                }
+                std::vector<igIndex> cellIds(sourceIds, sourceIds + pointCount);
+                destinationMesh->AddCell(cellIds.data(), pointCount, sourceMesh->GetSpecificCellType(cellId),
+                                         sourceMesh->GetCellOrder(cellId));
+            }
+            destination = destinationMesh;
+            break;
+        }
+
+        default:
+            errorMessage = "Unsupported DataObject type while creating an independent output: " +
+                           std::to_string(source->GetDataObjectType()) + ".";
+            return nullptr;
+    }
+
+    if (!destination) {
+        errorMessage = "Failed to create an independent output DataObject.";
+        return nullptr;
+    }
+
+    destination->SetName(source->GetName());
+    if (!CloneAttributes(source, destination, errorMessage)) { return nullptr; }
+
+    if (source->HasSubDataObject()) {
+        for (auto it = source->SubDataObjectIteratorBegin(); it != source->SubDataObjectIteratorEnd(); ++it) {
+            auto child = CloneDataObjectTreeImpl(it->second, context, errorMessage);
+            if (!child) { return nullptr; }
+            destination->AddSubDataObject(child);
+        }
+    }
+
+    return destination;
+}
+
+DataObject::Pointer CloneDataObjectTree(const DataObject::Pointer& source, std::string& errorMessage) {
+    CloneContext context;
+    return CloneDataObjectTreeImpl(source, context, errorMessage);
+}
 
 /**
  * 判断两个 IGsize 相加是否会发生溢出。
@@ -499,14 +734,6 @@ bool GenerateGlobalIdsFilter::Execute() {
         return false;
     }
 
-    if (!m_GeneratePointIds && !m_GenerateCellIds) {
-        m_Message = "No Global ID array was requested.";
-
-        this->SetOutput(0, input);
-        this->UpdateProgress(1.0);
-        return true;
-    }
-
     if (m_GeneratePointIds && m_PointArrayName.empty()) {
         m_Message = "The Point Global ID array name is empty.";
         return false;
@@ -517,10 +744,32 @@ bool GenerateGlobalIdsFilter::Execute() {
         return false;
     }
 
+    DataObject::Pointer output;
+    try {
+        output = CloneDataObjectTree(input, m_Message);
+    } catch (const std::bad_alloc&) {
+        m_Message = "Memory allocation failed while cloning the input DataObject.";
+        return false;
+    } catch (const std::length_error&) {
+        m_Message = "The input DataObject is too large to clone on the current platform.";
+        return false;
+    }
+
+    if (!output) { return false; }
+
+    output->SetName(input->GetName().empty() ? "GlobalIds" : input->GetName() + "_GlobalIds");
+
+    if (!m_GeneratePointIds && !m_GenerateCellIds) {
+        m_Message = "No Global ID array was requested; an independent copy was created.";
+        this->SetOutput(0, output);
+        this->UpdateProgress(1.0);
+        return true;
+    }
+
     std::vector<DataObject::Pointer> leaves;
     std::vector<DataObject::Pointer> hierarchyContainers;
 
-    if (!CollectLeafObjects(input, leaves, m_Message, &hierarchyContainers)) { return false; }
+    if (!CollectLeafObjects(output, leaves, m_Message, &hierarchyContainers)) { return false; }
 
     if (leaves.empty()) {
         m_Message = "No leaf mesh was found in the input DataObject.";
@@ -536,7 +785,7 @@ bool GenerateGlobalIdsFilter::Execute() {
 
     /*
      * 第一阶段：收集所有叶子网格并统计实体数量。
-     * 此阶段不修改输入。
+     * 此阶段只读取独立输出，不修改输入。
      */
     for (const auto& leaf: leaves) {
         EntityCounts counts;
@@ -627,7 +876,7 @@ bool GenerateGlobalIdsFilter::Execute() {
 
     /*
      * 第二阶段：检查已有属性。
-     * 仍然不修改输入，确保错误不会造成部分提交。
+     * 仍然不提交属性，确保错误不会造成部分输出。
      */
     for (auto& plan: plans) {
         auto* attributes = plan.Object->GetAttributeSet();
@@ -729,7 +978,7 @@ bool GenerateGlobalIdsFilter::Execute() {
         }
     }
 
-    this->SetOutput(0, input);
+    this->SetOutput(0, output);
     this->UpdateProgress(1.0);
 
     m_Message = "Global ID generation completed. Point count: " + std::to_string(totalPointCount) +

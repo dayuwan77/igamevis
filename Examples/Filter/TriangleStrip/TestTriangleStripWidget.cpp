@@ -81,6 +81,18 @@ int main(int argc, char** argv) {
         Check(Control<QLabel>(panel, "trianglesAfter")->text() == ExpectedTriangleCount, "Wrong output triangle count");
         Check(panel->lastFilter()->GetNumberOfStrips() == 1, "Model was not converted into one full strip");
         Check(panel->lastFilter()->GetLongestStripLength() == 8, "Full strip has the wrong length");
+        auto publishedSurface = iGame::DynamicCast<iGame::SurfaceMesh>(lastSurface);
+        iGame::CellArray::Pointer publishedStrips;
+        iGame::CellArray::Pointer publishedSourceFaceIds;
+        Check(publishedSurface != nullptr &&
+                      iGame::TriangleStripFilter::ReadOutputStrips(
+                              publishedSurface, publishedStrips,
+                              publishedSourceFaceIds),
+              "Published output did not retain triangle-strip metadata");
+        Check(publishedStrips->GetNumberOfCells() == 1 &&
+                      publishedStrips->GetCellSize(0) == 10 &&
+                      publishedSourceFaceIds->GetCellSize(0) == 8,
+              "Published triangle-strip topology is invalid");
         Check(panel->polyLineOutput() &&
                       panel->polyLineOutput()->GetNumberOfCells() == ExpectedBoundarySegmentCount,
               "Open test model has an unexpected boundary-segment count");
@@ -92,6 +104,14 @@ int main(int argc, char** argv) {
         Check(panel->apply() && resultCount == 2, "Cannot reapply modified parameters");
         Check(panel->lastFilter()->GetNumberOfStrips() == 2, "Length limit did not split the full strip in two");
         Check(panel->lastFilter()->GetLongestStripLength() == 4, "New length limit ignored");
+        publishedSurface = iGame::DynamicCast<iGame::SurfaceMesh>(lastSurface);
+        Check(publishedSurface != nullptr &&
+                      iGame::TriangleStripFilter::ReadOutputStrips(
+                              publishedSurface, publishedStrips,
+                              publishedSourceFaceIds) &&
+                      publishedStrips->GetNumberOfCells() == 2 &&
+                      publishedSourceFaceIds->GetNumberOfCells() == 2,
+              "Published output lost length-limited strips or mappings");
         Check(Control<QLabel>(panel, "trianglesAfter")->text() == ExpectedTriangleCount, "Reapply lost triangles");
 
         join->setChecked(true);
