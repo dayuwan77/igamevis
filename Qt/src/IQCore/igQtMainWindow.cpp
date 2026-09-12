@@ -3671,13 +3671,11 @@ void igQtMainWindow::initAllFilters() {
                     rendererWidget->update();
                 };
 
-                // 列出单元类型勾选框（默认全选）并打开左侧工具面板
+                // 列出单元类型勾选框（默认全选）并打开左侧工具面板。
+                // 注意：这里只列出可提取类型，不自动执行提取——
+                // 待用户点【提取】后才生成 ExtractCellsByType_n，避免打开面板即生成一个与原模型重复的模型。
                 m_extractCellsByTypeWidget->SetDataObject(obj);
                 openLeftToolPanel(LeftToolPanelId::ExtractCellsByType);
-
-                // 打开即按默认全选执行一次（生成 ExtractCellsByType_n）；
-                // 用户随后改勾选再点"提取"即在该新模型上更新
-                m_extractCellsByTypeWidget->onApply();
             });
 
 
