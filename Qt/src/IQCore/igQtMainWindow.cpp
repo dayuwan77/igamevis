@@ -91,7 +91,7 @@
 #include <IQWidgets/igQtTensorWidget.h>
 #include <IQWidgets/igQtTriangleStripWidget.h>
 #include <IQWidgets/igQtVariableCorrelationWidget.h>
-#include <IQWidgets/igQtVolumeInterpolatorWidget.h>
+#include <IQWidgets/igQtPointVolumeInterpolatorWidget.h>
 #include <P3SAM/iGameP3SAMSegmenter.h>
 #include <QComboBox>
 #include <QDebug>
@@ -5236,43 +5236,71 @@ void igQtMainWindow::initAllFilters() {
         });
     });
 
-    connect(ui->menu_filters->addAction(QStringLiteral("体采样 (Volume Interpolation)")), &QAction::triggered, this,
+    connect(ui->menu_filters->addAction(QStringLiteral("点体积插值 (Point Volume Interpolator)")), &QAction::triggered, this,
             [this](bool) {
                 auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
                 if (scene == nullptr || scene->GetCurrentModel() == nullptr) {
-                    showDarkFramelessMessage(QStringLiteral("体采样"), QStringLiteral("请先选择一个模型。"));
+                    showDarkFramelessMessage(QStringLiteral("点体积插值"), QStringLiteral("请先选择一个模型。"));
                     return;
                 }
                 auto dataObject = scene->GetCurrentModel()->GetDataObject();
                 if (dataObject == nullptr) {
-                    showDarkFramelessMessage(QStringLiteral("体采样"), QStringLiteral("当前模型没有可用的数据对象。"));
-                    return;
-                }
-                auto volumeMesh = igQtVolumeInterpolatorWidget::ResolveVolumeMesh(dataObject);
-                if (volumeMesh == nullptr) {
-                    showDarkFramelessMessage(QStringLiteral("体采样"),
-                                             QStringLiteral("当前模型不是体网格，体采样仅支持四面体/六面体体网格。"));
-                    return;
-                }
-                if (!igQtVolumeInterpolatorWidget::CheckCellTypesSupported(volumeMesh.get())) {
-                    showDarkFramelessMessage(
-                            QStringLiteral("体采样"),
-                            QStringLiteral("当前体网格包含非四面体/六面体单元（如棱柱、金字塔、多面体等），"
-                                           "体采样插值仅支持四面体（Tetra）和六面体（Hexahedron）单元。"));
+                    showDarkFramelessMessage(QStringLiteral("点体积插值"), QStringLiteral("当前模型没有可用的数据对象。"));
                     return;
                 }
 
                 static igQtChromeFramelessDialog* dialog = nullptr;
-                static igQtVolumeInterpolatorWidget* widget = nullptr;
+                static igQtPointVolumeInterpolatorWidget* widget = nullptr;
                 if (!dialog) {
                     dialog = new igQtChromeFramelessDialog(this);
-                    dialog->setDialogTitle(QStringLiteral("体采样"));
+                    dialog->setDialogTitle(QStringLiteral("点体积插值"));
                     dialog->setMaximizeEnabled(false);
-                    widget = new igQtVolumeInterpolatorWidget(dialog->contentHost());
-                    dialog->setContentWidget(widget);
-                    dialog->resize(420, 360);
+                    widget = new igQtPointVolumeInterpolatorWidget(dialog->contentHost());
+                    {
+                        // 套滚动区，并把滚动区视口背景设为透明（否则会是白底）
+                        auto* scroll = qobject_cast<QScrollArea*>(
+                                wrapContentInScrollArea(widget, dialog->contentHost(), false));
+                        if (scroll) {
+                            scroll->setStyleSheet(
+                                    "QScrollArea { background: transparent; border: none; }"
+                                    "QScrollArea > QWidget > QWidget { background: transparent; }");
+                            scroll->viewport()->setAutoFillBackground(false);
+                            dialog->setContentWidget(scroll);
+                        } else {
+                            dialog->setContentWidget(widget);
+                        }
+                    }
+                    dialog->resize(480, 660);
+                    widget->SetOutputCallback([this](iGame::DataObject::Pointer out) {
+                        if (!out) return;
+                        modelTreeWidget->addDataObjectToModelTree(out, ItemSource::Algorithm);
+
+                        // 与其它 filter 一致：默认按第一个标量点属性上色
+                        if (auto attrSet = out->GetAttributeSet()) {
+                            int pointAttrIdx = -1;
+                            int cellAttrIdx = -1;
+                            for (int i = 0; i < static_cast<int>(attrSet->GetNumberOfAttributes()); ++i) {
+                                auto& attr = attrSet->GetAttribute(i);
+                                if (attr.IsNone() || attr.isDeleted || attr.type != IG_SCALAR) continue;
+                                if (attr.attachmentType == IG_POINT && pointAttrIdx < 0) {
+                                    pointAttrIdx = i;
+                                } else if (attr.attachmentType == IG_CELL && cellAttrIdx < 0) {
+                                    cellAttrIdx = i;
+                                }
+                            }
+                            const int activeIdx = (pointAttrIdx >= 0) ? pointAttrIdx : cellAttrIdx;
+                            if (activeIdx >= 0) {
+                                if (auto draw = iGame::DynamicCast<iGame::DrawObject>(out)) {
+                                    if (auto scene = rendererWidget->GetScene()) {
+                                        draw->ViewCloudPicture(scene, activeIdx, 0);
+                                    }
+                                }
+                            }
+                        }
+                        rendererWidget->update();
+                    });
                     connect(modelTreeWidget, &igQtModelDialogWidget::CurrendModelChanged, widget,
-                            &igQtVolumeInterpolatorWidget::RefreshModel);
+                            &igQtPointVolumeInterpolatorWidget::RefreshModel);
                 }
                 widget->RefreshModel();
                 dialog->show();

@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PointVolumeInterpolatorWidget</class>
+ <widget class="QWidget" name="PointVolumeInterpolatorWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>420</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QGroupBox" name="groupBox_Source">
+     <property name="title">
+      <string>数据点云（当前模型）</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_2">
+      <item>
+       <widget class="QLabel" name="label_ModelName">
+        <property name="text">
+         <string>未选择模型</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Kernel">
+     <property name="title">
+      <string>核函数</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_3">
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_kernel">
+        <item>
+         <widget class="QLabel" name="label_Kernel">
+          <property name="text">
+           <string>类型</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_Kernel"/>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_footprint">
+        <item>
+         <widget class="QLabel" name="label_Footprint">
+          <property name="text">
+           <string>邻域</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_Footprint"/>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_KernelParams">
+     <property name="title">
+      <string>核参数</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout_params">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_Radius">
+        <property name="text">
+         <string>半径 (Radius)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="lineEdit_Radius"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_NumberOfPoints">
+        <property name="text">
+         <string>近邻数 (N Closest)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="lineEdit_NumberOfPoints"/>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label_Sharpness">
+        <property name="text">
+         <string>高斯锐度 (Sharpness)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="lineEdit_Sharpness"/>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_Power">
+        <property name="text">
+         <string>Shepard 幂 (Power)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="lineEdit_Power"/>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Arrays">
+     <property name="title">
+      <string>插值数组（来自输入点云）</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout_arrays">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_InterpolateArrays">
+        <property name="text">
+         <string>插值数组（勾选）</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QListWidget" name="listWidget_Arrays"/>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Null">
+     <property name="title">
+      <string>空邻域策略</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout_null">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_NullStrategy">
+        <property name="text">
+         <string>策略</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="comboBox_NullStrategy"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_NullValue">
+        <property name="text">
+         <string>空值 (NullValue)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="lineEdit_NullValue"/>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Output">
+     <property name="title">
+      <string>输出体网格</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_5">
+      <item>
+       <widget class="QCheckBox" name="checkBox_UseInputBounds">
+        <property name="text">
+         <string>使用输入包围盒</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QGridLayout" name="gridLayout_bounds">
+        <item row="0" column="0">
+         <widget class="QLabel" name="label_XBounds">
+          <property name="text">
+           <string>X min / max</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="lineEdit_XMin"/>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLineEdit" name="lineEdit_XMax"/>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="label_YBounds">
+          <property name="text">
+           <string>Y min / max</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="lineEdit_YMin"/>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLineEdit" name="lineEdit_YMax"/>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="label_ZBounds">
+          <property name="text">
+           <string>Z min / max</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLineEdit" name="lineEdit_ZMin"/>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLineEdit" name="lineEdit_ZMax"/>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_res">
+        <item>
+         <widget class="QLabel" name="label_Res">
+          <property name="text">
+           <string>分辨率 X / Y / Z</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_ResX"/>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_ResY"/>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_ResZ"/>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="pushButton_Apply">
+     <property name="text">
+      <string>执行</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="label_Result">
+     <property name="text">
+      <string>结果：</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="textInteractionFlags">
+      <set>Qt::TextSelectableByMouse</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
