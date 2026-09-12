@@ -5,7 +5,8 @@
 #include "iGameScene.h"
 
 int main() {
-    const std::string fileName = "./Models/mazewheel.obj";
+    // AI 生成的环形扇区测试模型：120° 扇区绕 Z 轴 3 份 360° 可拼满整圈
+    const std::string fileName = "./Models/AngularDemoRingSector.obj";
     auto dataObj = iGame::FileIO::ReadFile(fileName);
     if (dataObj == nullptr) {
         igError("Error reading the file");
