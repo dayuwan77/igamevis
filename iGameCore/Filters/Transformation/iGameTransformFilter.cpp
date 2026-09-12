@@ -160,13 +160,18 @@ bool TransformFilter::Execute(){
             auto volumeOutput = VolumeMesh::New();
 
             volumeOutput->SetVolumes(input->GetVolumes());
-            volumeOutput->SetAttributeSet(input->GetAttributeSet());
             volumeOutput->SetName(input->GetName());
             auto newPoints = Points::New();
             if (!newPoints->DeepCopy(input->GetPoints())){
                 return false;
             }
             volumeOutput->SetPoints(newPoints);
+
+            auto newAttributeSet = AttributeSet::New();
+            if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){
+                 return false; 
+            } 
+            volumeOutput->SetAttributeSet(newAttributeSet);
 
             output = volumeOutput;
             break;
@@ -179,13 +184,18 @@ bool TransformFilter::Execute(){
 
             structuredOutput->SetDimensionSize(input->GetDimensionSize());
             structuredOutput->SetExtent(input->GetExtent());
-            structuredOutput->SetAttributeSet(input->GetAttributeSet());
             structuredOutput->SetName(input->GetName());
             auto newPoints = Points::New();
             if (!newPoints->DeepCopy(input->GetPoints())){
                 return false;
             }
             structuredOutput->SetPoints(newPoints);
+
+            auto newAttributeSet = AttributeSet::New(); 
+            if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){ 
+                return false; 
+            } 
+            structuredOutput->SetAttributeSet(newAttributeSet);
 
             output = structuredOutput;
             break;
@@ -197,13 +207,18 @@ bool TransformFilter::Execute(){
             auto unstructuredOutput = UnstructuredMesh::New();
 
             unstructuredOutput->SetCells(input->GetCells(),input->GetCellTypes());
-            unstructuredOutput->SetAttributeSet(input->GetAttributeSet());
             unstructuredOutput->SetName(input->GetName());
             auto newPoints = Points::New();
             if (!newPoints->DeepCopy(input->GetPoints())){
                 return false;
             }
             unstructuredOutput->SetPoints(newPoints);
+
+            auto newAttributeSet = AttributeSet::New();
+            if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){
+                return false;
+            }
+            unstructuredOutput->SetAttributeSet(newAttributeSet);
 
             output = unstructuredOutput;
             break;
@@ -252,6 +267,111 @@ bool TransformFilter::Execute(){
 
         Point newPoint(newX, newY, newZ);
         output->SetPoint(i, newPoint);
+    }
+
+    // 处理vector和normal属性
+    auto attributeSet = output->GetAttributeSet();
+    if (attributeSet != nullptr){
+
+        const float L00 = m_Matrix[0][0];
+        const float L01 = m_Matrix[0][1];
+        const float L02 = m_Matrix[0][2];
+        const float L10 = m_Matrix[1][0];
+        const float L11 = m_Matrix[1][1];
+        const float L12 = m_Matrix[1][2];
+        const float L20 = m_Matrix[2][0];
+        const float L21 = m_Matrix[2][1];
+        const float L22 = m_Matrix[2][2];
+
+        const float det =L00 * (L11 * L22 - L12 * L21)- L01 * (L10 * L22 - L12 * L20)+ L02 * (L10 * L21 - L11 * L20);
+        const bool invertible = std::abs(det) > 1e-8f;
+        float InvT[3][3]{};
+
+        if (invertible){
+
+            // L^-1
+            float inv[3][3];
+
+            inv[0][0] =  (L11 * L22 - L12 * L21) / det;
+            inv[0][1] = -(L01 * L22 - L02 * L21) / det;
+            inv[0][2] =  (L01 * L12 - L02 * L11) / det;
+
+            inv[1][0] = -(L10 * L22 - L12 * L20) / det;
+            inv[1][1] =  (L00 * L22 - L02 * L20) / det;
+            inv[1][2] = -(L00 * L12 - L02 * L10) / det;
+
+            inv[2][0] =  (L10 * L21 - L11 * L20) / det;
+            inv[2][1] = -(L00 * L21 - L01 * L20) / det;
+            inv[2][2] =  (L00 * L11 - L01 * L10) / det;
+
+            // (L^-1)^T
+            for (int i = 0; i < 3; ++i){
+                for (int j = 0; j < 3; ++j){
+                    InvT[i][j] = inv[j][i];
+                }
+            }
+        }
+
+        // 遍历所有属性
+        for (IGsize i = 0;i < attributeSet->GetNumberOfAttributes();++i){
+
+            auto& attribute = attributeSet->GetAttribute(i);
+            if (attribute.IsDeleted()){continue;}
+            auto array = attribute.GetPointer();
+            if (array == nullptr){continue;}
+
+            const IGenum type = attribute.GetType();
+            if (type == IG_VECTOR){
+
+                if (array->GetDimension() < 3){continue;}
+
+                for (IGsize j = 0;j < array->GetNumberOfElements();++j){
+
+                    std::vector<double> value(array->GetDimension());
+                    array->GetElement(j, value);
+                    if (value.size() < 3){continue;}
+
+                    const double x = value[0];
+                    const double y = value[1];
+                    const double z = value[2];
+                    value[0] =L00 * x +L01 * y +L02 * z;
+                    value[1] =L10 * x +L11 * y +L12 * z;
+                    value[2] =L20 * x +L21 * y +L22 * z;
+
+                    array->SetElement(j, value.data());
+                }
+                attribute.UpdateAllDataRange();
+            }else if (type == IG_NORMAL){
+                
+                if (!invertible){continue;}
+                if (array->GetDimension() < 3){continue;}
+
+                for (IGsize j = 0;j < array->GetNumberOfElements();++j){
+
+                    std::vector<double> value(array->GetDimension());
+                    array->GetElement(j, value);
+
+                    if (value.size() < 3){continue;}
+
+                    const double x = value[0];
+                    const double y = value[1];
+                    const double z = value[2];
+                    double nx =InvT[0][0] * x +InvT[0][1] * y +InvT[0][2] * z;
+                    double ny =InvT[1][0] * x +InvT[1][1] * y +InvT[1][2] * z;
+                    double nz =InvT[2][0] * x +InvT[2][1] * y +InvT[2][2] * z;
+
+                    // Normal归一化
+                    double length =std::sqrt(nx * nx +ny * ny +nz * nz);
+                    if (length > 1e-12){nx /= length;ny /= length;nz /= length;}
+                    value[0] = nx;
+                    value[1] = ny;
+                    value[2] = nz;
+
+                    array->SetElement(j, value.data());
+                }
+                attribute.UpdateAllDataRange();
+            }
+        }
     }
 
     this->SetOutput(0, output);
