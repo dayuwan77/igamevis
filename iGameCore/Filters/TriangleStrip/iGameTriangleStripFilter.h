@@ -14,15 +14,14 @@ IGAME_NAMESPACE_BEGIN
 
 /**
  * @class TriangleStripFilter
- * @brief 将相邻三角形组织为三角带，并将显式线段组织为折线。
+ * @brief 将相邻三角形组织为三角带，并将表面边界组织为折线。
  *
  * 三角带部分以 vtkStripper 的逐面访问流程为基础，同时借鉴 GLU
  * render.c 中 FaceCount、临时 trail 标记和多起始方向比较的结构。
  *
- * @warning SurfaceMesh::Faces 中的变长单元表示普通多边形，不能用来保存
- * 三角带。因此本类将三角带单独保存在 m_Strips 中。要把结果接入通用
- * DataObject/渲染管线，还需要数据模型提供独立的 Strips 容器，或者增加
- * IG_TRIANGLE_STRIP 单元类型。
+ * SurfaceMesh::Faces 中继续保存展开后的普通三角形，以兼容现有渲染与
+ * Filter 管线；原生三角带和每个带内三角形的源 face ID 映射以扁平数组
+ * 保存在正式输出对象的 Metadata 中。
  */
 class TriangleStripFilter : public Filter {
 public:
@@ -43,7 +42,7 @@ public:
 
     /**
      * 控制是否在折线生成后继续合并首尾点 ID 相同的连续折线。
-     * 该选项只影响显式 IG_LINE/IG_POLY_LINE，不连接三角带。
+     * 该选项只影响表面边界线段，不连接三角带。
      */
     void SetJoinContiguousSegments(bool enabled) noexcept { m_JoinContiguousSegments = enabled; }
     bool GetJoinContiguousSegments() const noexcept { return m_JoinContiguousSegments; }
@@ -54,7 +53,7 @@ public:
     /** 未参与 strip 的非三角形面，语义与 vtkStripper 的 pass-through polys 相同。 */
     CellArray* GetPassThroughPolys() const noexcept { return m_PassThroughPolys.get(); }
 
-    /** 由输入的显式线单元生成的折线；不包含 SurfaceMesh 自动构造的边。 */
+    /** 由输入表面边界边生成的线段或连续折线。 */
     CellArray* GetPolyLines() const noexcept { return m_PolyLines.get(); }
 
     /**
@@ -64,6 +63,23 @@ public:
     const std::vector<std::vector<igIndex>>& GetStripSourceFaceIds() const noexcept {
         return m_StripSourceFaceIds;
     }
+
+    /**
+     * 从正式输出对象的 Metadata 中重建原生三角带及其源 face ID 映射。
+     * 该接口不依赖生成输出的 TriangleStripFilter 实例继续存活。
+     */
+    static bool ReadOutputStrips(DataObject::Pointer output,
+                                 CellArray::Pointer& strips,
+                                 CellArray::Pointer& stripSourceFaceIds);
+
+    static constexpr const char* StripOffsetsMetadataName =
+            "TriangleStripOffsets";
+    static constexpr const char* StripPointIdsMetadataName =
+            "TriangleStripPointIds";
+    static constexpr const char* StripSourceFaceOffsetsMetadataName =
+            "TriangleStripSourceFaceOffsets";
+    static constexpr const char* StripSourceFaceIdsMetadataName =
+            "TriangleStripSourceFaceIds";
 
     IGsize GetNumberOfStrips() const noexcept;
     IGsize GetLongestStripLength() const noexcept { return m_LongestStripLength; }
@@ -128,8 +144,7 @@ private:
     bool BuildTriangleStrips();
 
     /**
-     * 处理 UnstructuredMesh 中的显式 IG_LINE/IG_POLY_LINE；MaximumLength
-     * 对此表示最大线段数。
+     * 提取只属于一个面的边界边，初始时每条边作为一个两点线段。
      */
     bool BuildPolyLines();
 
@@ -139,8 +154,8 @@ private:
     void JoinContiguousPolyLines();
 
     /**
-     * 将 m_Strips、m_PassThroughPolys、m_PolyLines 和共享 Points 组装为过滤器
-     * 输出。实现前必须先确定 iGame 的三角带持久化类型。
+     * 将展开 Faces、共享 Points、属性、三角带及源 face ID 映射组装为正式
+     * 输出 SurfaceMesh；三角带数据写入输出对象的 Metadata。
      */
     bool BuildOutputDataObject();
 

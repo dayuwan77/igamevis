@@ -1,6 +1,7 @@
 #include "iGameTriangleStripFilter.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 IGAME_NAMESPACE_BEGIN
@@ -59,6 +60,72 @@ TriangleStripFilter::TriangleStripFilter() {
 
 void TriangleStripFilter::SetMaximumLength(int length) { m_MaximumLength = std::max(1, length); }
 IGsize TriangleStripFilter::GetNumberOfStrips() const noexcept { return m_Strips ? m_Strips->GetNumberOfCells() : 0; }
+
+bool TriangleStripFilter::ReadOutputStrips(
+        DataObject::Pointer output, CellArray::Pointer& strips,
+        CellArray::Pointer& stripSourceFaceIds) {
+    strips = nullptr;
+    stripSourceFaceIds = nullptr;
+    if (!output || !output->GetMetadata()) return false;
+
+    auto* metadata = output->GetMetadata();
+    const auto& entries = metadata->entries();
+    auto findIntArray = [&entries](const char* name) -> IntArray::Pointer {
+        const auto it = entries.find(name);
+        if (it == entries.end()) return nullptr;
+        const auto* value = std::get_if<IntArray::Pointer>(&it->second);
+        return value ? *value : nullptr;
+    };
+
+    auto stripOffsets = findIntArray(StripOffsetsMetadataName);
+    auto stripPointIds = findIntArray(StripPointIdsMetadataName);
+    auto sourceOffsets = findIntArray(StripSourceFaceOffsetsMetadataName);
+    auto sourceFaceIds = findIntArray(StripSourceFaceIdsMetadataName);
+    if (!stripOffsets || !stripPointIds || !sourceOffsets || !sourceFaceIds ||
+        stripOffsets->GetNumberOfValues() == 0 ||
+        stripOffsets->GetNumberOfValues() != sourceOffsets->GetNumberOfValues()) {
+        return false;
+    }
+
+    const auto* pointOffsetValues = stripOffsets->RawPointer();
+    const auto* sourceOffsetValues = sourceOffsets->RawPointer();
+    const auto* pointIdValues = stripPointIds->RawPointer();
+    const auto* sourceFaceIdValues = sourceFaceIds->RawPointer();
+    const IGsize offsetCount = stripOffsets->GetNumberOfValues();
+    if (stripPointIds->GetNumberOfValues() >
+                static_cast<IGsize>(std::numeric_limits<int>::max()) ||
+        sourceFaceIds->GetNumberOfValues() >
+                static_cast<IGsize>(std::numeric_limits<int>::max()) ||
+        pointOffsetValues[0] != 0 || sourceOffsetValues[0] != 0 ||
+        pointOffsetValues[offsetCount - 1] !=
+                static_cast<int>(stripPointIds->GetNumberOfValues()) ||
+        sourceOffsetValues[offsetCount - 1] !=
+                static_cast<int>(sourceFaceIds->GetNumberOfValues())) {
+        return false;
+    }
+
+    auto restoredStrips = CellArray::New();
+    auto restoredSourceFaceIds = CellArray::New();
+    for (IGsize stripId = 0; stripId + 1 < offsetCount; ++stripId) {
+        const int pointBegin = pointOffsetValues[stripId];
+        const int pointEnd = pointOffsetValues[stripId + 1];
+        const int sourceBegin = sourceOffsetValues[stripId];
+        const int sourceEnd = sourceOffsetValues[stripId + 1];
+        if (pointBegin < 0 || pointEnd < pointBegin || sourceBegin < 0 ||
+            sourceEnd < sourceBegin || pointEnd - pointBegin < 3 ||
+            sourceEnd - sourceBegin != pointEnd - pointBegin - 2) {
+            return false;
+        }
+        restoredStrips->AddCellIds(pointIdValues + pointBegin,
+                                   pointEnd - pointBegin);
+        restoredSourceFaceIds->AddCellIds(sourceFaceIdValues + sourceBegin,
+                                          sourceEnd - sourceBegin);
+    }
+
+    strips = restoredStrips;
+    stripSourceFaceIds = restoredSourceFaceIds;
+    return true;
+}
 
 bool TriangleStripFilter::Execute() {
     ResetWorkingState();
@@ -441,12 +508,20 @@ bool TriangleStripFilter::BuildPolyLines() {
 bool TriangleStripFilter::BuildOutputDataObject() {
     auto output = SurfaceMesh::New();
     auto faces = CellArray::New();
+    auto stripOffsets = IntArray::New();
+    auto stripPointIds = IntArray::New();
+    auto stripSourceFaceOffsets = IntArray::New();
+    auto stripSourceFaceIds = IntArray::New();
     std::vector<igIndex> outputSourceFaceIds;
     outputSourceFaceIds.reserve(static_cast<std::size_t>(m_InputMesh->GetNumberOfFaces()));
 
+    stripOffsets->AddValue(0);
+    stripSourceFaceOffsets->AddValue(0);
+
     output->SetName(m_InputMesh->GetName());
     output->SetPoints(m_InputMesh->GetPoints());
-    // 将 strip 暂时还原为独立三角形。
+    // Faces remain expanded for the existing renderer and filters. Native
+    // strip topology is flattened into the output Metadata below.
     for (IGsize stripId = 0; stripId < m_Strips->GetNumberOfCells(); ++stripId) {
         const igIndex* ids = nullptr;
         const int count = m_Strips->GetCellIds(stripId, ids);
@@ -458,6 +533,21 @@ bool TriangleStripFilter::BuildOutputDataObject() {
             return false;
         }
         const auto& sourceFaceIds = m_StripSourceFaceIds[static_cast<std::size_t>(stripId)];
+        for (int i = 0; i < count; ++i) { stripPointIds->AddValue(ids[i]); }
+        for (const igIndex sourceFaceId: sourceFaceIds) {
+            stripSourceFaceIds->AddValue(sourceFaceId);
+        }
+        if (stripPointIds->GetNumberOfValues() >
+                    static_cast<IGsize>(std::numeric_limits<int>::max()) ||
+            stripSourceFaceIds->GetNumberOfValues() >
+                    static_cast<IGsize>(std::numeric_limits<int>::max())) {
+            igError("TriangleStripFilter metadata exceeds 32-bit offset storage. ");
+            return false;
+        }
+        stripOffsets->AddValue(
+                static_cast<int>(stripPointIds->GetNumberOfValues()));
+        stripSourceFaceOffsets->AddValue(
+                static_cast<int>(stripSourceFaceIds->GetNumberOfValues()));
         for (int i = 0; i + 2 < count; ++i) {
             igIndex tri[3] = {ids[i], ids[i + 1], ids[i + 2]};
             if (i % 2 == 1) { std::swap(tri[0], tri[1]); }
@@ -489,6 +579,12 @@ bool TriangleStripFilter::BuildOutputDataObject() {
 
     output->SetFaces(faces);
     output->SetAttributeSet(outputAttributes);
+    output->GetMetadata()->AddIntArray(StripOffsetsMetadataName, stripOffsets);
+    output->GetMetadata()->AddIntArray(StripPointIdsMetadataName, stripPointIds);
+    output->GetMetadata()->AddIntArray(
+            StripSourceFaceOffsetsMetadataName, stripSourceFaceOffsets);
+    output->GetMetadata()->AddIntArray(
+            StripSourceFaceIdsMetadataName, stripSourceFaceIds);
     SetOutput(output);
     return true;
 }

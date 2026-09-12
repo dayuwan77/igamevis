@@ -21,14 +21,39 @@ namespace
 
 using namespace iGame;
 
-constexpr const char* ModelFileName =
-        "ContourExtraction_cylinder_UnstructedGrid.vtk";
+constexpr const char* ModelFilePath = "Models/TriangleStripTestModel.vtk";
 constexpr const char* PointScalarName = "TriangleStripTestPointScalar";
 constexpr const char* PointVectorName = "TriangleStripTestPointVector";
 constexpr const char* CellScalarName = "TriangleStripTestCellScalar";
+constexpr IGsize ExpectedTriangleCount = 8;
+constexpr IGsize ExpectedFullStripCount = 1;
+constexpr IGsize ExpectedBoundarySegmentCount = 10;
+constexpr IGsize ExpectedJoinedPolylineCount = 1;
+constexpr int ExpectedJoinedPointCount = 11;
 
 void Check(bool condition, const std::string& message) {
     if (!condition) { throw std::runtime_error(message); }
+}
+
+void CheckCellArraysEqual(const CellArray* actual, const CellArray* expected,
+                          const std::string& label) {
+    Check(actual != nullptr && expected != nullptr,
+          label + " contains a null CellArray.");
+    Check(actual->GetNumberOfCells() == expected->GetNumberOfCells(),
+          label + " has an unexpected cell count.");
+
+    for (IGsize cellId = 0; cellId < expected->GetNumberOfCells(); ++cellId) {
+        const igIndex* actualIds = nullptr;
+        const igIndex* expectedIds = nullptr;
+        const int actualCount = actual->GetCellIds(cellId, actualIds);
+        const int expectedCount = expected->GetCellIds(cellId, expectedIds);
+        Check(actualCount == expectedCount,
+              label + " has an unexpected cell size.");
+        for (int i = 0; i < expectedCount; ++i) {
+            Check(actualIds[i] == expectedIds[i],
+                  label + " has an unexpected ID value.");
+        }
+    }
 }
 
 void AddAttributeFixtures(const SurfaceMesh::Pointer& mesh) {
@@ -164,20 +189,6 @@ void ValidateAttributes(const TriangleStripFilter::Pointer& filter,
     }
 }
 
-std::filesystem::path ResolveModelPath(int argc, char* argv[]) {
-    if (argc == 2) { return std::filesystem::path(argv[1]); }
-
-    const std::vector<std::filesystem::path> candidates{
-            std::filesystem::path("Models") / ModelFileName,
-            std::filesystem::path("Examples") / "Models" / ModelFileName,
-    };
-
-    for (const auto& candidate: candidates) {
-        if (std::filesystem::exists(candidate)) { return candidate; }
-    }
-    return candidates.front();
-}
-
 SurfaceMesh::Pointer ExtractAndTriangulate(DataObject::Pointer input) {
     auto surfaceFilter = ConvertToSurfaceMeshFilter::New();
     surfaceFilter->SetInput(input);
@@ -290,6 +301,31 @@ void ValidateStripCoverage(const TriangleStripFilter::Pointer& filter,
           "Reconstructed output has a different triangle count.");
     Check(output->GetPoints().get() == input->GetPoints().get(),
           "TriangleStripFilter did not preserve the shared point array.");
+
+    CellArray::Pointer outputStrips;
+    CellArray::Pointer outputStripSourceFaceIds;
+    Check(TriangleStripFilter::ReadOutputStrips(
+                  output, outputStrips, outputStripSourceFaceIds),
+          "The formal output did not retain triangle strips and source-face mappings.");
+    Check(outputStrips->GetNumberOfCells() == filter->GetNumberOfStrips(),
+          "The formal output has an unexpected triangle-strip count.");
+    CheckCellArraysEqual(outputStrips.get(), strips,
+                         "Persisted triangle strips");
+
+    for (IGsize stripId = 0; stripId < outputStrips->GetNumberOfCells(); ++stripId) {
+        const igIndex* persistedFaceIds = nullptr;
+        const int persistedFaceCount = outputStripSourceFaceIds->GetCellIds(
+                stripId, persistedFaceIds);
+        const auto& expectedFaceIds =
+                sourceFaceIds[static_cast<std::size_t>(stripId)];
+        Check(persistedFaceCount == static_cast<int>(expectedFaceIds.size()),
+              "A persisted strip/source-face mapping has the wrong size.");
+        for (int i = 0; i < persistedFaceCount; ++i) {
+            Check(persistedFaceIds[i] == expectedFaceIds[static_cast<std::size_t>(i)],
+                  "A persisted strip/source-face mapping has the wrong value.");
+        }
+    }
+
     ValidateAttributes(filter, input, output);
     std::cout << "  Attributes: new AttributeSet, PointData preserved, "
                  "CellData remapped\n";
@@ -297,55 +333,64 @@ void ValidateStripCoverage(const TriangleStripFilter::Pointer& filter,
 
 void TestTriangleStripGeneration(const SurfaceMesh::Pointer& triangles) {
     AddAttributeFixtures(triangles);
-    auto filter = TriangleStripFilter::New();
-    filter->SetInput(triangles);
-    filter->SetMaximumLength(1000);
-    filter->SetJoinContiguousSegments(false);
+    SurfaceMesh::Pointer persistedOutput;
+    {
+        auto filter = TriangleStripFilter::New();
+        filter->SetInput(triangles);
+        filter->SetMaximumLength(1000);
+        filter->SetJoinContiguousSegments(false);
 
-    Check(filter->Execute(), "TriangleStripFilter::Execute failed.");
-    ValidateStripCoverage(filter, triangles);
+        Check(filter->Execute(), "TriangleStripFilter::Execute failed.");
+        ValidateStripCoverage(filter, triangles);
 
-    Check(filter->GetNumberOfStrips() < triangles->GetNumberOfFaces(),
-          "The filter did not combine any adjacent triangles.");
+        Check(triangles->GetNumberOfFaces() == ExpectedTriangleCount,
+              "The triangle-strip test model has an unexpected triangle count.");
+        Check(filter->GetNumberOfStrips() == ExpectedFullStripCount,
+              "The test model was not converted into one continuous triangle strip.");
+        Check(filter->GetLongestStripLength() == ExpectedTriangleCount,
+              "The generated triangle strip does not cover the full test ribbon.");
 
-    const double averageTrianglesPerStrip =
-            static_cast<double>(triangles->GetNumberOfFaces()) /
-            static_cast<double>(filter->GetNumberOfStrips());
-    std::cout << "  Triangle strips: count=" << filter->GetNumberOfStrips()
-              << ", longest=" << filter->GetLongestStripLength()
-              << ", average triangles/strip=" << averageTrianglesPerStrip
-              << '\n';
-}
+        const double averageTrianglesPerStrip =
+                static_cast<double>(triangles->GetNumberOfFaces()) /
+                static_cast<double>(filter->GetNumberOfStrips());
+        std::cout << "  Triangle strips: count=" << filter->GetNumberOfStrips()
+                  << ", longest=" << filter->GetLongestStripLength()
+                  << ", average triangles/strip=" << averageTrianglesPerStrip
+                  << '\n';
 
-SurfaceMesh::Pointer MakeTrianglePatch(const SurfaceMesh::Pointer& triangles) {
-    const igIndex* pointIds = nullptr;
-    const int pointCount = triangles->GetFaces()->GetCellIds(0, pointIds);
-    Check(pointIds != nullptr && pointCount == 3,
-          "Cannot obtain the first triangle for the polyline test.");
+        persistedOutput = DynamicCast<SurfaceMesh>(filter->GetOutput());
+    }
 
-    auto patchFaces = CellArray::New();
-    patchFaces->AddCellIds(pointIds, pointCount);
+    CellArray::Pointer persistedStrips;
+    CellArray::Pointer persistedSourceFaceIds;
+    Check(persistedOutput != nullptr &&
+                  TriangleStripFilter::ReadOutputStrips(
+                          persistedOutput, persistedStrips,
+                          persistedSourceFaceIds),
+          "Triangle-strip metadata was lost after the filter lifetime ended.");
+    Check(persistedStrips->GetNumberOfCells() == ExpectedFullStripCount,
+          "Persisted output has an unexpected strip count.");
+    Check(persistedStrips->GetCellSize(0) ==
+                  static_cast<int>(ExpectedTriangleCount + 2) &&
+                  persistedSourceFaceIds->GetCellSize(0) ==
+                          static_cast<int>(ExpectedTriangleCount),
+          "Persisted strip or source-face mapping has an unexpected size.");
 
-    auto patch = SurfaceMesh::New();
-    patch->SetName("TriangleStripPolylinePatch");
-    patch->SetPoints(triangles->GetPoints());
-    patch->SetFaces(patchFaces);
-    return patch;
+    std::cout << "  Formal output Metadata: strips and source-face mappings "
+                 "persist after filter destruction\n";
 }
 
 void TestContiguousPolylineJoining(const SurfaceMesh::Pointer& triangles) {
-    auto patch = MakeTrianglePatch(triangles);
-
     auto separate = TriangleStripFilter::New();
-    separate->SetInput(patch);
+    separate->SetInput(triangles);
     separate->SetJoinContiguousSegments(false);
     Check(separate->Execute(),
           "TriangleStripFilter failed with separate boundary segments.");
 
     auto* separateLines = separate->GetPolyLines();
     Check(separateLines != nullptr, "Separate polyline array is null.");
-    Check(separateLines->GetNumberOfCells() == 3,
-          "A one-triangle patch must have three boundary segments.");
+    Check(separateLines->GetNumberOfCells() == ExpectedBoundarySegmentCount,
+          "The test model has an unexpected boundary-segment count.");
     for (IGsize lineId = 0; lineId < separateLines->GetNumberOfCells();
          ++lineId) {
         Check(separateLines->GetCellSize(lineId) == 2,
@@ -353,20 +398,21 @@ void TestContiguousPolylineJoining(const SurfaceMesh::Pointer& triangles) {
     }
 
     auto joined = TriangleStripFilter::New();
-    joined->SetInput(patch);
+    joined->SetInput(triangles);
     joined->SetJoinContiguousSegments(true);
     Check(joined->Execute(),
           "TriangleStripFilter failed while joining boundary segments.");
 
     auto* joinedLines = joined->GetPolyLines();
     Check(joinedLines != nullptr, "Joined polyline array is null.");
-    Check(joinedLines->GetNumberOfCells() == 1,
-          "The three contiguous boundary segments were not joined.");
+    Check(joinedLines->GetNumberOfCells() == ExpectedJoinedPolylineCount,
+          "The contiguous model boundary was not joined into one polyline.");
 
     const igIndex* joinedPointIds = nullptr;
     const int joinedPointCount = joinedLines->GetCellIds(0, joinedPointIds);
-    Check(joinedPointIds != nullptr && joinedPointCount == 4,
-          "The joined triangle boundary must contain four point IDs.");
+    Check(joinedPointIds != nullptr &&
+                  joinedPointCount == ExpectedJoinedPointCount,
+          "The joined model boundary has an unexpected point count.");
     Check(joinedPointIds[0] == joinedPointIds[joinedPointCount - 1],
           "The joined triangle boundary is not closed.");
 
@@ -376,8 +422,9 @@ void TestContiguousPolylineJoining(const SurfaceMesh::Pointer& triangles) {
               "The joined polyline contains a zero-length segment.");
         distinctPointIds.insert(joinedPointIds[i]);
     }
-    Check(distinctPointIds.size() == 3,
-          "The joined triangle boundary does not contain three distinct points.");
+    Check(distinctPointIds.size() ==
+                  static_cast<std::size_t>(ExpectedJoinedPointCount - 1),
+          "The joined model boundary does not contain every boundary point.");
 
     std::cout << "  Boundary polylines: before join="
               << separateLines->GetNumberOfCells()
@@ -411,6 +458,13 @@ void TestPassThroughPolygonAttributes(const SurfaceMesh::Pointer& triangles) {
     auto output = DynamicCast<SurfaceMesh>(filter->GetOutput());
     Check(output != nullptr && output->GetNumberOfFaces() == 1,
           "Pass-through polygon output is invalid.");
+    CellArray::Pointer outputStrips;
+    CellArray::Pointer outputStripSourceFaceIds;
+    Check(TriangleStripFilter::ReadOutputStrips(
+                  output, outputStrips, outputStripSourceFaceIds) &&
+                  outputStrips->GetNumberOfCells() == 0 &&
+                  outputStripSourceFaceIds->GetNumberOfCells() == 0,
+          "Pass-through output contains unexpected triangle-strip topology.");
     Check(output->GetAttributeSet() != polygon->GetAttributeSet(),
           "Pass-through output reused the input AttributeSet container.");
 
@@ -434,14 +488,9 @@ void TestPassThroughPolygonAttributes(const SurfaceMesh::Pointer& triangles) {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
-    if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " [model.vtk]\n";
-        return 2;
-    }
-
+int main() {
     try {
-        const auto modelPath = ResolveModelPath(argc, argv);
+        const std::filesystem::path modelPath{ModelFilePath};
         std::cout << "[RUN] TriangleStripFilter integration test\n"
                   << "  Model: " << modelPath.string() << '\n';
         Check(std::filesystem::exists(modelPath),
