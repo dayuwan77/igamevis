@@ -326,10 +326,12 @@ bool CountCellFacesFilter::ExecuteInternal() {
     if (auto* attributes = input->GetAttributeSet()) {
         for (IGsize id = 0; id < attributes->GetNumberOfAttributes(); ++id) {
             const auto& attribute = attributes->GetAttribute(id);
-            if (attribute.isDeleted || attribute.pointer.IsNull()
-                || attribute.pointer->GetName() == ResultAttributeName) continue;
+            if (attribute.isDeleted || attribute.pointer.IsNull()) continue;
+            if (attribute.attachmentType == IG_CELL
+                && attribute.pointer->GetName() == ResultAttributeName) continue;
             newAttrs->AddAttribute(attribute.type, attribute.attachmentType,
-                                  CopyAttribute(attribute.pointer));
+                                  CopyAttribute(attribute.pointer),
+                                  CopyArray<DoubleArray>(attribute.dataRange));
         }
     }
     newAttrs->AddScalar(IG_CELL, m_FaceCounts);
