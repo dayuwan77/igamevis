@@ -1812,7 +1812,7 @@ void igQtMainWindow::initAllFilters() {
                 });
             });
 
-    // 网格清理 (Clean to Grid)
+   // 网格清理 (Clean to Grid)
     connect(ui->menu_filters->addAction(QStringLiteral("网格清理 (Clean to Grid)")), &QAction::triggered, this,
             [this](bool) {
                 // ---- 检查是否有模型 ----
@@ -1857,43 +1857,105 @@ void igQtMainWindow::initAllFilters() {
                 dialog->setFilterDescription(
                         QStringLiteral("当前网格：%1 个点，%2 个单元").arg(originalPoints).arg(originalCells));
 
-                // ---- 添加参数控件（仅保留容差设置） ----
+                // ---- 参数控件 ----
+
                 // 1. 合并容差
-                int toleranceId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
-                                                       QStringLiteral("合并容差"), "0.001");
+                int toleranceId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                        QStringLiteral("合并容差（绝对模式使用模型坐标单位）"), "0.001");
+                if (auto* tolWidget = dialog->getWidget(toleranceId)) {
+                    tolWidget->setToolTip(
+                            QStringLiteral("绝对 (Absolute)：输入的数值直接作为距离阈值，单位与模型坐标一致。\n"
+                                           "相对 (Relative)：输入值 × 模型包围盒对角线长度 = 实际合并距离。\n"
+                                           "输入 0：精确去重模式，只合并坐标完全相同的点。"));
+                }
 
                 // 2. 容差类型（绝对/相对）
                 std::vector<QString> toleranceTypes = {"绝对 (Absolute)", "相对 (Relative)"};
                 int toleranceTypeId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
                                                            QStringLiteral("容差类型"), toleranceTypes);
 
+                // 3. 三个独立开关
+                std::vector<QString> boolItems = {QStringLiteral("开启"), QStringLiteral("关闭")};
+                int mergeId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                   QStringLiteral("合并重合点"), boolItems);
+                int removeUnusedId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                          QStringLiteral("移除未使用点"), boolItems);
+                int removeDegenId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                         QStringLiteral("删除退化单元"), boolItems);
+
+                // 4. 代表点策略
+                std::vector<QString> policyItems = {QStringLiteral("FirstUsed（优先保留被引用点）"),
+                                                    QStringLiteral("Average（平均，暂未实现）")};
+                int policyId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                    QStringLiteral("点属性策略"), policyItems);
+                if (auto* policyWidget = dialog->getWidget(policyId)) {
+                    policyWidget->setToolTip(QStringLiteral("FirstUsed：优先保留被单元引用的第一个点（默认）。\n"
+                                                            "Average：平均策略（暂未实现）。\n"
+                                                            "所有策略都保证坐标和属性来自同一个代表点。"));
+                }
+
                 // ---- 显示对话框 ----
                 dialog->show();
 
-
                 // ---- 设置 Apply 回调 ----
                 dialog->setApplyFunctor([=, this]() {
-                    bool ok;
+                    bool ok = false;
 
+                    // 容差：允许 0
                     double tolerance = dialog->getDouble(toleranceId, ok);
-                    if (!ok || tolerance <= 0) {
+                    if (!ok || tolerance < 0) {
                         showDarkFramelessMessage(QStringLiteral("参数错误"),
-                                                 QStringLiteral("请输入有效的容差（大于0的数值）"));
+                                                 QStringLiteral("请输入有效的容差（≥ 0 的数值）"));
                         return;
                     }
 
                     int tolTypeIdx = dialog->getComboIndex(toleranceTypeId, ok);
                     bool isAbsolute = (tolTypeIdx == 0);
 
-                    // ---- 创建并执行滤镜（所有清理功能默认全部开启） ----
+                    // 创建 filter
                     auto filter = CleanToGridFilter::New();
                     filter->SetInput(obj);
 
-                    filter->SetAbsoluteTolerance(tolerance);
-                    filter->SetToleranceIsAbsolute(isAbsolute);
-                    filter->SetMergePoints(true);           // 默认开启
-                    filter->SetRemoveDegenerateCells(true); // 默认开启
-                    filter->SetCompactPointFields(true);    // 默认开启
+                    // 容差传参
+                    if (isAbsolute) {
+                        filter->SetAbsoluteTolerance(tolerance);
+                        filter->SetToleranceIsAbsolute(true);
+                    } else {
+                        filter->SetToleranceFraction(tolerance);
+                        filter->SetToleranceIsAbsolute(false);
+                    }
+
+                    // 三个开关
+                    bool okMerge = false, okUnused = false, okDegen = false;
+                    filter->SetMergePoints(dialog->getComboIndex(mergeId, okMerge) == 0);
+                    filter->SetRemoveUnusedPoints(dialog->getComboIndex(removeUnusedId, okUnused) == 0);
+                    filter->SetRemoveDegenerateCells(dialog->getComboIndex(removeDegenId, okDegen) == 0);
+
+                    // 代表点策略
+                    bool okPolicy = false;
+                    int policyIdx = dialog->getComboIndex(policyId, okPolicy);
+                    using RP = CleanToGridFilter::RepresentativePolicy;
+                    RP policy = RP::FirstUsed;
+                    if (policyIdx == 1) {
+                        // Average 暂未实现 → 弹提示，不继续执行
+                        showDarkFramelessMessage(QStringLiteral("策略未实现"),
+                                                 QStringLiteral("“Average（平均）”策略暂未实现。\n"
+                                                                "请改用 FirstUsed，或等待后续版本。"));
+                        return;
+                    }
+                    filter->SetRepresentativePolicy(policy);
+
+                    // 计算并显示实际合并距离
+                    double effectiveTol = filter->GetEffectiveTolerance(obj);
+                    QString tolInfo =
+                            isAbsolute ? QStringLiteral("实际合并距离：%1（模型坐标单位）").arg(effectiveTol, 0, 'g', 8)
+                                       : QStringLiteral("相对容差 %1 → 实际合并距离：%2（模型坐标单位）")
+                                                 .arg(tolerance, 0, 'g', 8)
+                                                 .arg(effectiveTol, 0, 'g', 8);
+
+                    qDebug() << "[CleanToGrid] mode:" << (isAbsolute ? "Absolute" : "Relative")
+                             << ", input:" << tolerance << ", effective:" << effectiveTol;
 
                     if (!filter->Execute()) {
                         showDarkFramelessMessage(QStringLiteral("执行失败"),
@@ -1907,7 +1969,7 @@ void igQtMainWindow::initAllFilters() {
                         return;
                     }
 
-                    // ---- 获取清理后的统计信息 ----
+                    // 统计
                     auto outPointSet = DynamicCast<PointSet>(output);
                     igIndex newPoints = outPointSet ? outPointSet->GetNumberOfPoints() : 0;
                     igIndex newCells = 0;
@@ -1925,17 +1987,17 @@ void igQtMainWindow::initAllFilters() {
                     double pointPercent = originalPoints > 0 ? (double) pointDiff / originalPoints * 100.0 : 0.0;
                     double cellPercent = originalCells > 0 ? (double) cellDiff / originalCells * 100.0 : 0.0;
 
-                    // ---- 设置输出名称 ----
+                    // 输出名称
                     QString outputName = QString::fromStdString(obj->GetName()) + "_cleaned";
                     output->SetName(outputName.toStdString());
 
                     auto drawObj = DynamicCast<DrawObject>(output);
                     if (drawObj) { drawObj->ConvertToDrawableData(); }
 
-                    // ---- 添加到模型树 ----
+                    // 添加到模型树
                     modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
 
-                    // ---- 自动切换到新生成的模型 ----
+                    // 切换到新模型
                     auto scene = rendererWidget->GetScene();
                     auto modelList = scene->GetModelList();
                     for (auto it = modelList->Begin(); it != modelList->End(); ++it) {
@@ -1948,11 +2010,16 @@ void igQtMainWindow::initAllFilters() {
 
                     rendererWidget->update();
 
-                    // ---- 显示结果（仅统计信息） ----
+                    // 结果弹窗（含实际合并距离）
                     QString resultMsg = QStringLiteral("清理完成\n\n"
-                                                       "清理前：%1 个点，%2 个单元\n"
-                                                       "清理后：%3 个点，%4 个单元\n"
-                                                       "减少：%5 个点 (%6%)，%7 个单元 (%8%)")
+                                                       "容差模式：%1\n"
+                                                       "%2\n\n"
+                                                       "清理前：%3 个点，%4 个单元\n"
+                                                       "清理后：%5 个点，%6 个单元\n"
+                                                       "减少：%7 个点 (%8%)，%9 个单元 (%10%)")
+                                                .arg(isAbsolute ? QStringLiteral("绝对 (Absolute)")
+                                                                : QStringLiteral("相对 (Relative)"))
+                                                .arg(tolInfo)
                                                 .arg(originalPoints)
                                                 .arg(originalCells)
                                                 .arg(newPoints)
@@ -1967,6 +2034,7 @@ void igQtMainWindow::initAllFilters() {
                     dialog->close();
                 });
             });
+
 
     /* Feature Edges is intentionally a first-level item under 算法处理. */
     connect(ui->menu_filters->addAction(QStringLiteral("特征边提取 (Feature Edges)")), &QAction::triggered, this,
