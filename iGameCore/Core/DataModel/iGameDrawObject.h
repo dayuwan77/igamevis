@@ -1,4 +1,4 @@
-﻿#ifndef iGameDrawObject_h
+#ifndef iGameDrawObject_h
 #define iGameDrawObject_h
 
 #include "iGameClipper.h"
@@ -101,6 +101,10 @@ public:
     void SetRenderWithMeshlet(bool val);
     bool GetRenderWithMeshlet() const;
 
+    // 三角形 -> 源单元号(逐三角形),供渲染时对单元数据逐面上色
+    void SetTriangleToCell(UnsignedIntArray::Pointer map) { m_TriangleToCell = map; }
+    UnsignedIntArray* GetTriangleToCell() { return m_TriangleToCell.get(); }
+
     // 默认颜色（当未启用颜色映射时使用）
     void SetDefaultColor(const igm::vec3& color);
     igm::vec3 GetDefaultColor() const;
@@ -150,6 +154,8 @@ protected:
     UnsignedIntArray::Pointer m_PointIndices;
     UnsignedIntArray::Pointer m_LineIndices;
     UnsignedIntArray::Pointer m_TriangleIndices;
+    // 三角形 -> 源单元号(逐三角形),由 ConvertToDrawableData 填充
+    UnsignedIntArray::Pointer m_TriangleToCell;
     // 单通道线框渲染
     bool m_UseSinglePassWireframeRendering{true};
     UnsignedCharArray::Pointer m_TriangleEdgeMasks;

@@ -497,6 +497,9 @@ void UnstructuredMesh::ConvertToDrawableData() {
         edgeIndices->SetDimension(2);
         auto triangleIndices = UnsignedIntArray::New();
         triangleIndices->SetDimension(3);
+        // 逐三角形记录其源单元号,供渲染做单元数据的逐面上色
+        auto triangleToCell = UnsignedIntArray::New();
+        triangleToCell->SetDimension(1);
         auto triangleEdgeMasks = UnsignedCharArray::New();
         triangleEdgeMasks->SetDimension(1);
 
@@ -541,6 +544,7 @@ void UnstructuredMesh::ConvertToDrawableData() {
                 if (!visible) continue;
             }
 
+            const IGsize triangleCountBefore = triangleIndices->GetNumberOfElements();
             IGenum type = GetCellType(id);
             switch (type) {
                 case IG_VERTEX:
@@ -659,6 +663,12 @@ void UnstructuredMesh::ConvertToDrawableData() {
                 default:
                     break;
             }
+
+            // 本单元新产生的三角形都归属该单元
+            const IGsize triangleCountAfter = triangleIndices->GetNumberOfElements();
+            for (IGsize t = triangleCountBefore; t < triangleCountAfter; ++t) {
+                triangleToCell->AddValue(static_cast<unsigned int>(id));
+            }
         }
         if (skippedInvalidCells > 0) {
             igDebug("UnstructuredMesh::ConvertToDrawableData skipped invalid cells: {}", skippedInvalidCells);
@@ -674,6 +684,9 @@ void UnstructuredMesh::ConvertToDrawableData() {
 
         m_TriangleIndices = triangleIndices;
         m_TriangleIndices->Modified();
+
+        m_TriangleToCell = triangleToCell;
+        m_TriangleToCell->Modified();
 
         m_TriangleEdgeMasks = triangleEdgeMasks;
         m_TriangleEdgeMasks->Modified();

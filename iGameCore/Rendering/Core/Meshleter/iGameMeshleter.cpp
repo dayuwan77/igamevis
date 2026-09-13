@@ -153,8 +153,23 @@ void Meshleter::SyncGpuBuffers() {
                     float color[3]{};
                     SmartPointer<FloatArray> ces = FloatArray::New();
                     ces->SetDimension(3);
-                    for (auto i = 0; i < m_TriangleToFace.size(); i++) {
-                        cellColorMapper->GetElement(m_TriangleToFace[i], color);
+
+                    // 优先使用"三角形 -> 单元"映射(与绘制的三角形顺序严格一致),
+                    // 该映射由 ConvertToDrawableData 生成;缺失时退回 meshlet 路径
+                    // 构建的 m_TriangleToFace。此前普通渲染路径下该映射为空,
+                    // 逐三角形颜色缓冲未被填充,单元数据着色会退化成按顶点采样。
+                    UnsignedIntArray* triangleToCell = drawObject->GetTriangleToCell();
+                    const IGsize triangleCount =
+                            triangleToCell != nullptr
+                                    ? triangleToCell->GetNumberOfElements()
+                                    : static_cast<IGsize>(m_TriangleToFace.size());
+
+                    for (IGsize i = 0; i < triangleCount; i++) {
+                        const IGsize cellId =
+                                triangleToCell != nullptr
+                                        ? static_cast<IGsize>(triangleToCell->GetValue(i))
+                                        : static_cast<IGsize>(m_TriangleToFace[i]);
+                        cellColorMapper->GetElement(cellId, color);
                         ces->AddElement3(color[0], color[1], color[2]);
                         ces->AddElement3(color[0], color[1], color[2]);
                         ces->AddElement3(color[0], color[1], color[2]);
