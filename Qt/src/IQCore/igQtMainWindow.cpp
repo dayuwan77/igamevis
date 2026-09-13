@@ -42,6 +42,7 @@
 
 #include "FeatureExtraction/iGameFeatureEdgesFilter.h"
 #include "Selection/iGameExtractCellsByRegionFilter.h"
+#include "Interactor/iGameBoxStyle.h"
 #include "MyFilter/iGameExtractCellsByTypeFilter.h"
 
 #include "Convert/iGameConvertToPointCloudFilter.h"
@@ -98,6 +99,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMetaObject>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
@@ -1431,7 +1433,8 @@ void igQtMainWindow::initAllFilters() {
 
                 auto* dialog = new igQtFilterDialogDockWidget(this, true);
                 dialog->setFilterTitle(QStringLiteral("按区域提取单元"));
-                dialog->setFilterDescription(QStringLiteral("选择 Box/Sphere 区域，提取区域内的单元生成子网格"));
+                dialog->setFilterDescription(
+                        QStringLiteral("修改参数后先点“预览”查看高亮单元；执行后窗口保持打开，可继续调整区域。"));
                 const int regionTypeId = dialog->addParameter(
                         igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("区域类型"),
                         std::vector<QString>{QStringLiteral("盒子 Box"), QStringLiteral("球体 Sphere")});
@@ -1447,29 +1450,67 @@ void igQtMainWindow::initAllFilters() {
                         igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("严格（所有顶点都在区域内）"), "true");
                 dialog->show();
 
-                dialog->setApplyFunctor([=, this]() {
+                auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(object);
+                std::vector<igIndex> selectionBefore;
+                if (auto selection = mesh->GetSelection()) {
+                    selectionBefore.assign(selection->GetSelectedCells().begin(), selection->GetSelectedCells().end());
+                }
+
+                auto parseVector = [](QWidget* widget, iGame::Vector3d& result) {
+                    auto* edit = qobject_cast<QLineEdit*>(widget);
+                    if (!edit) return false;
+                    QString text = edit->text();
+                    text.replace(',', ' ');
+                    const auto parts = text.simplified().split(' ', Qt::SkipEmptyParts);
+                    if (parts.size() != 3) return false;
+                    double values[3]{};
+                    for (int i = 0; i < 3; ++i) {
+                        bool componentOk = false;
+                        values[i] = parts.at(i).toDouble(&componentOk);
+                        if (!componentOk) return false;
+                    }
+                    result = iGame::Vector3d(values);
+                    return true;
+                };
+
+                // Reuse the scene's draggable box controller. Moving a face, edge or handle updates
+                // the text parameters and queues the same preview operation used by the button.
+                auto interactor = scene->GetInteractor();
+                auto previousBoxStyle = interactor ? interactor->GetSpecialInteractor("SelectBox") : nullptr;
+                auto previewBoxStyle = iGame::BoxStyle::New();
+                if (interactor) {
+                    iGame::Vector3d minimum, maximum;
+                    if (parseVector(dialog->getWidget(boxMinId), minimum) &&
+                        parseVector(dialog->getWidget(boxMaxId), maximum)) {
+                        previewBoxStyle->Initialize(interactor);
+                        previewBoxStyle->InitBox(iGame::Point(minimum[0], minimum[1], minimum[2]),
+                                                 iGame::Point(maximum[0], maximum[1], maximum[2]));
+                        interactor->_SetSpecialInteractor("SelectBox", previewBoxStyle);
+                    }
+                }
+                constexpr const char* previewBoxCallback = "ExtractCellsByRegionPreview";
+                previewBoxStyle->_SetPointMoveCallBack(previewBoxCallback,
+                                                        [dialog, previewBoxStyle, boxMinId, boxMaxId]() {
+                    auto box = previewBoxStyle->GetBox();
+                    if (!box) return;
+                    const auto extremes = box->GetExtremePoint();
+                    auto formatPoint = [](const iGame::Point& point) {
+                        return QStringLiteral("%1,%2,%3").arg(point[0], 0, 'g', 12).arg(point[1], 0, 'g', 12).arg(point[2], 0, 'g', 12);
+                    };
+                    auto* minEdit = qobject_cast<QLineEdit*>(dialog->getWidget(boxMinId));
+                    auto* maxEdit = qobject_cast<QLineEdit*>(dialog->getWidget(boxMaxId));
+                    if (minEdit) minEdit->setText(formatPoint(extremes.first));
+                    if (maxEdit) maxEdit->setText(formatPoint(extremes.second));
+                    if (auto* previewButton = dialog->findChild<QPushButton*>(QStringLiteral("previewButton")))
+                        QMetaObject::invokeMethod(previewButton, "click", Qt::QueuedConnection);
+                });
+
+                auto makeFilter = [=, this]() -> iGame::ExtractCellsByRegionFilter::Pointer {
                     bool ok = false;
                     const int regionType = dialog->getComboIndex(regionTypeId, ok);
                     const bool requireAllPoints = dialog->getChecked(strictId, ok);
                     auto filter = iGame::ExtractCellsByRegionFilter::New();
                     filter->SetRequireAllPoints(requireAllPoints);
-
-                    auto parseVector = [](QWidget* widget, iGame::Vector3d& result) {
-                        auto* edit = qobject_cast<QLineEdit*>(widget);
-                        if (!edit) return false;
-                        QString text = edit->text();
-                        text.replace(',', ' ');
-                        const auto parts = text.simplified().split(' ', Qt::SkipEmptyParts);
-                        if (parts.size() != 3) return false;
-                        double values[3]{};
-                        for (int i = 0; i < 3; ++i) {
-                            bool componentOk = false;
-                            values[i] = parts.at(i).toDouble(&componentOk);
-                            if (!componentOk) return false;
-                        }
-                        result = iGame::Vector3d(values);
-                        return true;
-                    };
 
                     if (regionType == 0) {
                         iGame::Vector3d minimum, maximum;
@@ -1477,7 +1518,7 @@ void igQtMainWindow::initAllFilters() {
                             !parseVector(dialog->getWidget(boxMaxId), maximum)) {
                             showDarkFramelessMessage(QStringLiteral("按区域提取单元"),
                                                      QStringLiteral("Box 参数格式错误，请使用 x,y,z 或 x y z"));
-                            return;
+                            return nullptr;
                         }
                         filter->SetBox(minimum, maximum);
                     } else if (regionType == 1) {
@@ -1486,15 +1527,37 @@ void igQtMainWindow::initAllFilters() {
                         if (!parseVector(dialog->getWidget(centerId), center) || !ok || radius <= 0.0) {
                             showDarkFramelessMessage(QStringLiteral("按区域提取单元"),
                                                      QStringLiteral("球心格式错误或球半径不是正数"));
-                            return;
+                            return nullptr;
                         }
                         filter->SetSphere(center, radius);
                     } else {
                         showDarkFramelessMessage(QStringLiteral("按区域提取单元"), QStringLiteral("区域类型无效"));
-                        return;
+                        return nullptr;
                     }
 
                     filter->SetInput(object);
+                    return filter;
+                };
+
+                dialog->setPreviewFunctor([=, this]() {
+                    auto filter = makeFilter();
+                    if (filter.IsNull()) return;
+                    if (!filter->Preview()) {
+                        showDarkFramelessMessage(QStringLiteral("按区域提取单元"), QStringLiteral("预览失败，请检查区域参数"));
+                        return;
+                    }
+                    auto selection = mesh->GetSelection();
+                    if (!selection) return;
+                    const auto& selected = filter->GetSelectedCellIds();
+                    std::vector<igIndex> ids(selected.begin(), selected.end());
+                    selection->Reset();
+                    selection->SelectionCallBackEvent(IG_CELL, ids, iGame::Selection::Operate::Add);
+                    rendererWidget->update();
+                });
+
+                dialog->setApplyFunctor([=, this]() {
+                    auto filter = makeFilter();
+                    if (filter.IsNull()) return;
                     if (!filter->Execute()) {
                         showDarkFramelessMessage(QStringLiteral("按区域提取单元"), QStringLiteral("提取失败，请检查区域参数"));
                         return;
@@ -1506,7 +1569,20 @@ void igQtMainWindow::initAllFilters() {
                     }
                     modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
                     rendererWidget->update();
-                    dialog->close();
+                    // Keep the dialog and preview alive so users can adjust and apply another region.
+                });
+
+                dialog->setCloseFunctor([mesh, selectionBefore, previewBoxStyle, previousBoxStyle, interactor, this]() {
+                    previewBoxStyle->RemovePointMoveCallBack("ExtractCellsByRegionPreview");
+                    if (interactor) {
+                        if (previousBoxStyle) interactor->_SetSpecialInteractor("SelectBox", previousBoxStyle);
+                        else interactor->RemoveSepcialInteractor("SelectBox");
+                    }
+                    auto selection = mesh->GetSelection();
+                    if (!selection) return;
+                    selection->Reset();
+                    selection->SelectionCallBackEvent(IG_CELL, selectionBefore, iGame::Selection::Operate::Add);
+                    rendererWidget->update();
                 });
             });
 

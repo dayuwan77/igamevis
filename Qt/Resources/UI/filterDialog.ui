@@ -132,6 +132,16 @@
          </property>
         </widget>
        </item>
+       <item row="0" column="2">
+        <widget class="QPushButton" name="previewButton">
+         <property name="text">
+          <string>预览</string>
+         </property>
+         <property name="toolTip">
+          <string>高亮将被提取的单元，不生成新模型</string>
+         </property>
+        </widget>
+       </item>
        <item row="0" column="0">
         <widget class="QPushButton" name="closeButton">
          <property name="text">

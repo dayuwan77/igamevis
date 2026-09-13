@@ -104,6 +104,9 @@ igQtFilterDialogDockWidget::igQtFilterDialogDockWidget(QWidget* parent, bool fra
     ui->setupUi(this);
 
     connect(ui->applyButton, &QPushButton::clicked, this, &igQtFilterDialogDockWidget::apply);
+    connect(ui->previewButton, &QPushButton::clicked, this, [this] {
+        if (previewFunctor) previewFunctor();
+    });
     connect(ui->closeButton, &QPushButton::clicked, this, &igQtFilterDialogDockWidget::close);
 
     gridLayout = new QGridLayout();
@@ -181,10 +184,11 @@ void igQtFilterDialogDockWidget::applyFramelessForFloating(bool floating) {
 }
 
 void igQtFilterDialogDockWidget::apply() {
-    applyFunctor();
+    if (applyFunctor) applyFunctor();
 }
 
 void igQtFilterDialogDockWidget::close() {
+    if (closeFunctor) closeFunctor();
     hide();
     delete this;
 }

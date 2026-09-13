@@ -15,6 +15,10 @@ public:
     void SetSphere(const Vector3d& center, double radius);
     void SetRequireAllPoints(bool requireAllPoints);
 
+    // Calculate matching cell IDs without creating an output mesh.
+    // Used by the GUI for a non-destructive preview.
+    bool Preview();
+    const std::vector<int>& GetSelectedCellIds() const { return m_Ids; }
     bool Execute() override;
 
 protected:

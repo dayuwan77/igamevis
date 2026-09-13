@@ -116,6 +116,16 @@ public:
         applyFunctor = std::bind(functor, args...);
     }
 
+    template<typename Functor, typename... Args>
+    void setPreviewFunctor(Functor&& functor, Args&&... args) {
+        previewFunctor = std::bind(functor, args...);
+    }
+
+    template<typename Functor, typename... Args>
+    void setCloseFunctor(Functor&& functor, Args&&... args) {
+        closeFunctor = std::bind(functor, args...);
+    }
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
@@ -137,6 +147,8 @@ private:
     };
 
     std::function<void()> applyFunctor;
+    std::function<void()> previewFunctor;
+    std::function<void()> closeFunctor;
     std::map<int, Item> itemMap;
     int index;
 };

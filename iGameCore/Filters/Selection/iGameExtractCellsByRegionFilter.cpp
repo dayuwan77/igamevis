@@ -37,13 +37,22 @@ bool ExtractCellsByRegionFilter::IsPointInRegion(const Vector3d& p) const {
     return (p - m_Center).squaredNorm() <= m_Radius * m_Radius; // 平方避免开方
 }
 
-bool ExtractCellsByRegionFilter::Execute() {
+bool ExtractCellsByRegionFilter::Preview() {
     m_Mesh = DynamicCast<UnstructuredMesh>(GetInput(0));
-    if (m_Mesh.IsNull()) return false;
+    if (m_Mesh.IsNull()) {
+        m_Ids.clear();
+        return false;
+    }
 
     // 区域合法性校验（防止 BOX 忘赋值 → 静默 0 个 cell）
-    if (m_RegionType == BOX && m_Box.isNull()) return false;
-    if (m_RegionType == SPHERE && m_Radius <= 0) return false;
+    if (m_RegionType == BOX && m_Box.isNull()) {
+        m_Ids.clear();
+        return false;
+    }
+    if (m_RegionType == SPHERE && m_Radius <= 0) {
+        m_Ids.clear();
+        return false;
+    }
 
     m_Ids.clear();
     const IGsize cellNum = m_Mesh->GetNumberOfCells();
@@ -73,6 +82,11 @@ bool ExtractCellsByRegionFilter::Execute() {
         if (cellNum > 0) UpdateProgress((double)(cellId + 1) / cellNum); // 汇报进度
     }
 
+    return true;
+}
+
+bool ExtractCellsByRegionFilter::Execute() {
+    if (!Preview()) return false;
     BuildOutputMesh();
     SetOutput(m_OutputMesh);
     return true;
