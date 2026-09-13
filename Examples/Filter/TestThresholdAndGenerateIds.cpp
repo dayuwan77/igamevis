@@ -189,6 +189,57 @@ void CheckIdPrecision(iGame::AttributeSet* attrs, const std::string& name, long 
           name + " 若经 double 中转会丢失精度(证明类型化直写必要)");
 }
 
+// 校验 Id 数组为 start..start+count-1 的连续序列(与 ParaView GenerateIds 语义一致)
+bool CheckSequentialIds(iGame::AttributeSet* attrs, const std::string& name, IGenum attachmentType,
+                        IGsize expectedCount, long long start = 0) {
+    auto attr = FindAttribute(attrs, name, attachmentType);
+    if (!attr) {
+        Check(false, "找到 " + name + "(" + AssociationName(attachmentType) + " 关联)");
+        return false;
+    }
+    if (attr->pointer->GetNumberOfElements() != expectedCount) {
+        Check(false, name + " 元素数等于 " + std::to_string(expectedCount) + "(实际 " +
+                             std::to_string(attr->pointer->GetNumberOfElements()) + ")");
+        return false;
+    }
+
+    auto typed = iGame::DynamicCast<iGame::LongLongArray>(attr->pointer);
+    if (!typed) {
+        Check(false, name + " 可转换为 LongLongArray");
+        return false;
+    }
+    for (IGsize i = 0; i < expectedCount; ++i) {
+        if (typed->ValueAt(i) != start + static_cast<long long>(i)) {
+            Check(false, name + " 第 " + std::to_string(i) + " 个 Id 应为 " +
+                                 std::to_string(start + static_cast<long long>(i)) + "(实际 " +
+                                 std::to_string(typed->ValueAt(i)) + ")");
+            return false;
+        }
+    }
+    Check(true, name + " 为 0.." + std::to_string(expectedCount == 0 ? 0 : expectedCount - 1) +
+                        " 的连续序列,按源数据顺序编号");
+    return true;
+}
+
+// 校验两张网格的单元连接关系逐一致(证明输出未打乱单元顺序)
+bool CheckSameCellOrder(iGame::UnstructuredMesh::Pointer a, iGame::UnstructuredMesh::Pointer b) {
+    if (!a || !b) return false;
+    if (a->GetNumberOfCells() != b->GetNumberOfCells()) return false;
+    if (a->GetNumberOfPoints() != b->GetNumberOfPoints()) return false;
+
+    igIndex idsA[IGAME_CELL_MAX_SIZE]{};
+    igIndex idsB[IGAME_CELL_MAX_SIZE]{};
+    for (IGsize c = 0; c < a->GetNumberOfCells(); ++c) {
+        const int nA = a->GetCells()->GetCellIds(c, idsA);
+        const int nB = b->GetCells()->GetCellIds(c, idsB);
+        if (nA != nB) return false;
+        for (int i = 0; i < nA; ++i) {
+            if (idsA[i] != idsB[i]) return false;
+        }
+    }
+    return true;
+}
+
 // 在一个模型上执行 GenerateIds + Threshold,并校验 Id 数组无损传递
 void RunThresholdCase(const char* title, const char* modelPath, const std::string& scalarName,
                       iGame::ThresholdFilter::Association association) {
@@ -321,8 +372,18 @@ int main() {
     if (base) {
         PrintMeshSummary("[输入模型]", base);
 
+        const IGsize baseAttrCount =
+                base->GetAttributeSet() ? base->GetAttributeSet()->GetNumberOfAttributes() : 0;
+        auto baseMesh = iGame::UnstructuredMesh::TransDataObjToUnstructuredMesh(base);
+        const IGsize basePointCount = baseMesh ? baseMesh->GetNumberOfPoints() : 0;
+        const IGsize baseCellCount = baseMesh ? baseMesh->GetNumberOfCells() : 0;
+
         auto withPointIds = RunGenerateIds(base, IG_POINT, "PointIds");
-        if (withPointIds) PrintMeshSummary("[GenerateIds 点关联]", withPointIds);
+        if (withPointIds) {
+            PrintMeshSummary("[GenerateIds 点关联]", withPointIds);
+            Check(withPointIds.GetPointer() != base.GetPointer(),
+                  "点关联输出是独立的数据对象(不是原对象)");
+        }
 
         auto withCellIds = RunGenerateIds(withPointIds, IG_CELL, "CellIds");
         if (withCellIds) {
@@ -330,6 +391,23 @@ int main() {
             auto attrs = withCellIds->GetAttributeSet();
             Check(FindAttribute(attrs, "PointIds", IG_POINT) != nullptr, "存在点关联 PointIds");
             Check(FindAttribute(attrs, "CellIds", IG_CELL) != nullptr, "存在单元关联 CellIds");
+        }
+
+        // 原模型必须保持不变(不再被 GenerateIds 直接修改)
+        const IGsize baseAttrCountAfter =
+                base->GetAttributeSet() ? base->GetAttributeSet()->GetNumberOfAttributes() : 0;
+        Check(baseAttrCountAfter == baseAttrCount,
+              "原模型属性数量保持 " + std::to_string(baseAttrCount) + " 不变(输入未被修改)");
+
+        // Id 与源数据顺序一一对应(与 ParaView GenerateIds 语义一致)
+        if (withCellIds) {
+            auto attrs = withCellIds->GetAttributeSet();
+            CheckSequentialIds(attrs, "PointIds", IG_POINT, basePointCount);
+            CheckSequentialIds(attrs, "CellIds", IG_CELL, baseCellCount);
+
+            auto outMesh = iGame::UnstructuredMesh::TransDataObjToUnstructuredMesh(withCellIds);
+            Check(CheckSameCellOrder(baseMesh, outMesh),
+                  "输出网格与输入的单元顺序、连接关系完全一致");
         }
 
         // 同名 Point/Cell 属性:两个 "Ids" 应共存且各仅一份,重复执行不新增

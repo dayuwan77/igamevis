@@ -1346,17 +1346,25 @@ void igQtMainWindow::initAllFilters() {
                 return;
             }
 
-            modelTreeWidget->updateAllAttriubute(obj);
-            const int index = obj->GetAttributeSet()
-                                      ? obj->GetAttributeSet()->GetAttributeIndex(arrayName.toStdString())
+            // 滤波器输出为独立的新数据对象,原模型保持不变
+            auto idsOutput = filter->GetOutput();
+            if (!idsOutput) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("生成ID未产生有效结果。"));
+                return;
+            }
+
+            idsOutput->SetName(obj->GetName() + "_ids");
+            modelTreeWidget->addDataObjectToModelTree(idsOutput, Algorithm);
+
+            // 选中新节点下的 Id 数组,便于直接着色查看
+            const int index = idsOutput->GetAttributeSet()
+                                      ? idsOutput->GetAttributeSet()->GetAttributeIndex(arrayName.toStdString())
                                       : -1;
-            auto drawObject = DynamicCast<DrawObject>(obj);
-            if (drawObject) {
-                auto item = modelTreeWidget->getItemFromObject(obj);
-                if (item && item->childCount() > 0 && index >= 0) {
-                    item->setExpanded(true);
-                    auto child = item->child(index);
-                    if (child) {
+            if (auto item = modelTreeWidget->getItemFromObject(idsOutput)) {
+                item->setExpanded(true);
+                if (index >= 0 && item->childCount() > index) {
+                    if (auto child = item->child(index)) {
                         item->setCurrentChild(child);
                         item->setSelected(false);
                         item->viewAttribute(index, -1);
