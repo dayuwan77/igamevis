@@ -2407,18 +2407,11 @@ void igQtMainWindow::initAllFilters() {
                 });
             });
 
-    QAction* shrinkAction = ui->menu_filters->addAction(QStringLiteral("单元收缩 (Shrink)"));
+        QAction* shrinkAction = ui->menu_filters->addAction(QStringLiteral("单元收缩 (Shrink)"));
     connect(shrinkAction, &QAction::triggered, this, [this](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
         auto model = rendererWidget->GetScene()->GetCurrentModel();
-        auto data = model->GetDataObject();
-
-        std::string filePath;
-        auto props = data->GetProperties();
-        if (props) {
-            auto prop = props->GetProperty("FilePath");
-            if (prop && !prop.IsNull()) { filePath = prop->Get<std::string>(); }
-        }
+        auto data = model->GetDataObject(); // 当前模型的数据对象（可能是别的 filter 的输出）
 
         igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
         dialog->setFilterTitle(QStringLiteral("单元收缩 (Shrink)"));
@@ -2431,32 +2424,23 @@ void igQtMainWindow::initAllFilters() {
                 showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("请输入 0 ~ 1 之间的数字"));
                 return;
             }
-            if (filePath.empty()) {
-                showDarkFramelessMessage(QStringLiteral("Warning"),
-                                         QStringLiteral("找不到模型文件路径，请通过“打开文件”加载模型"));
-                return;
-            }
-            auto base = iGame::FileIO::ReadFile(filePath);
-            if (base.IsNull()) {
-                showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("读取原始模型失败"));
-                return;
-            }
-            base->GetProperties()->AddProperty(iGame::Variant::String, "FilePath")->SetValue(filePath);
+
             auto filter = iGame::ShrinkFilter::New();
             filter->SetShrinkFactor(factor);
-            filter->SetInput(0, base);
-            if (filter->Execute()) {
-                model->SetDataObject(base);
-                auto drawObject = iGame::DynamicCast<iGame::DrawObject>(base);
-                if (drawObject) { drawObject->ForceReConvertToDrawableData(); }
-                model->Update();
-                modelTreeWidget->updateAllAttriubute(base);
-                rendererWidget->update();
-                dialog->close();
-            } else {
+            filter->SetInput(0, data); // 不再读取原始文件
+            if (!filter->Execute()) {
                 showDarkFramelessMessage(QStringLiteral("Warning"),
                                          QStringLiteral("Shrink 执行失败：不支持的网格类型"));
+                return;
             }
+
+            auto outObj = filter->GetOutput(); // 独立输出，原模型不变
+            if (auto drawObject = iGame::DynamicCast<iGame::DrawObject>(outObj)) {
+                drawObject->ForceReConvertToDrawableData();
+            }
+            modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm); // 作为新节点加入模型树
+            rendererWidget->update();
+            dialog->close();
         });
         dialog->show();
     });
