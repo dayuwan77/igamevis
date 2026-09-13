@@ -1204,7 +1204,10 @@ void igQtMainWindow::initAllFilters() {
         igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
         dialog->setFilterTitle(QStringLiteral("阈值"));
         int scalarId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("标量"), attrNames);
-        int dimId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("分量"), "0");
+        // 分量改为下拉框:向量为「模长 / X / Y / Z」,其他多分量数组按实际分量命名,
+        // 标量则隐藏该项,避免用户靠记忆数字来判断筛选的是哪个物理分量。
+        int dimId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("分量"),
+                                         std::vector<QString>{QStringLiteral("模长")});
         int lowerId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("下限"), "0");
         int upperId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("上限"), "1");
         int boundaryId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("边界"),
@@ -1213,6 +1216,78 @@ void igQtMainWindow::initAllFilters() {
                                                                    QStringLiteral("UpperInclusive")});
         int evalId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("点数据判定"),
                                           std::vector<QString>{QStringLiteral("AllScalars"), QStringLiteral("AnyScalar")});
+
+        // 在网格布局中查找与 value 同行的标签控件,用于整行隐藏(标量时隐藏「分量」项)
+        auto findRowLabel = [](QWidget* value) -> QLabel* {
+            if (!value || !value->parentWidget()) return nullptr;
+            const auto grids = value->parentWidget()->findChildren<QGridLayout*>();
+            for (auto* grid : grids) {
+                const int index = grid->indexOf(value);
+                if (index < 0) continue;
+                int row = 0, column = 0, rowSpan = 0, columnSpan = 0;
+                grid->getItemPosition(index, &row, &column, &rowSpan, &columnSpan);
+                for (int c = 0; c < grid->columnCount(); ++c) {
+                    auto* item = grid->itemAtPosition(row, c);
+                    if (!item || item->widget() == value) continue;
+                    if (auto* label = qobject_cast<QLabel*>(item->widget())) return label;
+                }
+            }
+            return nullptr;
+        };
+
+        // 依据当前所选属性刷新「分量」下拉框:标量隐藏该项,向量提供模长与 X/Y/Z,其他数组给出实际分量名
+        auto refreshComponentCombo = [=]() {
+            auto* dimCombo = qobject_cast<QComboBox*>(dialog->getWidget(dimId));
+            if (!dimCombo) return;
+
+            bool ok = false;
+            const int choice = dialog->getComboIndex(scalarId, ok);
+            auto* liveAttrs = obj->GetAttributeSet();
+
+            std::vector<QString> names;
+            std::vector<int> values;
+            bool isScalar = true;
+
+            if (liveAttrs && ok && choice >= 0 && choice < static_cast<int>(attrIndices.size())) {
+                auto& attr = liveAttrs->GetAttribute(attrIndices[static_cast<size_t>(choice)]);
+                if (attr.pointer) {
+                    const int dimension = attr.pointer->GetDimension();
+                    isScalar = dimension <= 1;
+                    if (!isScalar) {
+                        if (attr.type == IG_VECTOR) { // 向量:先给模长(-1),再给各轴分量
+                            names.push_back(QStringLiteral("模长"));
+                            values.push_back(-1);
+                        }
+                        for (int d = 0; d < dimension; ++d) {
+                            if (d == 0) names.push_back(QStringLiteral("X"));
+                            else if (d == 1) names.push_back(QStringLiteral("Y"));
+                            else if (d == 2) names.push_back(QStringLiteral("Z"));
+                            else names.push_back(QStringLiteral("分量 %1").arg(d));
+                            values.push_back(d);
+                        }
+                    }
+                }
+            }
+
+            {
+                dimCombo->blockSignals(true);
+                dimCombo->clear();
+                if (isScalar) {
+                    dimCombo->addItem(QStringLiteral("标量(无分量可选)"), 0);
+                } else {
+                    for (size_t i = 0; i < names.size(); ++i) {
+                        dimCombo->addItem(names[i], values[i]);
+                    }
+                }
+                dimCombo->setCurrentIndex(0);
+                dimCombo->blockSignals(false);
+            }
+
+            // 标量:整行隐藏;标签查找失败时退化为禁用,效果同为不可选
+            if (QLabel* label = findRowLabel(dimCombo)) label->setVisible(!isScalar);
+            dimCombo->setEnabled(!isScalar);
+            dimCombo->setVisible(!isScalar);
+        };
 
         auto updateRangeEdits = [=]() {
             bool ok = false;
@@ -1223,18 +1298,15 @@ void igQtMainWindow::initAllFilters() {
             auto& attr = liveAttrs->GetAttribute(attrIndices[static_cast<size_t>(choice)]);
             if (!attr.pointer) return;
 
-            int dimension = 0;
-            if (auto* dimEdit = qobject_cast<QLineEdit*>(dialog->getWidget(dimId))) {
-                dimension = dimEdit->text().toInt(&ok);
-                if (!ok) dimension = 0;
+            int component = 0; // -1 表示模长
+            if (auto* dimCombo = qobject_cast<QComboBox*>(dialog->getWidget(dimId))) {
+                component = dimCombo->currentData().toInt();
             }
-            dimension = dimension < 0 ? 0 : dimension;
-            const int maxDim = attr.pointer->GetDimension() > 0 ? attr.pointer->GetDimension() - 1 : 0;
-            if (dimension > maxDim) dimension = maxDim;
 
             auto range = attr.GetDataRange();
             if (!range) return;
-            int rangeIndex = attr.pointer->GetDimension() <= 1 ? 0 : (1 + dimension);
+            // 数据范围约定:下标 0 为模长范围,其后依次为各分量范围
+            int rangeIndex = (attr.pointer->GetDimension() <= 1 || component < 0) ? 0 : (1 + component);
             if (rangeIndex >= static_cast<int>(range->GetNumberOfElements())) rangeIndex = 0;
 
             if (auto* lowerEdit = qobject_cast<QLineEdit*>(dialog->getWidget(lowerId))) {
@@ -1244,13 +1316,17 @@ void igQtMainWindow::initAllFilters() {
                 upperEdit->setText(QString::number(range->GetElementValue(rangeIndex, 1), 'g', 8));
             }
         };
+        refreshComponentCombo();
         updateRangeEdits();
         if (auto* combo = qobject_cast<QComboBox*>(dialog->getWidget(scalarId))) {
-            connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
-                    [=](int) { updateRangeEdits(); });
+            connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [=](int) {
+                refreshComponentCombo();
+                updateRangeEdits();
+            });
         }
-        if (auto* dimEdit = qobject_cast<QLineEdit*>(dialog->getWidget(dimId))) {
-            connect(dimEdit, &QLineEdit::editingFinished, dialog, [=]() { updateRangeEdits(); });
+        if (auto* dimCombo = qobject_cast<QComboBox*>(dialog->getWidget(dimId))) {
+            connect(dimCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
+                    [=](int) { updateRangeEdits(); });
         }
 
         dialog->show();
@@ -1273,7 +1349,10 @@ void igQtMainWindow::initAllFilters() {
                 return;
             }
 
-            const int dimension = dialog->getInt(dimId, ok);
+            int dimension = 0; // -1 表示模长
+            if (auto* dimCombo = qobject_cast<QComboBox*>(dialog->getWidget(dimId))) {
+                dimension = dimCombo->currentData().toInt();
+            }
             const double lower = dialog->getDouble(lowerId, ok);
             const double upper = dialog->getDouble(upperId, ok);
             const int boundary = dialog->getComboIndex(boundaryId, ok);
@@ -1284,7 +1363,7 @@ void igQtMainWindow::initAllFilters() {
             filter->SetScalarData(attr.pointer,
                                   attr.attachmentType == IG_CELL ? ThresholdFilter::Association::Cell
                                                                  : ThresholdFilter::Association::Point,
-                                  dimension < 0 ? 0 : dimension);
+                                  dimension);
             filter->SetThreshold(lower, upper);
             switch (boundary) {
                 case 1: filter->SetBoundaryMode(ThresholdFilter::BoundaryMode::Open); break;
