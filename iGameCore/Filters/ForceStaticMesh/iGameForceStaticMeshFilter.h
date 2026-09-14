@@ -36,7 +36,8 @@ protected:
     void InputToCache(const DataObject::Pointer& input);
 
 protected:
-    DataObject::Pointer m_Cache;   // 缓存的静态网格（几何固定）
+    DataObject::Pointer m_Cache;        // 缓存的静态网格（几何固定）
+    DataObject::Pointer m_CachedInput;  // 缓存所对应的输入对象，用于识别输入是否发生改变
     bool m_CacheInitialized{false};
     bool m_ForceCacheComputation{false};
 };

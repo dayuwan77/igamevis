@@ -94,11 +94,15 @@ bool ForceStaticMeshFilter::Execute() {
     auto input = GetInput(0);
     if (input == nullptr) return false;
 
-    if (m_ForceCacheComputation || !IsValidCache(input)) {
-        // 首次执行或缓存失效：深拷贝输入，构建静态网格缓存（几何固定）
+    // 输入对象发生改变时强制重建缓存
+    const bool inputChanged = (m_CachedInput == nullptr || m_CachedInput.get() != input.get());
+
+    if (m_ForceCacheComputation || inputChanged || !IsValidCache(input)) {
+        // 首次执行、输入对象改变或缓存失效：深拷贝输入，构建静态网格缓存（几何固定）
         m_Cache = CloneMesh(input);
         if (m_Cache == nullptr) return false;
         m_CacheInitialized = true;
+        m_CachedInput = input;
     } else {
         // 缓存有效：仅更新属性数据（点/单元几何保持缓存不动）
         InputToCache(input);
