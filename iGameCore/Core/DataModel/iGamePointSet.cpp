@@ -16,7 +16,12 @@ IGsize PointSet::GetNumberOfPoints() { return m_Points ? m_Points->GetNumberOfPo
 
 const Point& PointSet::GetPoint(const IGsize ptId) const { return m_Points->GetPoint(ptId); }
 
-void PointSet::SetPoint(const IGsize ptId, const Point& p) { m_Points->SetPoint(ptId, p); }
+void PointSet::SetPoint(const IGsize ptId, const Point& p) {
+    m_Points->SetPoint(ptId, p);
+    // PointSet 自身也必须失效，确保交互修改会重建渲染缓存。
+    this->Modified();
+    this->ForceReConvertToDrawableData();
+}
 
 IGsize PointSet::AddPoint(const Point& p) {
     if (!InEditStatus()) { RequestEditStatus(); }

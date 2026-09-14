@@ -144,9 +144,26 @@ if (ENABLE_QT_MODULE)
             Qt_module
     )
 
+    # 将运行时资源（Shaders/Assests 等）部署到可执行文件同级目录。
+    # 渲染器按 CWD 相对路径 ./Resources/... 加载着色器与字体，多配置生成器
+    # （Visual Studio）下 exe 位于 <build>/<Config>/，而资源被拷到 <build>/Resources，
+    # 双击 exe 时会导致全部 shader/字体加载失败。此命令保持二者一致。
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_BINARY_DIR}/Resources"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources"
+            COMMENT "Deploying runtime Resources next to the executable"
+            VERBATIM)
+
     if (WIN32)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${DEPLOYQT_EXECUTABLE} "$<TARGET_FILE:${PROJECT_NAME}>")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/Resources"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources"
+                COMMENT "Deploying iGameVis runtime resources"
+                VERBATIM)
         if (IGAME_ABQ_RUNTIME_DIR AND IGAME_ABQ_RUNTIME_LIBRARY_NAMES)
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND ${CMAKE_COMMAND}
