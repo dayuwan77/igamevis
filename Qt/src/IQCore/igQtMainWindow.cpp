@@ -3175,7 +3175,8 @@ void igQtMainWindow::initAllFilters() {
             });
     connect(ui->menu_filters->addAction(QStringLiteral("点线插值 (Point Line Interpolator)")), &QAction::triggered,
             this, [this](bool) {
-                auto* scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+                auto* renderWidget = rendererWidget;
+                auto* scene = renderWidget ? renderWidget->GetScene() : nullptr;
                 auto currentModel = scene ? scene->GetCurrentModel() : Model::Pointer{};
                 auto input = currentModel ? currentModel->GetDataObject() : nullptr;
                 if (!input || !input->GetPoints() || input->GetPoints()->GetNumberOfPoints() == 0) {
@@ -3217,7 +3218,12 @@ void igQtMainWindow::initAllFilters() {
                 dialog->setFilterTitle(QStringLiteral("点线插值"));
                 dialog->setFilterDescription(
                         QStringLiteral("按照 ParaView Point Line Interpolator 的方式，将输入点属性插值到参数化线段。"
-                                       "分辨率表示线段数，输出点数为分辨率 + 1。"));
+                                       "分辨率表示线段数，输出点数为分辨率 + 1。"
+                                       "打开面板后，视图会实时显示绿色起点、红色终点和青色预览线；"
+                                       "选择端点后可在视图中拖动。"));
+                const int dragEndpointId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("拖动端点"),
+                        std::vector<QString>{QStringLiteral("起点（绿色）"), QStringLiteral("终点（红色）")});
                 const int point1XId =
                         dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("起点 X"),
                                              QString::number(point1[0], 'g', 12));
@@ -3270,13 +3276,171 @@ void igQtMainWindow::initAllFilters() {
                 if (!hasPlotArrays) plotArrayLabels.push_back(QStringLiteral("无可用点属性数组"));
                 const int plotArrayId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
                                                              QStringLiteral("曲线数组"), plotArrayLabels);
-                const int plotComponentId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
-                                                                 QStringLiteral("数组分量"), QStringLiteral("0"));
+                const int plotComponentId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("数组分量"),
+                        std::vector<QString>{hasPlotArrays ? QStringLiteral("分量 0")
+                                                           : QStringLiteral("无可用分量")});
                 if (!hasPlotArrays) {
                     if (auto* widget = dialog->getWidget(showChartId)) widget->setEnabled(false);
                     if (auto* widget = dialog->getWidget(plotArrayId)) widget->setEnabled(false);
                     if (auto* widget = dialog->getWidget(plotComponentId)) widget->setEnabled(false);
                 }
+
+                // Make the chart component a constrained choice instead of a free-form number.  The
+                // valid entries are rebuilt whenever the user selects another source array.
+                auto* plotArrayCombo = qobject_cast<QComboBox*>(dialog->getWidget(plotArrayId));
+                auto* plotComponentCombo = qobject_cast<QComboBox*>(dialog->getWidget(plotComponentId));
+                const auto refreshPlotComponents = [plotComponentCombo, plotArrayDimensions](int arrayIndex) {
+                    if (!plotComponentCombo) return;
+                    plotComponentCombo->clear();
+                    if (arrayIndex < 0 || arrayIndex >= static_cast<int>(plotArrayDimensions.size())) {
+                        plotComponentCombo->addItem(QStringLiteral("无可用分量"));
+                        return;
+                    }
+                    for (int component = 0; component < plotArrayDimensions[arrayIndex]; ++component)
+                        plotComponentCombo->addItem(QStringLiteral("分量 %1").arg(component));
+                };
+                if (hasPlotArrays) refreshPlotComponents(0);
+                if (plotArrayCombo) {
+                    connect(plotArrayCombo, qOverload<int>(&QComboBox::currentIndexChanged), dialog,
+                            [refreshPlotComponents](int arrayIndex) { refreshPlotComponents(arrayIndex); });
+                }
+
+                // This is a transient ParaView-style line widget.  It is deliberately added directly
+                // to the scene (rather than to the model tree) so closing the parameter panel cleans it
+                // up without leaving helper models in the user's project.
+                auto startMarker = PointSet::New();
+                startMarker->SetName("__PointLineInterpolator_StartPreview");
+                startMarker->AddPoint(point1);
+                startMarker->SetViewStyle(IG_POINTS);
+                startMarker->SetPointSize(12.0f);
+                startMarker->SetDefaultColor(igm::vec3{0.20f, 0.90f, 0.35f});
+                startMarker->SetAlwaysOnTop(true);
+
+                auto endMarker = PointSet::New();
+                endMarker->SetName("__PointLineInterpolator_EndPreview");
+                endMarker->AddPoint(point2);
+                endMarker->SetViewStyle(IG_POINTS);
+                endMarker->SetPointSize(12.0f);
+                endMarker->SetDefaultColor(igm::vec3{0.95f, 0.25f, 0.25f});
+                endMarker->SetAlwaysOnTop(true);
+
+                auto linePreview = UnstructuredMesh::New();
+                linePreview->SetName("__PointLineInterpolator_LinePreview");
+                linePreview->AddPoint(point1);
+                linePreview->AddPoint(point2);
+                igIndex previewLineIds[2]{0, 1};
+                linePreview->AddCell(previewLineIds, 2, IG_LINE);
+                linePreview->SetViewStyle(IG_WIREFRAME);
+                linePreview->SetLineWidth(3.0f);
+                linePreview->SetLineColor(igm::vec3{0.20f, 0.80f, 1.00f});
+                linePreview->SetAlwaysOnTop(true);
+
+                const IGuint startMarkerModelId = scene->AddModel(startMarker);
+                const IGuint endMarkerModelId = scene->AddModel(endMarker);
+                const IGuint linePreviewModelId = scene->AddModel(linePreview);
+                scene->SetCurrentModel(currentModel);
+
+                const auto syncPreviewFromControls = [dialog, startMarker, endMarker, linePreview, renderWidget,
+                                                       point1XId, point1YId, point1ZId, point2XId, point2YId,
+                                                       point2ZId]() {
+                    const auto readPoint = [dialog](int xId, int yId, int zId, Point& point) {
+                        bool xOk = false, yOk = false, zOk = false;
+                        const double x = dialog->getDouble(xId, xOk);
+                        const double y = dialog->getDouble(yId, yOk);
+                        const double z = dialog->getDouble(zId, zOk);
+                        if (!xOk || !yOk || !zOk || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+                            return false;
+                        point = Point(x, y, z);
+                        return true;
+                    };
+
+                    Point start, end;
+                    if (!readPoint(point1XId, point1YId, point1ZId, start) ||
+                        !readPoint(point2XId, point2YId, point2ZId, end))
+                        return;
+
+                    startMarker->SetPoint(0, start);
+                    endMarker->SetPoint(0, end);
+                    linePreview->SetPoint(0, start);
+                    linePreview->SetPoint(1, end);
+                    startMarker->ForceReConvertToDrawableData();
+                    endMarker->ForceReConvertToDrawableData();
+                    linePreview->ForceReConvertToDrawableData();
+                    if (renderWidget) renderWidget->update();
+                };
+                for (const int coordinateId : {point1XId, point1YId, point1ZId, point2XId, point2YId, point2ZId}) {
+                    if (auto* coordinateEdit = qobject_cast<QLineEdit*>(dialog->getWidget(coordinateId))) {
+                        connect(coordinateEdit, &QLineEdit::editingFinished, dialog, syncPreviewFromControls);
+                    }
+                }
+
+                const auto updateControlsFromDraggedPoint =
+                        [dialog, linePreview, renderWidget](PointSet::Pointer marker, int linePointId, int xId,
+                                                              int yId, int zId) {
+                            if (marker.IsNull()) return;
+                            const Point point = marker->GetPoint(0);
+                            linePreview->SetPoint(linePointId, point);
+                            linePreview->ForceReConvertToDrawableData();
+                            if (auto* edit = qobject_cast<QLineEdit*>(dialog->getWidget(xId)))
+                                edit->setText(QString::number(point[0], 'g', 12));
+                            if (auto* edit = qobject_cast<QLineEdit*>(dialog->getWidget(yId)))
+                                edit->setText(QString::number(point[1], 'g', 12));
+                            if (auto* edit = qobject_cast<QLineEdit*>(dialog->getWidget(zId)))
+                                edit->setText(QString::number(point[2], 'g', 12));
+                            if (renderWidget) renderWidget->update();
+                        };
+                const auto installDragCallback =
+                        [dialog, updateControlsFromDraggedPoint](PointSet::Pointer marker, Model::Pointer markerModel,
+                                                                 int linePointId, int xId, int yId, int zId,
+                                                                 const char* callbackName) {
+                            if (marker.IsNull() || markerModel.IsNull()) return;
+                            QPointer<igQtFilterDialogDockWidget> guard(dialog);
+                            auto selection = marker->GetSelection(markerModel.GetPointer());
+                            selection->_SetSelectionCallBackEvent_(
+                                    callbackName,
+                                    [guard, marker, linePointId, xId, yId, zId, updateControlsFromDraggedPoint](
+                                            IGenum type, const std::vector<igIndex>&, Selection::Operate) {
+                                        if (type != IG_DRAGPOINT || !guard) return;
+                                        QTimer::singleShot(0, guard, [guard, marker, linePointId, xId, yId, zId,
+                                                                      updateControlsFromDraggedPoint]() {
+                                            if (!guard) return;
+                                            updateControlsFromDraggedPoint(marker, linePointId, xId, yId, zId);
+                                        });
+                                    });
+                        };
+                const auto startMarkerModel = scene->GetModelById(startMarkerModelId);
+                const auto endMarkerModel = scene->GetModelById(endMarkerModelId);
+                installDragCallback(startMarker, startMarkerModel, 0, point1XId, point1YId, point1ZId,
+                                    "PointLineInterpolatorStartPreview");
+                installDragCallback(endMarker, endMarkerModel, 1, point2XId, point2YId, point2ZId,
+                                    "PointLineInterpolatorEndPreview");
+
+                const auto activateDragEndpoint = [scene, renderWidget, startMarkerModelId, endMarkerModelId](
+                                                        int endpointIndex) {
+                    const IGuint markerModelId = endpointIndex == 0 ? startMarkerModelId : endMarkerModelId;
+                    if (auto markerModel = scene->GetModelById(markerModelId);
+                        !markerModel.IsNull() && renderWidget) {
+                        scene->SetCurrentModel(markerModel);
+                        renderWidget->ChangeInteractorStyle(Interactor::DragPointStyle);
+                    }
+                };
+                if (auto* dragEndpointCombo = qobject_cast<QComboBox*>(dialog->getWidget(dragEndpointId))) {
+                    connect(dragEndpointCombo, qOverload<int>(&QComboBox::currentIndexChanged), dialog,
+                            activateDragEndpoint);
+                }
+                activateDragEndpoint(0);
+
+                connect(dialog, &QObject::destroyed, this,
+                        [scene, currentModel, renderWidget, startMarkerModelId, endMarkerModelId, linePreviewModelId]() {
+                            if (!scene) return;
+                            scene->GetInteractor()->RequestBasicStyle();
+                            scene->RemoveModel(linePreviewModelId);
+                            scene->RemoveModel(startMarkerModelId);
+                            scene->RemoveModel(endMarkerModelId);
+                            if (!currentModel.IsNull()) scene->SetCurrentModel(currentModel);
+                            if (renderWidget) renderWidget->update();
+                        });
 
                 dialog->show();
                 dialog->setApplyFunctor([=, this]() {
@@ -3326,7 +3490,7 @@ void igQtMainWindow::initAllFilters() {
                     int plotComponent = 0;
                     if (showChart) {
                         plotArrayIndex = dialog->getComboIndex(plotArrayId, ok);
-                        plotComponent = dialog->getInt(plotComponentId, ok);
+                        plotComponent = dialog->getComboIndex(plotComponentId, ok);
                         if (!ok || plotArrayIndex < 0 || plotArrayIndex >= static_cast<int>(plotArrayNames.size()) ||
                             plotComponent < 0 || plotComponent >= plotArrayDimensions[plotArrayIndex]) {
                             showDarkFramelessMessage(QStringLiteral("参数错误"),
