@@ -3823,56 +3823,59 @@ void igQtMainWindow::initAllFilters() {
 
         // 三角形
         std::vector<QString> triangleMetrics = {
-                QStringLiteral("FACE_AREA"),      QStringLiteral("MAX_ANGLE"),
-                QStringLiteral("MIN_ANGLE"),      QStringLiteral("JACOBIAN"),
-                QStringLiteral("ASPECT_RATIO"),   QStringLiteral("EDGE_RATIO"),
-                QStringLiteral("ANGLE_QUALITY"),  QStringLiteral("FACE_MIN_ANGLE"),
-                QStringLiteral("FACE_MAX_ANGLE"), QStringLiteral("FACE_MIN_ANGLE_QUALITY")};
+                QStringLiteral("FACE_AREA"),
+                QStringLiteral("MAX_ANGLE"),
+                QStringLiteral("MIN_ANGLE"),
+                QStringLiteral("JACOBIAN"),
+                QStringLiteral("ASPECT_RATIO"),
+                QStringLiteral("EDGE_RATIO")
+        };
         int triangleId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
                                               QStringLiteral("Triangle 质量指标"), triangleMetrics);
 
         // 四边形
-        std::vector<QString> quadMetrics = {QStringLiteral("FACE_AREA"),
-                                            QStringLiteral("MAX_ANGLE"),
-                                            QStringLiteral("MIN_ANGLE"),
-                                            QStringLiteral("JACOBIAN"),
-                                            QStringLiteral("ASPECT_RATIO"),
-                                            QStringLiteral("EDGE_RATIO"),
-                                            QStringLiteral("WARPAGE"),
-                                            QStringLiteral("TAPER"),
-                                            QStringLiteral("SKEW"),
-                                            QStringLiteral("ANGLE_QUALITY"),
-                                            QStringLiteral("FACE_MIN_ANGLE"),
-                                            QStringLiteral("FACE_MAX_ANGLE"),
-                                            QStringLiteral("FACE_MIN_ANGLE_QUALITY")};
+        std::vector<QString> quadMetrics = {
+                QStringLiteral("FACE_AREA"),
+                QStringLiteral("MAX_ANGLE"),
+                QStringLiteral("MIN_ANGLE"),
+                QStringLiteral("JACOBIAN"),
+                QStringLiteral("ASPECT_RATIO"),
+                QStringLiteral("EDGE_RATIO"),
+                QStringLiteral("WARPAGE"),
+                QStringLiteral("TAPER"),
+                QStringLiteral("SKEW")
+        };
         int quadId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("Quad 质量指标"),
                                           quadMetrics);
 
         // 四面体
         std::vector<QString> tetMetrics = {
-                QStringLiteral("TET_EDGE_RATIO"),       QStringLiteral("TET_VOLUME"),
-                QStringLiteral("TET_ASPECT_RATIO"),     QStringLiteral("TET_JACOBIAN"),
-                QStringLiteral("TET_COLLAPSE_RATIO"),   QStringLiteral("TET_VOL_SKEW"),
-                QStringLiteral("TET_MIN_ANGLE"),        QStringLiteral("TET_EQUIANGLE_SKEWNESS"),
-                QStringLiteral("TET_INRADIUS"),         QStringLiteral("TET_CIRCUMRADIUS"),
-                QStringLiteral("TET_VOL_ASPECT_RATIO"), QStringLiteral("TET_ASPECT_RATIO_ALT"),
-                QStringLiteral("TET_VOLUME_ALT")};
+                QStringLiteral("TET_EDGE_RATIO"),
+                QStringLiteral("TET_VOLUME"),
+                QStringLiteral("TET_ASPECT_RATIO"),
+                QStringLiteral("TET_JACOBIAN"),
+                QStringLiteral("TET_COLLAPSE_RATIO"),
+                QStringLiteral("TET_VOL_SKEW"),
+                QStringLiteral("TET_MIN_ANGLE"),
+                QStringLiteral("TET_EQUIANGLE_SKEWNESS"),
+                QStringLiteral("TET_INRADIUS"),
+                QStringLiteral("TET_CIRCUMRADIUS"),
+                QStringLiteral("TET_VOL_ASPECT_RATIO")
+        };
         int tetId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("Tetra 质量指标"),
                                          tetMetrics);
 
         // 六面体
-        std::vector<QString> hexMetrics = {QStringLiteral("HEX_VOLUME"),
-                                           QStringLiteral("HEX_TAPER"),
-                                           QStringLiteral("HEX_JACOBIAN"),
-                                           QStringLiteral("HEX_EDGE_RATIO"),
-                                           QStringLiteral("HEX_MAX_EDGE_RATIO"),
-                                           QStringLiteral("HEX_SKEW"),
-                                           QStringLiteral("HEX_STRETCH"),
-                                           QStringLiteral("HEX_DIAGONAL"),
-                                           QStringLiteral("HEX_RELATIVE_SIZE_SQUARED"),
-                                           QStringLiteral("HEX_MIN_SCALED_JACOBIAN"),
-                                           QStringLiteral("HEX_AVG_SCALED_JACOBIAN"),
-                                           QStringLiteral("HEX_VOLUME_ALT")};
+        std::vector<QString> hexMetrics = {
+                QStringLiteral("HEX_VOLUME"),
+                QStringLiteral("HEX_TAPER"),
+                QStringLiteral("HEX_JACOBIAN"),
+                QStringLiteral("HEX_EDGE_RATIO"),
+                QStringLiteral("HEX_MAX_EDGE_RATIO"),
+                QStringLiteral("HEX_SKEW"),
+                QStringLiteral("HEX_STRETCH"),
+                QStringLiteral("HEX_DIAGONAL")
+        };
         int hexId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
                                          QStringLiteral("Hexahedron 质量指标"), hexMetrics);
 
@@ -3881,50 +3884,53 @@ void igQtMainWindow::initAllFilters() {
 
         // Triangle
         std::vector<SurfaceMetric> triangleMetricValues = {
-                SurfaceMetric::FACE_AREA,      SurfaceMetric::MAX_ANGLE,
-                SurfaceMetric::MIN_ANGLE,      SurfaceMetric::JACOBIAN,
-                SurfaceMetric::ASPECT_RATIO,   SurfaceMetric::EDGE_RATIO,
-                SurfaceMetric::ANGLE_QUALITY,  SurfaceMetric::FACE_MIN_ANGLE,
-                SurfaceMetric::FACE_MAX_ANGLE, SurfaceMetric::FACE_MIN_ANGLE_QUALITY};
+                SurfaceMetric::FACE_AREA,
+                SurfaceMetric::MAX_ANGLE,
+                SurfaceMetric::MIN_ANGLE,
+                SurfaceMetric::JACOBIAN,
+                SurfaceMetric::ASPECT_RATIO,
+                SurfaceMetric::EDGE_RATIO
+        };
 
         // Quad
-        std::vector<SurfaceMetric> quadMetricValues = {SurfaceMetric::FACE_AREA,
-                                                       SurfaceMetric::MAX_ANGLE,
-                                                       SurfaceMetric::MIN_ANGLE,
-                                                       SurfaceMetric::JACOBIAN,
-                                                       SurfaceMetric::ASPECT_RATIO,
-                                                       SurfaceMetric::EDGE_RATIO,
-                                                       SurfaceMetric::WARPAGE,
-                                                       SurfaceMetric::TAPER,
-                                                       SurfaceMetric::SKEW,
-                                                       SurfaceMetric::ANGLE_QUALITY,
-                                                       SurfaceMetric::FACE_MIN_ANGLE,
-                                                       SurfaceMetric::FACE_MAX_ANGLE,
-                                                       SurfaceMetric::FACE_MIN_ANGLE_QUALITY};
+        std::vector<SurfaceMetric> quadMetricValues = {
+                SurfaceMetric::FACE_AREA,
+                SurfaceMetric::MAX_ANGLE,
+                SurfaceMetric::MIN_ANGLE,
+                SurfaceMetric::JACOBIAN,
+                SurfaceMetric::ASPECT_RATIO,
+                SurfaceMetric::EDGE_RATIO,
+                SurfaceMetric::WARPAGE,
+                SurfaceMetric::TAPER,
+                SurfaceMetric::SKEW
+        };
 
         // Tet
         std::vector<VolumeMetric> tetMetricValues = {
-                VolumeMetric::TET_EDGE_RATIO,       VolumeMetric::TET_VOLUME,
-                VolumeMetric::TET_ASPECT_RATIO,     VolumeMetric::TET_JACOBIAN,
-                VolumeMetric::TET_COLLAPSE_RATIO,   VolumeMetric::TET_VOL_SKEW,
-                VolumeMetric::TET_MIN_ANGLE,        VolumeMetric::TET_EQUIANGLE_SKEWNESS,
-                VolumeMetric::TET_INRADIUS,         VolumeMetric::TET_CIRCUMRADIUS,
-                VolumeMetric::TET_VOL_ASPECT_RATIO, VolumeMetric::TET_ASPECT_RATIO_ALT,
-                VolumeMetric::TET_VOLUME_ALT};
+                VolumeMetric::TET_EDGE_RATIO,
+                VolumeMetric::TET_VOLUME,
+                VolumeMetric::TET_ASPECT_RATIO,
+                VolumeMetric::TET_JACOBIAN,
+                VolumeMetric::TET_COLLAPSE_RATIO,
+                VolumeMetric::TET_VOL_SKEW,
+                VolumeMetric::TET_MIN_ANGLE,
+                VolumeMetric::TET_EQUIANGLE_SKEWNESS,
+                VolumeMetric::TET_INRADIUS,
+                VolumeMetric::TET_CIRCUMRADIUS,
+                VolumeMetric::TET_VOL_ASPECT_RATIO
+        };
 
         // Hex
-        std::vector<VolumeMetric> hexMetricValues = {VolumeMetric::HEX_VOLUME,
-                                                     VolumeMetric::HEX_TAPER,
-                                                     VolumeMetric::HEX_JACOBIAN,
-                                                     VolumeMetric::HEX_EDGE_RATIO,
-                                                     VolumeMetric::HEX_MAX_EDGE_RATIO,
-                                                     VolumeMetric::HEX_SKEW,
-                                                     VolumeMetric::HEX_STRETCH,
-                                                     VolumeMetric::HEX_DIAGONAL,
-                                                     VolumeMetric::HEX_RELATIVE_SIZE_SQUARED,
-                                                     VolumeMetric::HEX_MIN_SCALED_JACOBIAN,
-                                                     VolumeMetric::HEX_AVG_SCALED_JACOBIAN,
-                                                     VolumeMetric::HEX_VOLUME_ALT};
+        std::vector<VolumeMetric> hexMetricValues = {
+                VolumeMetric::HEX_VOLUME,
+                VolumeMetric::HEX_TAPER,
+                VolumeMetric::HEX_JACOBIAN,
+                VolumeMetric::HEX_EDGE_RATIO,
+                VolumeMetric::HEX_MAX_EDGE_RATIO,
+                VolumeMetric::HEX_SKEW,
+                VolumeMetric::HEX_STRETCH,
+                VolumeMetric::HEX_DIAGONAL
+        };
 
         dialog->show();
 
@@ -3967,24 +3973,15 @@ void igQtMainWindow::initAllFilters() {
             QString qualityText = QString("Quality: [%1, %2]").arg(minQuality, 0, 'g', 15).arg(maxQuality, 0, 'g', 15);
             showDarkFramelessMessage(QStringLiteral("Mesh Quality"), qualityText);
 
-            modelTreeWidget->updateAllAttriubute(data);
-            auto drawObject = DynamicCast<DrawObject>(data);
-            if (drawObject) {
-                auto item = modelTreeWidget->getItemFromObject(data);
-                if (item && item->childCount() > 0) {
-                    item->setExpanded(true);
-                    int index = data->GetAttributeIndex();
-                    auto child = item->child(index);
-                    if (child) {
-                        item->setCurrentChild(child);
-                        item->setSelected(false);
-                        item->viewAttribute(index, -1);
-                        child->setSelected(true);
-                        modelTreeWidget->setCurrentItem(child);
-                    }
-                }
+            auto outObj = filter->GetOutput();
+            if (outObj == nullptr) {
+                showDarkFramelessMessage(
+                    QStringLiteral("Warning"),
+                    QStringLiteral("MeshQuality 没有生成输出。")
+                );
+                return;
             }
-
+            modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
             rendererWidget->update();
         });
     });
