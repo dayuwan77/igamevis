@@ -2331,23 +2331,27 @@ void igQtMainWindow::initAllFilters() {
                 const int computeCellId = dialog->addParameter(
                         igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("计算面法向量"), "true");
                 const int splittingId = dialog->addParameter(
-                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("锐边分裂"), "true");
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("锐边分裂 (Splitting)"), "true");
                 const int featureAngleId = dialog->addParameter(
                         igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("特征角（度）"), "30");
+                const int consistencyId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("一致性 (Consistency)"), "true");
                 const int flipNormalsId = dialog->addParameter(
-                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("翻转法向量"), "false");
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("翻转法向量 (Flip Normals)"), "false");
                 dialog->show();
 
                 dialog->setApplyFunctor([=, this]() {
                     bool computePoint = false;
                     bool computeCell = false;
                     bool splitting = false;
+                    bool consistency = false;
                     bool flipNormals = false;
                     bool featureAngleOk = false;
 
                     computePoint = dialog->getChecked(computePointId, computePoint);
                     computeCell = dialog->getChecked(computeCellId, computeCell);
                     splitting = dialog->getChecked(splittingId, splitting);
+                    consistency = dialog->getChecked(consistencyId, consistency);
                     flipNormals = dialog->getChecked(flipNormalsId, flipNormals);
                     const double featureAngle = dialog->getDouble(featureAngleId, featureAngleOk);
 
@@ -2363,7 +2367,7 @@ void igQtMainWindow::initAllFilters() {
                     filter->SetSplitting(splitting);
                     filter->SetFeatureAngle(featureAngle);
                     filter->SetFlipNormals(flipNormals);
-                    filter->SetConsistency(true);
+                    filter->SetConsistency(consistency);
                     filter->SetInput(obj);
 
                     if (!filter->Execute()) {
