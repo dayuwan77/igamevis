@@ -152,7 +152,9 @@ void igQtValidateCellsResultDialog::buildUi() {
                 Validity_NoncontiguousEdges,
                 Validity_Nonconvex,
                 Validity_FacesAreOrientedIncorrectly,
-                Validity_UnsupportedCellType};
+                Validity_UnsupportedCellType,
+                Validity_DegenerateFaces,
+                Validity_CoincidentPoints};
 
         auto addCategoryRow = [&](unsigned short flag, const QString& name, int count,
                                   const QString& stateText) {

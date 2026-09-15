@@ -10,7 +10,8 @@
 
 IGAME_NAMESPACE_BEGIN
 
-// Validity state bitmask — matches VTK vtkCellValidator::State.
+// Validity state bitmask — based on VTK vtkCellValidator::State with extra
+// project-specific bits for unsupported cells.
 // A cell may have multiple issues; the value is a bitwise OR of these flags.
 // 0 means Valid; non-zero means invalid.
 enum ValidityState : unsigned short {
@@ -21,7 +22,9 @@ enum ValidityState : unsigned short {
     Validity_NoncontiguousEdges          = 0x08,
     Validity_Nonconvex                   = 0x10,
     Validity_FacesAreOrientedIncorrectly = 0x20,
-    Validity_UnsupportedCellType         = 0x40
+    Validity_UnsupportedCellType         = 0x40,
+    Validity_DegenerateFaces             = 0x80,
+    Validity_CoincidentPoints            = 0x100
 };
 
 class ValidateCellsFilter : public Filter {
@@ -75,7 +78,7 @@ private:
     void ApplyResultAttribute(DataObject* output);
 
     std::vector<unsigned short> m_ValidityStates;
-    std::array<std::vector<igIndex>, 7> m_CellIdsByFlag;
+    std::array<std::vector<igIndex>, 9> m_CellIdsByFlag;
     std::vector<igIndex> m_InvalidCellIds;
     std::vector<igIndex> m_UnsupportedCellIds;
     std::string m_LastError;

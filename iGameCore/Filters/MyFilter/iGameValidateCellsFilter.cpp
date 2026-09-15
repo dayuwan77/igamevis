@@ -273,7 +273,7 @@ unsigned short ValidateLine(const std::vector<Point>& pts, double tol) {
 
     unsigned short state = Validity_Valid;
     if (PointsAreCoincident(pts[0], pts[1], tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_CoincidentPoints;
     }
     return state;
 }
@@ -288,7 +288,7 @@ unsigned short ValidatePolyline(const std::vector<Point>& pts, double tol) {
 
     unsigned short state = Validity_Valid;
     if (HasDuplicatePoints(pts, tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_CoincidentPoints;
     }
     for (size_t i = 1; i < pts.size(); ++i) {
         if (PointsAreCoincident(pts[i - 1], pts[i], tol)) {
@@ -308,10 +308,10 @@ unsigned short ValidateTriangle(const std::vector<Point>& pts, double tol) {
 
     unsigned short state = Validity_Valid;
     if (HasDuplicatePoints(pts, tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_CoincidentPoints;
     }
     if (TriangleIsDegenerate(pts, tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_DegenerateFaces;
     }
     return state;
 }
@@ -323,7 +323,7 @@ unsigned short ValidatePolygon(const std::vector<Point>& pts, double tol) {
 
     unsigned short state = Validity_Valid;
     if (HasDuplicatePoints(pts, tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_CoincidentPoints;
     }
 
     const int n = static_cast<int>(pts.size());
@@ -348,10 +348,10 @@ unsigned short ValidateTetra(const std::vector<Point>& pts, double tol) {
 
     unsigned short state = Validity_Valid;
     if (HasDuplicatePoints(pts, tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_CoincidentPoints;
     }
     if (TetraIsDegenerate(pts, tol)) {
-        state |= Validity_Nonconvex;
+        state |= Validity_DegenerateFaces;
     }
 
     const Vector3d a = ToDouble(pts[0]);
@@ -439,6 +439,8 @@ int FlagIndex(unsigned short flag) {
         case Validity_Nonconvex: return 4;
         case Validity_FacesAreOrientedIncorrectly: return 5;
         case Validity_UnsupportedCellType: return 6;
+        case Validity_DegenerateFaces: return 7;
+        case Validity_CoincidentPoints: return 8;
         default: return -1;
     }
 }
@@ -523,6 +525,8 @@ std::string ValidateCellsFilter::GetValidityFlagName(unsigned short flag) {
         case Validity_Nonconvex: return "非凸";
         case Validity_FacesAreOrientedIncorrectly: return "面朝向错误";
         case Validity_UnsupportedCellType: return "未支持的单元类型";
+        case Validity_DegenerateFaces: return "退化面";
+        case Validity_CoincidentPoints: return "重合点";
         default: return "未知错误";
     }
 }
@@ -539,7 +543,9 @@ std::string ValidateCellsFilter::GetValidityStateText(unsigned short state) {
             Validity_NoncontiguousEdges,
             Validity_Nonconvex,
             Validity_FacesAreOrientedIncorrectly,
-            Validity_UnsupportedCellType};
+            Validity_UnsupportedCellType,
+            Validity_DegenerateFaces,
+            Validity_CoincidentPoints};
 
     std::string text;
     for (unsigned short flag : flags) {
@@ -597,7 +603,9 @@ void ValidateCellsFilter::RecordCell(IGsize cellId, IGenum cellType, unsigned sh
             Validity_NoncontiguousEdges,
             Validity_Nonconvex,
             Validity_FacesAreOrientedIncorrectly,
-            Validity_UnsupportedCellType};
+            Validity_UnsupportedCellType,
+            Validity_DegenerateFaces,
+            Validity_CoincidentPoints};
     for (unsigned short flag : flags) {
         if ((state & flag) == 0) {
             continue;
