@@ -2321,21 +2321,74 @@ void igQtMainWindow::initAllFilters() {
                                              QStringLiteral("当前模型没有可用的网格数据。"));
                     return;
                 }
-                SurfaceNormalsFilter::Pointer filter = SurfaceNormalsFilter::New();
-                filter->SetInput(obj);
-                if (!filter->Execute()) {
+                auto* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("面/点法向量计算 (Surface Normals)"));
+                dialog->setFilterDescription(
+                        QStringLiteral("计算多边形表面网格的面法向量与点法向量，支持锐边分裂与法向量翻转。"));
+
+                const int computePointId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("计算点法向量"), "true");
+                const int computeCellId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("计算面法向量"), "true");
+                const int splittingId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("锐边分裂"), "true");
+                const int featureAngleId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("特征角（度）"), "30");
+                const int flipNormalsId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("翻转法向量"), "false");
+                dialog->show();
+
+                dialog->setApplyFunctor([=, this]() {
+                    bool computePoint = false;
+                    bool computeCell = false;
+                    bool splitting = false;
+                    bool flipNormals = false;
+                    bool featureAngleOk = false;
+
+                    computePoint = dialog->getChecked(computePointId, computePoint);
+                    computeCell = dialog->getChecked(computeCellId, computeCell);
+                    splitting = dialog->getChecked(splittingId, splitting);
+                    flipNormals = dialog->getChecked(flipNormalsId, flipNormals);
+                    const double featureAngle = dialog->getDouble(featureAngleId, featureAngleOk);
+
+                    if (!featureAngleOk || featureAngle < 0.0 || featureAngle > 180.0) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("特征角必须是 0 到 180 之间的数值。"));
+                        return;
+                    }
+
+                    SurfaceNormalsFilter::Pointer filter = SurfaceNormalsFilter::New();
+                    filter->SetComputePointNormals(computePoint);
+                    filter->SetComputeCellNormals(computeCell);
+                    filter->SetSplitting(splitting);
+                    filter->SetFeatureAngle(featureAngle);
+                    filter->SetFlipNormals(flipNormals);
+                    filter->SetConsistency(true);
+                    filter->SetInput(obj);
+
+                    if (!filter->Execute()) {
+                        showDarkFramelessMessage(
+                                QStringLiteral("数据类型不匹配"),
+                                QStringLiteral("面/点法向量计算仅支持多边形表面网格（Poly Data），请检查输入数据类型。"));
+                        return;
+                    }
+
+                    auto outMesh = DynamicCast<SurfaceMesh>(filter->GetOutput());
+                    if (outMesh == nullptr) {
+                        showDarkFramelessMessage(QStringLiteral("执行失败"),
+                                                 QStringLiteral("面/点法向量计算没有生成有效输出。"));
+                        return;
+                    }
+
+                    modelTreeWidget->addDataObjectToModelTree(outMesh, Algorithm);
+                    rendererWidget->update();
                     showDarkFramelessMessage(
-                            QStringLiteral("数据类型不匹配"),
-                            QStringLiteral("面/点法向量计算仅支持多边形表面网格（Poly Data），请检查输入数据类型。"));
-                    return;
-                }
-                auto outMesh = DynamicCast<SurfaceMesh>(filter->GetOutput());
-                modelTreeWidget->addDataObjectToModelTree(outMesh, Algorithm);
-                rendererWidget->update();
-                showDarkFramelessMessage(QStringLiteral("面/点法向量计算完成"),
-                                         QStringLiteral("已为表面网格计算面法向量和点法向量，可在查找信息中查看 "
-                                                        "Normals 与 Normals_Magnitude。"),
-                                         true);
+                            QStringLiteral("面/点法向量计算完成"),
+                            QStringLiteral("已根据所选参数计算表面法向量，可在查找信息中查看 "
+                                           "Normals 与 Normals_Magnitude。"),
+                            true);
+                    dialog->close();
+                });
             });
 
 
