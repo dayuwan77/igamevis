@@ -2,10 +2,25 @@
 
 #include "iGameAttributeSet.h"
 #include "iGameFlatArray.h"
+#include "iGamePoints.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
 
 IGAME_NAMESPACE_BEGIN
+
+namespace {
+
+// 结果对象持有独立的 Points（与输入共享底层缓冲，但时间戳互不影响）：
+// 若直接把输入的 Points 交给 result->SetPoints()，PointSet::SetPoints() 会对该共享对象调
+// Modified()，把输入模型的几何时间戳顶掉，使输入模型也重跑一遍表面提取。
+Points::Pointer CreateSharedPoints(const Points::Pointer& source) {
+    if (source == nullptr) { return nullptr; }
+    auto points = Points::New();
+    points->ShallowCopy(source);
+    return points;
+}
+
+}  // namespace
 
 ExtractComponentFilter::ExtractComponentFilter() {
     SetNumberOfInputs(1);
@@ -89,37 +104,26 @@ bool ExtractComponentFilter::Execute() {
     }
 
     // 继承语义：输出新数据对象，几何与输入共享；
-    // 结果属性集 = 输入属性集的拷贝（跳过与输出名同名的旧数组，即覆盖语义）+ 新增结果数组。
-    // 注意：不能用 DeleteAttribute 标记删除（渲染路径按索引遍历会解引用空指针），
-    // 拷贝时直接跳过同名旧数组，保证结果属性集不含 isDeleted 残留项
+    // 结果属性集 = 输入属性集的拷贝（Attribute 记录是新的，数组只读共享），
+    // 跳过与输出名同名的旧数组（覆盖语义）+ 新增结果数组。
+    // 注意 1：不能用 DeleteAttribute 标记删除（渲染路径按索引遍历会解引用空指针），
+    //         拷贝时直接跳过同名旧数组，保证结果属性集不含 isDeleted 残留项。
+    // 注意 2：数组不再逐个深拷贝——结果只新增自己的标量数组，从不修改已有数组；
+    //         深拷贝会让大模型的内存翻倍并一直驻留到删除结果节点（表现为"输出结果后卡顿"）。
     auto resultAttrSet = AttributeSet::New();
     auto allAttributes = attributeSet->GetAllAttributes();
     for (IGsize i = 0; i < allAttributes->GetNumberOfElements(); ++i) {
         auto& src = allAttributes->GetElement(i);
         if (src.IsNone()) continue;
         if (src.pointer->GetName() == m_OutputArrayName) continue;
-        ArrayObject::Pointer copied;
-        if (DynamicCast<FloatArray>(src.pointer) != nullptr) {
-            auto p = FloatArray::New();
-            p->DeepCopy(DynamicCast<FloatArray>(src.pointer));
-            p->SetName(src.pointer->GetName());
-            copied = p;
-        } else if (DynamicCast<DoubleArray>(src.pointer) != nullptr) {
-            auto p = DoubleArray::New();
-            p->DeepCopy(DynamicCast<DoubleArray>(src.pointer));
-            p->SetName(src.pointer->GetName());
-            copied = p;
-        } else {
-            copied = src.pointer;  // 其他类型共享指针（只读属性，安全）
-        }
-        resultAttrSet->AddAttribute(src.type, src.attachmentType, copied);
+        resultAttrSet->AddAttribute(src.type, src.attachmentType, src.pointer);
     }
     resultAttrSet->AddScalar(attr.attachmentType, output);
 
     if (auto unstructured = DynamicCast<UnstructuredMesh>(input); unstructured != nullptr) {
         auto result = UnstructuredMesh::New();
         result->SetName(unstructured->GetName() + "_ExtractComponent");
-        result->SetPoints(unstructured->GetPoints());
+        result->SetPoints(CreateSharedPoints(unstructured->GetPoints()));
         result->SetCells(unstructured->GetCells(), UnsignedIntArray::Pointer(unstructured->GetCellTypes()));
         result->SetAttributeSet(resultAttrSet);
         SetOutput(result);
@@ -129,7 +133,7 @@ bool ExtractComponentFilter::Execute() {
     if (auto surface = DynamicCast<SurfaceMesh>(input); surface != nullptr) {
         auto result = SurfaceMesh::New();
         result->SetName(surface->GetName() + "_ExtractComponent");
-        result->SetPoints(surface->GetPoints());
+        result->SetPoints(CreateSharedPoints(surface->GetPoints()));
         result->SetFaces(surface->GetFaces());
         result->SetAttributeSet(resultAttrSet);
         SetOutput(result);

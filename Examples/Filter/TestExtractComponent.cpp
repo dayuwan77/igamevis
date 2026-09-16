@@ -9,6 +9,30 @@
 // 「提取分量」统一验证文件：test/Streamline Test/StreamTest.vtk（8499 点 VECTORS V float）
 // 用法：testExtractComponent.exe "<仓库根>/test/Streamline Test/StreamTest.vtk"
 
+// 输入点集的几何时间戳：校验执行后输入没有被标记为"已修改"
+// （输入被标记修改会连累输入模型重跑表面提取，正是"输出结果后卡顿"的来源）
+unsigned int InputPointsMTime(iGame::PointSet::Pointer input) {
+    if (input == nullptr || input->GetPoints() == nullptr) { return 0; }
+    return input->GetPoints()->GetMTime();
+}
+
+// 几何共享校验：结果持有独立点集对象（不再顶掉输入的时间戳），但底层缓冲与输入相同
+bool VerifyGeometrySharing(iGame::PointSet::Pointer input, iGame::PointSet::Pointer output) {
+    if (input == nullptr || output == nullptr || input->GetPoints() == nullptr || output->GetPoints() == nullptr) {
+        std::cout << "FAIL: point set is null\n";
+        return false;
+    }
+    if (input->GetPoints() == output->GetPoints()) {
+        std::cout << "FAIL: output should own an independent point set\n";
+        return false;
+    }
+    if (input->GetPoints()->RawPointer() != output->GetPoints()->RawPointer()) {
+        std::cout << "FAIL: output should share input geometry data\n";
+        return false;
+    }
+    return true;
+}
+
 // 程序化构造：4 点四面体 + 指定维度的点向量属性（值 = i*dim + j）
 iGame::UnstructuredMesh::Pointer CreateMeshWithDimVector(int dim) {
     auto mesh = iGame::UnstructuredMesh::New();
@@ -81,6 +105,7 @@ namespace {
 bool VerifyExtract(int component, const std::string& outputName, IGenum expectAttachment,
                    const std::string& inputName = "") {
     auto mesh = CreateMeshWithPointVector();
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto filter = iGame::ExtractComponentFilter::New();
     filter->SetInput(mesh);
     filter->SetInputArrayName(inputName);
@@ -95,9 +120,10 @@ bool VerifyExtract(int component, const std::string& outputName, IGenum expectAt
         std::cout << "FAIL: output is not UnstructuredMesh\n";
         return false;
     }
-    // 继承语义：输入属性集不含输出数组（输入不被修改）；几何共享
+    // 继承语义：输入属性集不含输出数组（输入不被修改）；几何数据共享、点集对象独立
     bool ok = mesh->GetAttributeSet()->GetAttribute(outputName).IsNone();
-    ok = ok && (outMesh->GetPoints() == mesh->GetPoints());
+    ok = ok && (InputPointsMTime(mesh) == pointsMTimeBefore);
+    ok = ok && VerifyGeometrySharing(mesh, outMesh);
     // 输出对象属性校验
     auto& attr = outMesh->GetAttributeSet()->GetScalar(outputName);
     auto arr = attr.pointer;
@@ -118,6 +144,7 @@ bool VerifyExtract(int component, const std::string& outputName, IGenum expectAt
 // 单元挂载用例：空输入名取单元向量，校验值、挂载类型与 dataRange
 bool VerifyExtractCell() {
     auto mesh = CreateMeshWithCellVector();
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto filter = iGame::ExtractComponentFilter::New();
     filter->SetInput(mesh);
     filter->SetOutputArrayName("Result");
@@ -132,6 +159,8 @@ bool VerifyExtractCell() {
         return false;
     }
     bool ok = mesh->GetAttributeSet()->GetAttribute("Result").IsNone();
+    ok = ok && (InputPointsMTime(mesh) == pointsMTimeBefore);
+    ok = ok && VerifyGeometrySharing(mesh, outMesh);
     auto& attr = outMesh->GetAttributeSet()->GetScalar("Result");
     auto arr = attr.pointer;
     ok = ok && (arr != nullptr) && (attr.attachmentType == IG_CELL)
@@ -352,6 +381,7 @@ bool VerifyExtractOnExtractedResult() {
 // 真实数据验证：值与输入分量一致、挂载跟随、dataRange 等于手动扫描的分量范围、输入不被修改
 bool VerifyRealData(iGame::UnstructuredMesh::Pointer mesh, const std::string& inputName,
                     int component, const std::string& outputName) {
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto filter = iGame::ExtractComponentFilter::New();
     filter->SetInput(mesh);
     if (!inputName.empty()) filter->SetInputArrayName(inputName);
@@ -370,6 +400,11 @@ bool VerifyRealData(iGame::UnstructuredMesh::Pointer mesh, const std::string& in
         std::cout << "FAIL: input should not be modified\n";
         return false;
     }
+    if (InputPointsMTime(mesh) != pointsMTimeBefore) {
+        std::cout << "FAIL: input geometry should not be marked modified\n";
+        return false;
+    }
+    if (!VerifyGeometrySharing(mesh, outMesh)) { return false; }
 
     auto attrSet = mesh->GetAttributeSet();
     iGame::AttributeSet::Attribute inputAttr;
