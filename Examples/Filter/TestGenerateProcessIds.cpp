@@ -41,6 +41,14 @@ int CountArrays(iGame::DataObject::Pointer object, bool pointData, const std::st
     return count;
 }
 
+// 输入点集的几何时间戳：用于校验执行后输入没有被标记为"已修改"
+// （输入被标记修改会连累输入模型重跑表面提取，正是输出结果后卡顿的来源）
+unsigned int InputPointsMTime(iGame::DataObject::Pointer object) {
+    auto pointSet = iGame::DynamicCast<iGame::PointSet>(object);
+    if (pointSet == nullptr || pointSet->GetPoints() == nullptr) { return 0; }
+    return pointSet->GetPoints()->GetMTime();
+}
+
 // 独立输出节点的公共校验：结果非空、是新对象、类型不变、几何共享、输入未被修改、结果数组唯一
 bool VerifyIndependentOutput(iGame::DataObject::Pointer input, iGame::DataObject::Pointer output, bool pointData,
                              const std::string& arrayName) {
@@ -59,9 +67,18 @@ bool VerifyIndependentOutput(iGame::DataObject::Pointer input, iGame::DataObject
     }
     auto inputPointSet = iGame::DynamicCast<iGame::PointSet>(input);
     auto outputPointSet = iGame::DynamicCast<iGame::PointSet>(output);
-    if (inputPointSet == nullptr || outputPointSet == nullptr ||
-        inputPointSet->GetPoints() != outputPointSet->GetPoints()) {
-        std::cout << "FAIL: " << label << " output should share input geometry\n";
+    if (inputPointSet == nullptr || outputPointSet == nullptr || inputPointSet->GetPoints() == nullptr ||
+        outputPointSet->GetPoints() == nullptr) {
+        std::cout << "FAIL: " << label << " output should keep a point set\n";
+        return false;
+    }
+    // 几何数据共享（底层缓冲相同），但点集对象独立：这样不会顶掉输入模型的几何时间戳
+    if (inputPointSet->GetPoints() == outputPointSet->GetPoints()) {
+        std::cout << "FAIL: " << label << " output should own an independent point set\n";
+        return false;
+    }
+    if (inputPointSet->GetPoints()->RawPointer() != outputPointSet->GetPoints()->RawPointer()) {
+        std::cout << "FAIL: " << label << " output should share input geometry data\n";
         return false;
     }
     if (CountArrays(input, pointData, arrayName) != 0) {
@@ -90,6 +107,7 @@ bool VerifyResultValues(iGame::DataObject::Pointer output, bool pointData, const
 // 常数进程号：结果为独立节点，值全部等于常数
 bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName, IGsize expectCount,
                     int expectValue) {
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto filter = iGame::GenerateProcessIdsFilter::New();
     filter->SetInput(mesh);
     filter->SetGeneratePointData(pointData);
@@ -97,6 +115,10 @@ bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::
     filter->SetProcessId(expectValue);
     if (!filter->Execute()) {
         std::cout << "FAIL: Execute\n";
+        return false;
+    }
+    if (InputPointsMTime(mesh) != pointsMTimeBefore) {
+        std::cout << "FAIL: input geometry should not be marked modified\n";
         return false;
     }
     auto output = filter->GetOutput();
@@ -108,12 +130,17 @@ bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::
 // 分区进程号：派生类按 index % 2 分配
 bool VerifyPartitioned(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
                        IGsize expectCount) {
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto filter = iGame::MockPartitionedProcessIdsFilter::New();
     filter->SetInput(mesh);
     filter->SetGeneratePointData(pointData);
     filter->SetGenerateCellData(!pointData);
     if (!filter->Execute()) {
         std::cout << "FAIL: Execute (partitioned)\n";
+        return false;
+    }
+    if (InputPointsMTime(mesh) != pointsMTimeBefore) {
+        std::cout << "FAIL: input geometry should not be marked modified (partitioned)\n";
         return false;
     }
     auto output = filter->GetOutput();
@@ -125,6 +152,7 @@ bool VerifyPartitioned(iGame::DataObject::Pointer mesh, bool pointData, const st
 // 重复执行：每次都得到新的独立结果，输入始终不被写入、结果中同名数组始终唯一
 bool VerifyRepeatedExecution(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
                              IGsize expectCount, int expectValue) {
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     for (int run = 0; run < 2; ++run) {
         auto filter = iGame::GenerateProcessIdsFilter::New();
         filter->SetInput(mesh);
@@ -133,6 +161,10 @@ bool VerifyRepeatedExecution(iGame::DataObject::Pointer mesh, bool pointData, co
         filter->SetProcessId(expectValue);
         if (!filter->Execute()) {
             std::cout << "FAIL: Execute (repeated run " << run << ")\n";
+            return false;
+        }
+        if (InputPointsMTime(mesh) != pointsMTimeBefore) {
+            std::cout << "FAIL: input geometry should not be marked modified (run " << run << ")\n";
             return false;
         }
         auto output = filter->GetOutput();
@@ -159,12 +191,17 @@ bool VerifyExternalProcessId(iGame::DataObject::Pointer mesh, bool pointData, co
         mesh->GetAttributeSet()->AddScalar(IG_CELL, pidArray);
     }
 
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto filter = iGame::GenerateProcessIdsFilter::New();
     filter->SetInput(mesh);
     filter->SetGeneratePointData(pointData);
     filter->SetGenerateCellData(!pointData);
     if (!filter->Execute()) {
         std::cout << "FAIL: Execute (external process_id)\n";
+        return false;
+    }
+    if (InputPointsMTime(mesh) != pointsMTimeBefore) {
+        std::cout << "FAIL: input geometry should not be marked modified (external process_id)\n";
         return false;
     }
     auto output = filter->GetOutput();
@@ -261,6 +298,7 @@ bool VerifyUnsupportedCellData() {
         return false;
     }
 
+    const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
     auto pointOnly = iGame::GenerateProcessIdsFilter::New();
     pointOnly->SetInput(mesh);
     pointOnly->SetGeneratePointData(true);
@@ -268,6 +306,10 @@ bool VerifyUnsupportedCellData() {
     pointOnly->SetProcessId(3);
     if (!pointOnly->Execute()) {
         std::cout << "FAIL: point data on PointSet should succeed\n";
+        return false;
+    }
+    if (InputPointsMTime(mesh) != pointsMTimeBefore) {
+        std::cout << "FAIL: input geometry should not be marked modified (PointSet)\n";
         return false;
     }
     // 点云只生成点进程号：结果仍是独立对象（PointSet -> PointSet）

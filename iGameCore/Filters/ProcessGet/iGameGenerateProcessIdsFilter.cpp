@@ -35,8 +35,10 @@ LongLongArray::Pointer FindProcessIdArray(AttributeSet* attributes, IGenum attac
     return nullptr;
 }
 
-// 结果属性集 = 输入属性集的拷贝，跳过与输出同名的旧数组（覆盖语义，避免 isDeleted 残留）。
-// Float/Double 数组做深拷贝，其余类型共享指针（只读属性，避免无谓的数据复制）。
+// 结果属性集 = 输入属性集的拷贝（Attribute 记录是新的，数组直接共享），
+// 跳过与输出同名的旧数组（覆盖语义，避免 isDeleted 残留）。
+// 数组只读共享：结果只新增自己的进程号数组，从不修改已有数组；
+// 深拷贝会让大模型的内存翻倍并一直驻留到删除结果节点，这里不做。
 void CopyInputAttributes(const AttributeSet::Pointer& source, const AttributeSet::Pointer& target) {
     if (source == nullptr || target == nullptr) { return; }
     auto allAttributes = source->GetAllAttributes();
@@ -48,22 +50,18 @@ void CopyInputAttributes(const AttributeSet::Pointer& source, const AttributeSet
         if (attribute.attachmentType == IG_POINT && name == PointProcessIdsName) { continue; }
         if (attribute.attachmentType == IG_CELL && name == CellProcessIdsName) { continue; }
 
-        ArrayObject::Pointer copied;
-        if (auto floats = DynamicCast<FloatArray>(attribute.pointer)) {
-            auto clone = FloatArray::New();
-            clone->DeepCopy(floats);
-            clone->SetName(name);
-            copied = clone;
-        } else if (auto doubles = DynamicCast<DoubleArray>(attribute.pointer)) {
-            auto clone = DoubleArray::New();
-            clone->DeepCopy(doubles);
-            clone->SetName(name);
-            copied = clone;
-        } else {
-            copied = attribute.pointer;
-        }
-        target->AddAttribute(attribute.type, attribute.attachmentType, copied);
+        target->AddAttribute(attribute.type, attribute.attachmentType, attribute.pointer);
     }
+}
+
+// 结果对象持有独立的 Points（与输入共享底层缓冲，但时间戳互不影响）：
+// 若直接把输入的 Points 交给 result->SetPoints()，PointSet::SetPoints() 会对该共享对象调
+// Modified()，把输入模型的几何时间戳顶掉，导致输入模型也要重跑表面提取。
+Points::Pointer CreateSharedPoints(const Points::Pointer& source) {
+    if (source == nullptr) { return nullptr; }
+    auto points = Points::New();
+    points->ShallowCopy(source);
+    return points;
 }
 
 // 依据输入网格类型创建结果对象，几何（点/单元）与输入共享，不复制几何数据。
@@ -73,14 +71,14 @@ DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
             auto source = DynamicCast<PointSet>(input);
             if (source == nullptr) { return nullptr; }
             auto result = PointSet::New();
-            result->SetPoints(source->GetPoints());
+            result->SetPoints(CreateSharedPoints(source->GetPoints()));
             return result;
         }
         case IG_UNSTRUCTURED_MESH: {
             auto source = DynamicCast<UnstructuredMesh>(input);
             if (source == nullptr) { return nullptr; }
             auto result = UnstructuredMesh::New();
-            result->SetPoints(source->GetPoints());
+            result->SetPoints(CreateSharedPoints(source->GetPoints()));
             if (source->GetCells() && source->GetCellTypes()) {
                 result->SetCells(source->GetCells(), UnsignedIntArray::Pointer(source->GetCellTypes()));
             }
@@ -90,7 +88,7 @@ DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
             auto source = DynamicCast<SurfaceMesh>(input);
             if (source == nullptr) { return nullptr; }
             auto result = SurfaceMesh::New();
-            result->SetPoints(source->GetPoints());
+            result->SetPoints(CreateSharedPoints(source->GetPoints()));
             if (source->GetFaces()) { result->SetFaces(CellArray::Pointer(source->GetFaces())); }
             return result;
         }
@@ -98,7 +96,7 @@ DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
             auto source = DynamicCast<VolumeMesh>(input);
             if (source == nullptr) { return nullptr; }
             auto result = VolumeMesh::New();
-            result->SetPoints(source->GetPoints());
+            result->SetPoints(CreateSharedPoints(source->GetPoints()));
             if (source->GetFaces()) { result->SetFaces(CellArray::Pointer(source->GetFaces())); }
             if (source->GetVolumes()) { result->SetVolumes(CellArray::Pointer(source->GetVolumes())); }
             return result;
@@ -107,7 +105,7 @@ DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
             auto source = DynamicCast<StructuredMesh>(input);
             if (source == nullptr) { return nullptr; }
             auto result = StructuredMesh::New();
-            result->SetPoints(source->GetPoints());
+            result->SetPoints(CreateSharedPoints(source->GetPoints()));
             result->SetDimensionSize(source->GetDimensionSize());
             result->SetExtent(source->GetExtent());
             result->GenStructuredCellConnectivities();
@@ -117,7 +115,7 @@ DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
             auto source = DynamicCast<LagrangeUnstructuredMesh>(input);
             if (source == nullptr) { return nullptr; }
             auto result = LagrangeUnstructuredMesh::New();
-            result->SetPoints(source->GetPoints());
+            result->SetPoints(CreateSharedPoints(source->GetPoints()));
             const IGsize cellNum = source->GetNumberOfCells();
             for (IGsize i = 0; i < cellNum; ++i) {
                 const igIndex* ids = nullptr;
