@@ -63,6 +63,12 @@
 #include <QVBoxLayout>
 #include <QWidgetAction>
 #include <QPushButton>
+#include <QSlider>
+#include <QSpinBox>
+#include <memory>
+#include <functional>
+#include <list>
+#include <map>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QScrollArea>
@@ -109,6 +115,36 @@
 #include "ui_igQtVariableCorrelationWidget.h"
 
 namespace {
+// 让无边框小面板可以通过拖动标题栏移动
+class PanelDragFilter : public QObject {
+public:
+    PanelDragFilter(QWidget* target, QObject* parent) : QObject(parent), m_target(target) {}
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override {
+        if (m_target) {
+            if (ev->type() == QEvent::MouseButtonPress) {
+                auto* me = static_cast<QMouseEvent*>(ev);
+                if (me->button() == Qt::LeftButton) {
+                    m_offset = me->globalPos() - m_target->frameGeometry().topLeft();
+                    return true;
+                }
+            } else if (ev->type() == QEvent::MouseMove) {
+                auto* me = static_cast<QMouseEvent*>(ev);
+                if (me->buttons() & Qt::LeftButton) {
+                    m_target->move(me->globalPos() - m_offset);
+                    return true;
+                }
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+
+private:
+    QWidget* m_target{nullptr};
+    QPoint m_offset;
+};
+
 struct ToolbarSpacingMetrics {
     int btnGap;
     int edgeMargin;
@@ -341,6 +377,20 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
                 int compId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
                                                   QStringLiteral("标量分量"), comps0);
 
+                // 时间帧（仅当数据含时序，如 .pvd 等多帧数据时显示）
+                int frameId = -1;
+                auto timeFrames = obj->PeekTimeFrames();
+                if (timeFrames && timeFrames->GetTimeNum() > 1) {
+                    std::vector<QString> frameNames;
+                    for (unsigned int f = 0; f < (unsigned int)timeFrames->GetTimeNum(); ++f) {
+                        frameNames.push_back(QStringLiteral("第 %1 帧 (时间 %2)")
+                                                 .arg(f)
+                                                 .arg(timeFrames->GetTargetTimeValue(f)));
+                    }
+                    frameId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                   QStringLiteral("时间帧"), frameNames);
+                }
+
                 int lowerId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
                                                    QStringLiteral("lower"), "0");
                 int upperId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
@@ -419,9 +469,19 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
                     }
                     auto& at = attrs->GetElement(arrIdx);
                     auto array = at.pointer;
+
+                    // 时间帧（含时序数据时才有该下拉）
+                    int frameIdx = 0;
+                    if (frameId >= 0) {
+                        bool okFrame = false;
+                        int f = dialog->getComboIndex(frameId, okFrame);
+                        if (okFrame && f >= 0) { frameIdx = f; }
+                    }
+
                     auto filter = IsoVolumeFilter::New();
                     filter->SetInput(obj);
                     filter->SetIsoScalarData(array, lower, upper, comp);
+                    filter->SetTimeStep(frameIdx);
                     if (!filter->Execute()) {
                         showDarkFramelessMessage(QStringLiteral("警告"),
                                                  QStringLiteral("等值面体提取执行失败，请检查数据与区间"));
@@ -441,6 +501,313 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
                     modelTreeWidget->addDataObjectToModelTree(out, Algorithm);
                     rendererWidget->update();
                     dialog->close();
+
+                    // ===== 时序数据(.pvd 等多帧): 提供"时间帧"控制面板(滑块 + 播放) =====
+                    // 帧变化时按当前参数重跑 IsoVolume, 并替换场景中的结果模型
+                    {
+                        auto timeFrames = obj->PeekTimeFrames();
+                        if (timeFrames && timeFrames->GetTimeNum() > 1) {
+                            struct IsoTimeState {
+                                DataObject::Pointer obj;
+                                ArrayObject::Pointer array;
+                                int comp{0};
+                                double lower{0.0};
+                                double upper{0.0};
+                                int frameCount{0};
+                                DataObject::Pointer result;
+                                bool playing{false};
+                                int currentFrame{0};   // 当前帧号(以状态为准, 不依赖滑块值)
+                                int playToken{0};      // 播放令牌: 变一次就作废旧的播放链, 避免多条链叠加跳帧
+                            };
+                            auto st = std::make_shared<IsoTimeState>();
+                            st->obj = obj;
+                            st->array = array;
+                            st->comp = comp;
+                            st->lower = lower;
+                            st->upper = upper;
+                            st->frameCount = (int)timeFrames->GetTimeNum();
+                            st->result = out;
+
+                            // 说明: 这里不启用 StreamingData 的"帧数据缓存"。
+                            // 一帧网格很大(数百 MB), 缓存多帧会吃掉大量内存;
+                            // 而本面板已有"结果缓存"(见下), 复访的帧直接复用结果, 不会再读帧数据。
+
+                            // 复用同一个面板(重复执行时先销毁旧的)
+                            if (auto* old = this->findChild<QWidget*>(QStringLiteral("isoTimePanel"))) {
+                                old->deleteLater();
+                            }
+                            const QString panelCss = QStringLiteral(
+                                    "QWidget#isoTimePanel { background-color: #1F1F1F; border: 1px solid #3C3C3C;"
+                                    "  border-radius: 8px; }"
+                                    "QWidget#isoTimeTitleBar { background-color: #2D2D30;"
+                                    "  border-top-left-radius: 8px; border-top-right-radius: 8px; }"
+                                    "QLabel#isoTimeTitle { color: #E8E8E8; font-size: 13px; font-weight: 600; }"
+                                    "QPushButton#isoTimeClose { background: transparent; color: #C9C9C9; border: none;"
+                                    "  font-size: 14px; min-width: 24px; max-width: 24px; min-height: 22px; }"
+                                    "QPushButton#isoTimeClose:hover { background-color: #C42B1C; color: #FFFFFF;"
+                                    "  border-radius: 4px; }"
+                                    "QLabel#isoTimeFrame { color: #E8E8E8; font-size: 13px; font-weight: 600; }"
+                                    "QLabel#isoTimeInfo { color: #9C9C9C; font-size: 11px; }"
+                                    "QSlider::groove:horizontal { height: 6px; background: #3A3A3A; border-radius: 3px; }"
+                                    "QSlider::sub-page:horizontal { background: #4A90D9; border-radius: 3px; }"
+                                    "QSlider::add-page:horizontal { background: #3A3A3A; border-radius: 3px; }"
+                                    "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;"
+                                    "  border-radius: 7px; background: #E8E8E8; border: 2px solid #4A90D9; }"
+                                    "QSlider::handle:horizontal:hover { background: #FFFFFF; }"
+                                    "QPushButton#isoTimePlay { background-color: #3D6FA8; color: #F0F0F0;"
+                                    "  border: 1px solid #4A90D9; padding: 7px 18px; border-radius: 5px;"
+                                    "  font-size: 12px; font-weight: 600; min-width: 92px; }"
+                                    "QPushButton#isoTimePlay:hover { background-color: #4A80BE; }"
+                                    "QPushButton#isoTimePlay:pressed { background-color: #335C8C; }"
+                                    "QPushButton#isoTimeStep { background-color: #3A3F45; color: #E0E0E0;"
+                                    "  border: 1px solid #565C63; border-radius: 5px; font-size: 12px;"
+                                    "  min-width: 34px; max-width: 34px; min-height: 30px; }"
+                                    "QPushButton#isoTimeStep:hover { background-color: #4A5056; }"
+                                    "QPushButton#isoTimeStep:pressed { background-color: #2F3439; }"
+                                    "QSpinBox#isoTimeSpin { background-color: #2A2A2A; color: #E8E8E8;"
+                                    "  border: 1px solid #3C3C3C; border-radius: 4px; padding: 4px 6px;"
+                                    "  min-width: 62px; min-height: 22px; }"
+                                    "QSpinBox#isoTimeSpin:focus { border: 1px solid #4A90D9; }");
+
+                            QWidget* panel = new QWidget(this, Qt::Tool | Qt::FramelessWindowHint |
+                                                                   Qt::WindowStaysOnTopHint);
+                            panel->setObjectName(QStringLiteral("isoTimePanel"));
+                            panel->setAttribute(Qt::WA_StyledBackground, true);
+                            panel->setStyleSheet(panelCss);
+
+                            auto* panelLayout = new QVBoxLayout(panel);
+                            panelLayout->setContentsMargins(0, 0, 0, 0);
+                            panelLayout->setSpacing(0);
+
+                            // 标题栏(可拖动移动面板 + 关闭)
+                            auto* titleBar = new QWidget(panel);
+                            titleBar->setObjectName(QStringLiteral("isoTimeTitleBar"));
+                            titleBar->setFixedHeight(32);
+                            titleBar->setCursor(Qt::SizeAllCursor);
+                            auto* titleLayout = new QHBoxLayout(titleBar);
+                            titleLayout->setContentsMargins(10, 0, 6, 0);
+                            titleLayout->setSpacing(6);
+                            auto* titleLabel = new QLabel(QStringLiteral("IsoVolume 时序播放"), titleBar);
+                            titleLabel->setObjectName(QStringLiteral("isoTimeTitle"));
+                            auto* closeBtn = new QPushButton(QStringLiteral("✕"), titleBar);
+                            closeBtn->setObjectName(QStringLiteral("isoTimeClose"));
+                            closeBtn->setCursor(Qt::PointingHandCursor);
+                            closeBtn->setToolTip(QStringLiteral("关闭"));
+                            titleLayout->addWidget(titleLabel, 1);
+                            titleLayout->addWidget(closeBtn, 0, Qt::AlignRight | Qt::AlignVCenter);
+                            titleBar->installEventFilter(new PanelDragFilter(panel, titleBar));
+                            panelLayout->addWidget(titleBar);
+
+                            // 内容区
+                            auto* content = new QWidget(panel);
+                            auto* contentLayout = new QVBoxLayout(content);
+                            contentLayout->setContentsMargins(14, 12, 14, 14);
+                            contentLayout->setSpacing(10);
+
+                            // 帧号显示: 标题行右侧放"第 N / M 帧"，操作行放步进键 + 帧号输入
+                            auto* frameLabel = new QLabel(content);
+                            frameLabel->setObjectName(QStringLiteral("isoTimeFrame"));
+                            auto* detailLabel = new QLabel(content);
+                            detailLabel->setObjectName(QStringLiteral("isoTimeInfo"));
+
+                            auto* frameSlider = new QSlider(Qt::Horizontal, content);
+                            frameSlider->setRange(0, st->frameCount - 1);
+                            frameSlider->setValue(frameIdx >= 0 && frameIdx < st->frameCount ? frameIdx : 0);
+                            frameSlider->setCursor(Qt::PointingHandCursor);
+
+                            auto* playBtn = new QPushButton(QStringLiteral("▶  播放"), content);
+                            playBtn->setObjectName(QStringLiteral("isoTimePlay"));
+                            playBtn->setCursor(Qt::PointingHandCursor);
+
+                            // 逐帧步进
+                            auto* prevBtn = new QPushButton(QStringLiteral("◀"), content);
+                            prevBtn->setObjectName(QStringLiteral("isoTimeStep"));
+                            prevBtn->setToolTip(QStringLiteral("上一帧"));
+                            prevBtn->setCursor(Qt::PointingHandCursor);
+                            auto* nextBtn = new QPushButton(QStringLiteral("▶"), content);
+                            nextBtn->setObjectName(QStringLiteral("isoTimeStep"));
+                            nextBtn->setToolTip(QStringLiteral("下一帧"));
+                            nextBtn->setCursor(Qt::PointingHandCursor);
+
+                            // 帧号输入框(可直接跳到指定帧)
+                            auto* frameSpin = new QSpinBox(content);
+                            frameSpin->setObjectName(QStringLiteral("isoTimeSpin"));
+                            frameSpin->setRange(0, st->frameCount - 1);
+                            frameSpin->setValue(frameSlider->value());
+                            frameSpin->setToolTip(QStringLiteral("直接输入帧号"));
+                            auto* spinTip = new QLabel(QStringLiteral("帧号"), content);
+                            spinTip->setObjectName(QStringLiteral("isoTimeInfo"));
+
+                            auto* btnRow = new QHBoxLayout();
+                            btnRow->setSpacing(8);
+                            btnRow->addWidget(prevBtn);
+                            btnRow->addWidget(playBtn);
+                            btnRow->addWidget(nextBtn);
+                            btnRow->addStretch(1);
+                            btnRow->addWidget(spinTip, 0, Qt::AlignRight | Qt::AlignVCenter);
+                            btnRow->addWidget(frameSpin, 0, Qt::AlignRight | Qt::AlignVCenter);
+
+                            contentLayout->addWidget(frameLabel);
+                            contentLayout->addWidget(frameSlider);
+                            contentLayout->addLayout(btnRow);
+                            contentLayout->addWidget(detailLabel);
+                            panelLayout->addWidget(content);
+
+                            connect(closeBtn, &QPushButton::clicked, panel, [=]() {
+                                st->playing = false;
+                                playBtn->setText(QStringLiteral("▶  播放"));
+                                panel->close();
+                            });
+
+                            panel->resize(486, 186);
+                            panel->move(this->geometry().right() - 516, this->geometry().bottom() - 250);
+                            panel->show();
+                            frameLabel->setText(QStringLiteral("第 %1 / %2 帧")
+                                                        .arg(frameSlider->value()).arg(st->frameCount));
+                            detailLabel->setText(QStringLiteral("时间 %1")
+                                                         .arg(timeFrames->GetTargetTimeValue(frameSlider->value())));
+
+                            // 提取结果缓存: 键=帧号, 值=该帧的等值体结果。
+                            // 结果本身很小(几 MB), 因此可整帧缓存 —— 回看/重播时直接复用, 秒出。
+                            // 设容量上限并按 LRU 淘汰, 避免长时间浏览后内存持续增长。
+                            constexpr int kMaxCachedResults = 30;
+                            auto resultCache = std::make_shared<std::map<int, DataObject::Pointer>>();
+                            auto resultOrder = std::make_shared<std::list<int>>();   // 头部=最近使用
+
+                            // 提取指定帧, 并用结果替换场景中的上一个结果模型
+                            auto runFrame = [=](int idx) {
+                                if (idx < 0 || idx >= st->frameCount) { return; }
+                                st->currentFrame = idx;               // 当前帧以状态为准
+                                DataObject::Pointer res;
+                                auto cached = resultCache->find(idx);
+                                if (cached != resultCache->end()) {
+                                    res = cached->second;            // 命中结果缓存: 无需重算
+                                    resultOrder->remove(idx);
+                                    resultOrder->push_front(idx);    // LRU: 标记为最近使用
+                                } else {
+                                    auto f = IsoVolumeFilter::New();
+                                    f->SetInput(st->obj);
+                                    f->SetIsoScalarData(st->array, st->lower, st->upper, st->comp);
+                                    f->SetTimeStep(idx);
+                                    if (!f->Execute()) {
+                                        detailLabel->setText(QStringLiteral("提取失败：该帧文件不可用"));
+                                        return;
+                                    }
+                                    res = f->GetOutput();
+                                    if (!res) { return; }
+                                    res->SetName(st->obj->GetName() + "_isovolume");
+                                    (*resultCache)[idx] = res;       // 存进结果缓存
+                                    resultOrder->remove(idx);
+                                    resultOrder->push_front(idx);
+                                    // 超过上限: 淘汰最久未使用的(正在显示的那帧除外)
+                                    while ((int)resultOrder->size() > kMaxCachedResults) {
+                                        int oldest = resultOrder->back();
+                                        resultOrder->pop_back();
+                                        if (oldest != st->currentFrame) {
+                                            resultCache->erase(oldest);
+                                        }
+                                    }
+                                }
+                                if (st->result && st->result != res) {
+                                    auto* item = modelTreeWidget->getItemFromObject(st->result);
+                                    if (item) {
+                                        modelTreeWidget->setCurrentItem(item);
+                                        modelTreeWidget->deleteCurrentModel();
+                                    }
+                                }
+                                st->result = res;
+                                modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
+                                rendererWidget->update();
+                                auto outMesh2 = DynamicCast<UnstructuredMesh>(res);
+                                frameLabel->setText(QStringLiteral("第 %1 / %2 帧").arg(idx).arg(st->frameCount));
+                                detailLabel->setText(
+                                        outMesh2 ? QStringLiteral("时间 %1   ·   %2 点 / %3 单元%4")
+                                                           .arg(timeFrames->GetTargetTimeValue(idx))
+                                                           .arg(outMesh2->GetNumberOfPoints())
+                                                           .arg(outMesh2->GetNumberOfCells())
+                                                           .arg(cached != resultCache->end()
+                                                                        ? QStringLiteral("   (缓存)")
+                                                                        : QString())
+                                                 : QStringLiteral("时间 %1")
+                                                           .arg(timeFrames->GetTargetTimeValue(idx)));
+                            };
+
+                            // 滑块 / 帧号输入框 / 步进 三者保持同步(阻塞信号避免递归)
+                            auto syncFrameWidgets = [=](int idx) {
+                                frameSlider->blockSignals(true);
+                                frameSlider->setValue(idx);
+                                frameSlider->blockSignals(false);
+                                frameSpin->blockSignals(true);
+                                frameSpin->setValue(idx);
+                                frameSpin->blockSignals(false);
+                            };
+
+                            // 播放: 每算完一帧再用定时器排下一帧(避免重叠)。
+                            // 用令牌作废旧链: 反复点播放/暂停不会出现多条链同时推进导致跳帧。
+                            auto step = std::make_shared<std::function<void()>>();
+                            *step = [=]() {
+                                const int myToken = st->playToken;
+                                if (!st->playing || myToken != st->playToken) { return; }
+                                int next = st->currentFrame + 1;
+                                if (next >= st->frameCount) { next = 0; }
+                                runFrame(next);
+                                if (!st->playing || myToken != st->playToken) { return; }
+                                syncFrameWidgets(next);
+                                QTimer::singleShot(30, this, [step]() { (*step)(); });
+                            };
+
+                            // 逐帧步进(循环)
+                            connect(prevBtn, &QPushButton::clicked, this, [=]() {
+                                st->playing = false;
+                                ++st->playToken;
+                                playBtn->setText(QStringLiteral("▶  播放"));
+                                int idx = st->currentFrame - 1;
+                                if (idx < 0) { idx = st->frameCount - 1; }
+                                syncFrameWidgets(idx);
+                                st->currentFrame = idx;
+                                frameLabel->setText(QStringLiteral("第 %1 / %2 帧").arg(idx).arg(st->frameCount));
+                                runFrame(idx);
+                            });
+                            connect(nextBtn, &QPushButton::clicked, this, [=]() {
+                                st->playing = false;
+                                ++st->playToken;
+                                playBtn->setText(QStringLiteral("▶  播放"));
+                                int idx = st->currentFrame + 1;
+                                if (idx >= st->frameCount) { idx = 0; }
+                                syncFrameWidgets(idx);
+                                st->currentFrame = idx;
+                                frameLabel->setText(QStringLiteral("第 %1 / %2 帧").arg(idx).arg(st->frameCount));
+                                runFrame(idx);
+                            });
+                            // 帧号输入框
+                            connect(frameSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [=](int v) {
+                                if (v == st->currentFrame) { return; }
+                                frameSlider->setValue(v);   // 交给滑块逻辑处理(含提取)
+                            });
+
+                            connect(frameSlider, &QSlider::valueChanged, this, [=](int v) {
+                                st->currentFrame = v;   // 同步当前帧(播放中拖动则从新位置继续)
+                                frameSpin->blockSignals(true);
+                                frameSpin->setValue(v);
+                                frameSpin->blockSignals(false);
+                                if (!st->playing) {
+                                    frameLabel->setText(QStringLiteral("第 %1 / %2 帧").arg(v).arg(st->frameCount));
+                                    detailLabel->setText(QStringLiteral("时间 %1")
+                                                                 .arg(timeFrames->GetTargetTimeValue(v)));
+                                    runFrame(v);
+                                }
+                            });
+                            connect(playBtn, &QPushButton::clicked, this, [=]() {
+                                st->playing = !st->playing;
+                                ++st->playToken;        // 令牌自增: 作废之前的播放链
+                                playBtn->setText(st->playing ? QStringLiteral("⏸  暂停")
+                                                             : QStringLiteral("▶  播放"));
+                                if (st->playing) {
+                                    QTimer::singleShot(0, this, [step]() { (*step)(); });
+                                }
+                            });
+                        }
+                    }
                 });
             });
     initAllSources();
