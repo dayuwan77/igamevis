@@ -42,8 +42,11 @@ protected:
     // 工具函数
     static Point ComputeCellCenter(Volume* cell);
     static double AngleInDegrees(const Vector3f& a, const Vector3f& b);
-    static double NormalizeAngle(double angleDeg);
+    static Vector3f ComputeFaceNormalNewell(const igIndex* facePids, int facePcnt,
+                                            const VolumeMesh* mesh);
     double ComputeMetricForBoundaryFace(igIndex faceId);
+    bool IsDegenerateFace(igIndex faceId) const;
+    bool IsDegenerateVolume(Volume* vol) const;
 
     std::string m_Message{"Not Volume Mesh!"};
     static constexpr double PI = 3.14159265358979323846;
