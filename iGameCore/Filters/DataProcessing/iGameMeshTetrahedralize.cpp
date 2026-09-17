@@ -74,6 +74,70 @@ inline bool AddTetra(CellArray::Pointer outCells, UnsignedIntArray::Pointer outT
     return true;
 }
 
+inline int GetCellToPolyhedronPointIds(UnstructuredMesh::Pointer input, IGsize ci,igIndex *ids) {
+    int count = -1;
+    igIndex originIds[IGAME_CELL_MAX_SIZE]{};
+    int numPoint = input->GetCellPointIds(ci, originIds); //get point ids and put them in ids
+    auto cellType = input->GetCellType(ci);
+    switch (cellType) {
+        case (IG_HEXAHEDRON): {//六面体
+            int p1 = 0;
+            ids[p1++] = input->GetCell(ci)->GetNumberOfFaces();//六面体有六个四边形面
+            for (int f = 0; f < 6; f++) { 
+                ids[p1++] = 4;
+                for (int p = 0; p < 4; p++) ids[p1++] = originIds[Hexahedron::faces[f][p]];
+            }
+            count = p1;
+            break;
+        }
+        case (IG_PYRAMID): {//金字塔
+            int p1 = 0;
+            ids[p1++] = input->GetCell(ci)->GetNumberOfFaces();//金字塔形有5个面，第一个是四边形底面，后四个是三角形侧面
+            ids[p1++] = 4;
+            for (int p = 0; p < 4; p++) ids[p1++] = originIds[Pyramid::faces[0][p]];
+            for (int f = 1; f < 5; f++) { 
+                ids[p1++] = 3;
+                for (int p = 0; p < 3; p++) ids[p1++] = originIds[Pyramid::faces[f][p]];
+            }
+            count = p1;
+            break;
+        }
+        case (IG_PRISM): {//三棱柱
+            int p1 = 0;
+            ids[p1++] = input->GetCell(ci)->GetNumberOfFaces();//三棱柱有5个面，前两个是三角形面，后三个是四边形侧面
+            for (int i = 0; i < 2; i++) {//处理前两个面
+                ids[p1++] = 3;
+                for (int p = 0; p < 3; p++) ids[p1++] = originIds[Prism::faces[i][p]];
+            }
+            for (int i = 2; i< 5; i++) {//处理后三个面
+                ids[p1++] = 4;
+                for (int p = 0; p < 4; p++) ids[p1++] = originIds[Prism::faces[i][p]];
+            }
+            count = p1;
+            break;
+        }
+    }
+    return count;
+}
+
+inline bool IsTetLikePolyhedron(
+        UnstructuredMesh::Pointer input,IGsize ci,std::vector<std::set<int>> &points) { //判断某个Cell是否是四面体形状的Polyhedron，如果是就把原先的Cell直接当成四面体
+    auto cell = input->GetCell(ci);
+    auto numFaces = cell->GetNumberOfFaces();
+    auto numPoints = cell->GetNumberOfPoints();
+    if (numFaces != 4) return false;
+    std::set<int> cellPoints;
+    for (int i = 0; i < numPoints; i++) { 
+        cellPoints.insert(cell->GetPointId(i));
+    }
+    if (cellPoints.size() == 4) {
+        points.push_back(cellPoints);
+        return true;
+    }
+    else
+        return false;
+}
+
 struct NewPointSource {
     igIndex outPointId{-1};
     std::vector<igIndex> srcPointIds;
@@ -86,9 +150,12 @@ bool MeshTetrahedralize::Execute()
     auto obj = GetInput(0);
     if (!obj) return false;
 
-    UnstructuredMesh::Pointer input;
+    UnstructuredMesh::Pointer input = UnstructuredMesh::New();
     if (obj->GetDataObjectType() == IG_UNSTRUCTURED_MESH) { 
         input = DynamicCast<UnstructuredMesh>(obj);
+    } else if (obj->GetDataObjectType() == IG_VOLUME_MESH) {
+        auto vinput = DynamicCast<VolumeMesh>(obj);
+        input->UnstructuredMesh::GenerateFromVolumeMesh(vinput);
     }
     if (!input) return false;
 
@@ -98,15 +165,27 @@ bool MeshTetrahedralize::Execute()
     auto volumeFaces = CellArray::New();
     std::vector<igIndex> polyCellIds;
     polyCellIds.reserve(static_cast<size_t>(nCells));
-
-    std::cout << 111111 << std::endl;
-
-    for (IGsize ci = 0; ci < nCells; ++ci) { 
-        if (input->GetCellType(ci) != IG_POLYHEDRON) {
+    std::vector<igIndex> passthroughTetOriginCells;//记录被跳过的四面体的cell id
+    std::vector<igIndex> passthroughTetLikePolys;//记录被跳过的、实际上是四面体的多面体的id
+    std::vector<std::set<int>> tetLikePolysPoints;//记录被跳过的、实际上是四面体的多面体的点
+    for (IGsize ci = 0; ci < nCells; ++ci) { //traverse evey cell
+        if (input->GetCellType(ci) == IG_TETRA) {  //如果本来就是四面体，就不需要四面体化了
+            passthroughTetOriginCells.push_back(ci);
             continue;
         }
-
-        const int size = input->GetCellPointIds(ci, ids);
+        int size;
+        if (input->GetCellType(ci) == IG_POLYHEDRON) { 
+            if (IsTetLikePolyhedron(input, ci,tetLikePolysPoints)) {
+                passthroughTetLikePolys.push_back(ci);//实际上就是四面体，不需要四面体化
+                continue;
+            } else size = input->GetCellPointIds(ci, ids);
+        } else {
+            size = GetCellToPolyhedronPointIds(input, ci, ids);
+            if (size == -1) {
+                return false;//不支持的类型
+            }
+        }
+        
         igIndex cursor = 0, num = 0;
         igIndex numFaces = ids[cursor++];
         while (numFaces--) {
@@ -146,6 +225,26 @@ bool MeshTetrahedralize::Execute()
     std::vector<NewPointSource> newPointSources;
     std::vector<igIndex> originCells;
 
+    for (size_t i = 0; i < passthroughTetOriginCells.size(); i++) {//加入:不用处理的四面体
+        igIndex tetIds[IGAME_CELL_MAX_SIZE]{};
+        igIndex cellId = passthroughTetOriginCells[i];
+        const int count = input->GetCellPointIds(cellId, tetIds);
+        if (count != 4) return false;
+        outCells->AddCellId4(tetIds[0], tetIds[1], tetIds[2], tetIds[3]);
+        originCells.push_back(cellId);
+    }
+
+    for (size_t i = 0; i < passthroughTetLikePolys.size(); i++) {//加入:四面体形状的多面体
+        igIndex tetIds[IGAME_CELL_MAX_SIZE]{};
+        igIndex cellId = passthroughTetLikePolys[i];
+        std::set<int> cellPoints = tetLikePolysPoints[i];
+        int points[4]{};
+        int p = 0;
+        for (int v: cellPoints) points[p++] = v;
+        outCells->AddCellId4(points[0], points[1], points[2], points[3]);
+        originCells.push_back(cellId);
+    }
+
     int nFaces = faces->GetNumberOfCells();
     for (IGsize fi = 0; fi < nFaces; ++fi) {
         igIndex faceVerts[IGAME_CELL_MAX_SIZE]{};
@@ -154,10 +253,6 @@ bool MeshTetrahedralize::Execute()
             triFaceNums.push_back(0);
             continue;
         }
-
-        // 补全这里的逻辑，遍历每一个face，检查是否存在近似共线的顶点，
-        // 如果存在则为face添加一个重心再三角化，否则直接进行三角化。
-        // 把三角化的face添加到triFaces中，并记录每个face对应的三角形数量到triFaceNums中
 
         std::vector<igIndex> fv;
         fv.reserve(static_cast<size_t>(nFaceVerts));

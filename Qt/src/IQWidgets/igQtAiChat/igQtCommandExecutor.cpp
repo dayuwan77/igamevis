@@ -74,6 +74,8 @@ OperationResult igQtCommandExecutor::executeCommand(const QJsonObject& commandOb
         return executeApplyMeshFilter(data);
     } else if (action == "apply_mesh_clip_filter") {
         return executeClipFilter(data);
+    } else if (action == "extract_cells_by_region") {
+        return executeExtractCellsByRegion(data);
     } else if (action == "get_model_eight_views") {
         return executeGetModelEightViews(data);
     } else {
@@ -785,6 +787,60 @@ OperationResult igQtCommandExecutor::executeClipFilter(const QJsonObject& data) 
     } catch (const std::exception& e) {
         return OperationResult(false, QString("执行切割滤波器时发生异常：%1").arg(e.what()), "算法处理");
     } catch (...) { return OperationResult(false, "执行切割滤波器时发生未知错误", "算法处理"); }
+}
+
+OperationResult igQtCommandExecutor::executeExtractCellsByRegion(const QJsonObject& data) const {
+    QString errorMsg;
+    auto dataObject = getCurrentDataObject(&errorMsg);
+    if (!dataObject) return OperationResult(false, errorMsg, "算法处理");
+
+    try {
+        const QString regionType = data.value("region_type").toString().trimmed().toLower();
+        const bool requireAllPoints = data.value("require_all_points").toBool(true);
+        auto filter = iGame::ExtractCellsByRegionFilter::New();
+        filter->SetRequireAllPoints(requireAllPoints);
+
+        auto readVector = [](const QJsonValue& value, iGame::Vector3d& result) {
+            const auto values = value.toArray();
+            if (values.size() != 3) return false;
+            double components[3]{};
+            for (int i = 0; i < 3; ++i) {
+                if (!values.at(i).isDouble()) return false;
+                components[i] = values.at(i).toDouble();
+            }
+            result = iGame::Vector3d(components);
+            return true;
+        };
+
+        if (regionType == "box") {
+            iGame::Vector3d minimum, maximum;
+            if (!readVector(data.value("box_min"), minimum) || !readVector(data.value("box_max"), maximum)) {
+                return OperationResult(false, "Box 参数必须是两个长度为 3 的数组", "算法处理");
+            }
+            filter->SetBox(minimum, maximum);
+        } else if (regionType == "sphere") {
+            iGame::Vector3d center;
+            const double radius = data.value("sphere_radius").toDouble();
+            if (!readVector(data.value("sphere_center"), center) || radius <= 0.0) {
+                return OperationResult(false, "Sphere 参数必须包含长度为 3 的球心数组和正半径", "算法处理");
+            }
+            filter->SetSphere(center, radius);
+        } else {
+            return OperationResult(false, "未知区域类型: " + regionType, "算法处理");
+        }
+
+        filter->SetInput(dataObject);
+        if (!filter->Execute()) return OperationResult(false, "按区域提取单元失败", "算法处理");
+
+        auto resultObject = filter->GetOutput();
+        if (!resultObject) return OperationResult(false, "按区域提取单元失败：输出对象为空", "算法处理");
+        m_mainWindow->modelTreeWidget->addDataObjectToModelTree(resultObject, ItemSource::Algorithm);
+        return OperationResult(true, "按区域提取单元完成", "算法处理");
+    } catch (const std::exception& e) {
+        return OperationResult(false, QString("按区域提取单元发生异常：%1").arg(e.what()), "算法处理");
+    } catch (...) {
+        return OperationResult(false, "按区域提取单元发生未知错误", "算法处理");
+    }
 }
 
 OperationResult igQtCommandExecutor::executeGetModelEightViews(const QJsonObject& data) const {

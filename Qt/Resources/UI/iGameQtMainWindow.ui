@@ -1008,6 +1008,10 @@ QLabel#CustomTitleLabel {
     <property name="title">
      <string>算法处理</string>
     </property>
+    <addaction name="action_MergeVectorComponents"/>
+    <addaction name="action_GlobalIds"/>
+    <addaction name="action_TriangleStrip"/>
+    <addaction name="action_Elevation"/>
    </widget>
    <widget class="QMenu" name="menu_help">
     <property name="title">
@@ -1485,6 +1489,81 @@ QLabel#CustomTitleLabel {
    </attribute>
    <widget class="igQtContourExtractWidget" name="widget_ContourExtract"/>
   </widget>
+  <widget class="QDockWidget" name="dockWidget_MergeVectorComponents">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>合并标量数组为向量</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtMergeVectorComponentsWidget" name="widget_MergeVectorComponents"/>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_ExtractComponent">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>提取分量</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtExtractComponentWidget" name="widget_ExtractComponent"/>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_GenerateProcessIds">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>生成进程ID</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtGenerateProcessIdsWidget" name="widget_GenerateProcessIds"/>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_ExtractEdges">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>边提取</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtExtractEdgesWidget" name="widget_ExtractEdges"/>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget_CountCellVertices">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>统计单元顶点数</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtCountCellVerticesWidget" name="widget_CountCellVertices"/>
+  </widget>
   <action name="action_SaveMesh">
    <property name="icon">
     <iconset>
@@ -1578,6 +1657,27 @@ QLabel#CustomTitleLabel {
   <action name="action_SearchInfo">
    <property name="text">
     <string>查找数据</string>
+   </property>
+  </action>
+  <action name="action_GlobalIds">
+   <property name="text">
+    <string>全局ID</string>
+   </property>
+  </action>
+  <action name="action_TriangleStrip">
+   <property name="text">
+    <string>三角带转换 (Triangle Strips)</string>
+   </property>
+   <property name="toolTip">
+    <string>设置最长三角带长度，并按需合并表面边界折线</string>
+   </property>
+  </action>
+  <action name="action_Elevation">
+   <property name="text">
+    <string>高程场</string>
+   </property>
+   <property name="toolTip">
+    <string>沿任意方向向量生成高程标量场</string>
    </property>
   </action>
   <action name="action_AiChat">
@@ -2186,6 +2286,36 @@ QLabel#CustomTitleLabel {
     <string>轮廓提取</string>
    </property>
   </action>
+  <action name="action_MergeVectorComponents">
+   <property name="text">
+    <string>合并标量数组为向量(merge_vector_components)</string>
+   </property>
+   <property name="toolTip">
+    <string>合并标量数组为向量(merge_vector_components)</string>
+   </property>
+  </action>
+  <action name="action_ExtractEdges">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>边提取</string>
+   </property>
+   <property name="toolTip">
+    <string>提取网格边</string>
+   </property>
+  </action>
+  <action name="action_CountCellVertices">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>统计单元顶点数</string>
+   </property>
+   <property name="toolTip">
+    <string>统计每个单元的顶点数并列表显示</string>
+   </property>
+  </action>
   <action name="action_GenerateChart">
    <property name="checkable">
     <bool>false</bool>
@@ -2276,6 +2406,12 @@ QLabel#CustomTitleLabel {
  </widget>
  <customwidgets>
   <customwidget>
+   <class>igQtExtractComponentWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtExtractComponentWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
    <class>igQtAnimationWidget</class>
    <extends>QWidget</extends>
    <header>IQWidgets/igQtAnimationWidget.h</header>
@@ -2362,6 +2498,30 @@ QLabel#CustomTitleLabel {
    <class>igQtContourExtractWidget</class>
    <extends>QWidget</extends>
    <header>IQWidgets/igQtContourExtractWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtMergeVectorComponentsWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtMergeVectorComponentsWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtGenerateProcessIdsWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtGenerateProcessIdsWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtExtractEdgesWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtExtractEdgesWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtCountCellVerticesWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtCountCellVerticesWidget.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

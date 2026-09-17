@@ -1,7 +1,7 @@
 # 在系统环境变量里设置QT_HOME，值为Qt路径
 if (DEFINED ENV{QT_HOME})
     set(Qt5_DIR "$ENV{QT_HOME}/5.15.2/msvc2019_64/lib/cmake/Qt5")
-else ()
+elseif (NOT Qt5_DIR)
     # if complied in Linux,   set Qt5_DIR to e.g.(/usr/lib/Qt/5.14.2/gcc_64/lib/cmake/Qt5)
     # if complied in Windows, set Qt5_DIR to e.g.(D:/Qt/5.14.2/msvc2017_64/lib/cmake/Qt5)
     # set(Qt5_DIR "D:/Software/Qt/5.14.2/msvc2017_64/lib/cmake/Qt5")
@@ -13,7 +13,7 @@ else ()
     # set(Qt5_DIR "D:/Qt/5.14.2/msvc2017_64/lib/cmake/Qt5")
 endif ()
 
-if (UNIX)
+if (UNIX AND NOT Qt5_DIR)
     set(Qt5_DIR "$ENV{HOME}/Qt5.14.2/5.14.2/gcc_64/lib/cmake/Qt5")
 endif ()
 
