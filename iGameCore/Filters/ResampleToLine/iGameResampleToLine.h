@@ -39,9 +39,9 @@ private:
     int n = 40;
     int g_nx = 50, g_ny = 50, g_nz = 50;
     float maxdistSq = 1e-6f;
-    StructuredMesh::Pointer resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh, const Point& p0,
+    UnstructuredMesh::Pointer resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh, const Point& p0,
                                                               const Point& p1, int n, double maxDistance = 1e-6);
-    bool buildLine(StructuredMesh::Pointer& mesh);
+    bool buildLine(UnstructuredMesh::Pointer& mesh);
     bool rayTriangleIntersect(const Point& orign, const Point& dir, const Point& v0, const Point& v1, const Point& v2,
                               double& t, double& u, double& v);
     std::array<float, 3> GetPosition_face(Face* f, int num);
@@ -138,7 +138,7 @@ protected:
 
     int dim{-1};
     int m_currentAttributeDimension{-1};
-    std::string m_Message{"Not Surface Mesh !"};
+    std::string m_Message{"Not Unstructured Mesh !"};
 };
 
 

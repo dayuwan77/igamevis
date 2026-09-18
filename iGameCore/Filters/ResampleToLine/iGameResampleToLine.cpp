@@ -201,9 +201,10 @@ std::vector<std::vector<int>> ResampleToLine::builduniformGrid(const BoundingBox
     return g_voxelCells;
 }
  
-StructuredMesh::Pointer ResampleToLine::resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh,
+UnstructuredMesh::Pointer ResampleToLine::resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh,
                                                                      const Point& p0, const Point& p1, int n, double maxDistance) {
-    StructuredMesh::Pointer output = StructuredMesh::New();
+    UnstructuredMesh::Pointer output = UnstructuredMesh::New();
+    //PolyLine::Pointer output = PolyLine::New();
     output->SetName("resample_to_line");
     Points::Pointer samples = Points::New();
     AttributeSet::Pointer attrSet = mesh->GetAttributeSet();
@@ -291,18 +292,23 @@ StructuredMesh::Pointer ResampleToLine::resample_to_line_UnstructuredMesh(const 
         
     }
     output->SetPoints(samples);
-    output->GenStructuredCellConnectivities();
+    
+    buildLine(output);
     //buildLine(output);
+    //output->BuildEdges();
     return output;
 }
-//bool ResampleToLine::buildLine(StructuredMesh::Pointer& mesh){
-//    CellArray::Pointer cells = CellArray::New();
-//    for (int i = 0; i< mesh->GetNumberOfPoints()-1; i++){ 
-//        cells->AddCellId2(i, i + 1);
-//    }
-//    
-//    return true;
-//}
+bool ResampleToLine::buildLine(UnstructuredMesh::Pointer& mesh){
+    CellArray::Pointer cells = CellArray::New();
+    UnsignedIntArray::Pointer type = UnsignedIntArray::New();
+    for (int i = 0; i< mesh->GetNumberOfPoints()-1; i++){ 
+        cells->AddCellId2(i, i + 1);
+        type->AddValue(IG_LINE);
+    }
+    mesh->SetCells(cells, type);
+    //mesh->SetEdges(cells);
+    return true;
+}
 
 std::array<float, 3> ResampleToLine::GetPosition_face(Face* f, int num) {
     std::array<float, 3> position = {0.0f, 0.0f, 0.0f};

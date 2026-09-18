@@ -28,7 +28,7 @@ int main() {
     std::cout << std::filesystem::current_path() << std::endl;
     /* 创建场景*/
     auto scene = iGame::Scene::New();
-    const std::string fileName = "../../../Examples/Models/ResampletolineTest_Plane_UnstructuredGrid.vtk";
+    const std::string fileName = "../../../Examples/Models/Resampletoline_test.vtk";
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
     iGame::UnstructuredMesh::Pointer mesh = DynamicCast<iGame::UnstructuredMesh>(obj);
     if (obj == nullptr) {

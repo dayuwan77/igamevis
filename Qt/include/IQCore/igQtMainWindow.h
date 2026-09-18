@@ -32,6 +32,7 @@ class igQtSliceWidget;
 class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
+class igQtResampleToLine;
 class igQtDeformationWidget;
 class igQtAiChatWidget;
 class igQtCommandManager;
@@ -53,6 +54,7 @@ public:
         Selection,
         VariableDensity,
         DataChange,
+        ResampleToLine,
         Count
     };
 
@@ -84,6 +86,8 @@ public:
     igQtColorManagerWidget* ColorManagerWidget;
     igQtFilterDialogDockWidget* filterDialogDockWidget;
     QDockWidget* SliceDockWidget;
+    QDockWidget* ResampleToLineDockWidget;
+    igQtResampleToLine* ResampleToLineWidget{nullptr};
     QDockWidget* ContourDockWidget;
     igQtModelClipWidget* SliceWidget;
     QDockWidget* DeformationDockWidget;

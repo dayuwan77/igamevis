@@ -108,6 +108,10 @@
 
 #include "ui_igQtVariableCorrelationWidget.h"
 
+#include "ui_ResampleToLine.h"
+
+#include "IQWidgets/igQtResampleToLineWidget.h"
+
 namespace {
 struct ToolbarSpacingMetrics {
     int btnGap;
@@ -1945,11 +1949,11 @@ void igQtMainWindow::initAllFilters() {
         }
     });
 
-    auto DrawLine = [](SurfaceMesh::Pointer m, Painter3D* painter) -> void {
+    auto DrawLine = [](UnstructuredMesh::Pointer m, Painter3D* painter) -> void {
         //draw line
         painter->SetPen(Color::White);
         painter->SetBrush(0, 255, 0);
-        if (m->GetEdges() == nullptr) { m->BuildEdges(); }
+        //if (m->GetEdges() == nullptr) { m->BuildEdges(); }
         int np = m->GetNumberOfPoints();
         if (np <= 0) { throw std::runtime_error("points is zero!"); }
         for (int i = 0; i < m->GetNumberOfPoints() - 1; i++) { painter->DrawLine(m->GetPoint(i), m->GetPoint(i + 1)); }
@@ -1994,15 +1998,18 @@ void igQtMainWindow::initAllFilters() {
             filter->SetInput(data);
             filter->setOrigTarget(orig, target, n);
             if (filter->Execute()) {
-                SurfaceMesh::Pointer res = DynamicCast<SurfaceMesh>(filter->GetOutput(0));
+                UnstructuredMesh::Pointer res = DynamicCast<UnstructuredMesh>(filter->GetOutput(0));
                 res->SetName(res->GetName());
                 auto draw = DynamicCast<DrawObject>(res);
                 if (draw != nullptr) {
                     int id = modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
-                    drawLineFunc(res, scene->GetModelById(id)->GetPainter3D());
-                    res->SetViewStyle(IG_SURFACE);
+                    drawLineFunc(res, model->GetPainter3D());
+                    //res->SetViewStyle(IG_SURFACE);
+                    //res->ConvertToDrawableData();
+                    //res->ViewCloudPicture(scene, -1, -1);
                     rendererWidget->update();
                     modelTreeWidget->updateAllAttriubute(res);
+                    
                     QMessageBox::information(dialog, "ResampleToLine", "运行完毕", QMessageBox::Close);
                 }
             } else {
@@ -2012,6 +2019,73 @@ void igQtMainWindow::initAllFilters() {
             
         });
     });
+
+    auto makeWidgetScrollable = [](QWidget* content, QWidget* parent) -> QWidget* {
+        if (!content) return nullptr;
+        if (qobject_cast<QScrollArea*>(content)) return content;
+
+        content->setMinimumHeight(0);
+        content->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+
+        auto* scroll = new QScrollArea(parent);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        scroll->setWidget(content);
+
+        return scroll;
+    };
+
+    auto makeDockWidgetScrollable = [makeWidgetScrollable](QDockWidget* dock) {
+        if (!dock) return;
+
+        QWidget* content = dock->widget();
+        if (!content || qobject_cast<QScrollArea*>(content)) return;
+
+        dock->setWidget(makeWidgetScrollable(content, dock));
+    };
+
+    QAction* ResampleToLineAct1 = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
+
+    connect(ResampleToLineAct1, &QAction::triggered, this, [this, makeDockWidgetScrollable](bool) {
+        if (ResampleToLineDockWidget != nullptr) {
+            ResampleToLineDockWidget->show();
+            ResampleToLineDockWidget->raise();
+            ResampleToLineDockWidget->activateWindow();
+            return;
+        }
+
+        ResampleToLineDockWidget = new QDockWidget(this);
+        ResampleToLineDockWidget->setObjectName(QStringLiteral("dockWidget_ResampleToLine"));
+        ResampleToLineDockWidget->setWindowTitle(QStringLiteral("重采样至直线"));
+        ResampleToLineDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
+        ResampleToLineDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
+
+        ResampleToLineWidget = new igQtResampleToLine(ResampleToLineDockWidget);
+        ResampleToLineWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        ResampleToLineWidget->setMinimumWidth(300);
+
+        ResampleToLineDockWidget->setWidget(ResampleToLineWidget);
+        addDockWidget(Qt::LeftDockWidgetArea, ResampleToLineDockWidget);
+
+        ResampleToLineWidget->SetLine(iGame::Vector3d{-1, -1, -1}, iGame::Vector3d{1, 1, 1});
+
+        makeDockWidgetScrollable(ResampleToLineDockWidget);
+        ResampleToLineDockWidget->show();
+    });
+    /*SliceDockWidget = new QDockWidget(this);
+    SliceDockWidget->setObjectName("dockWidget_Slice");
+    SliceDockWidget->setWindowTitle("网格切割");
+    SliceWidget = new igQtModelClipWidget(nullptr);
+    SliceWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    SliceWidget->setMinimumWidth(300);
+    SliceDockWidget->setWidget(SliceWidget);
+    SliceDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
+    SliceDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
+    this->addDockWidget(Qt::LeftDockWidgetArea, SliceDockWidget);
+    makeDockWidgetScrollable(SliceDockWidget);
+    SliceDockWidget->hide();*/
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {
@@ -2767,7 +2841,12 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
         break;
     case LeftToolPanelId::Count:
         break;
+    case LeftToolPanelId::ResampleToLine:
+        relocateContentToLeftTab(ui->dockWidget_DataChangeField, ui->widget_DataChangeField,
+                                 QStringLiteral("重采样至直线"), id, false);
+        break;
     }
+    
 }
 
 void igQtMainWindow::onLeftToolTabCloseRequested(int index) {
