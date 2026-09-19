@@ -2,7 +2,6 @@
 #include "iGameAttributeSet.h"
 #include "iGameCellArray.h"
 #include "iGameHexahedron.h"
-#include "iGamePointFinder.h"
 #include "iGamePoints.h"
 #include "iGameTetra.h"
 #include "iGameTriangle.h"
@@ -17,8 +16,23 @@
 IGAME_NAMESPACE_BEGIN
 
 // 辅助函数：判断点是否在三角形内（重心坐标，带容差）
+// 修改：增加点到平面距离检查 
 static bool PointInTriangle(const Vector3d& p, const Vector3d& a, const Vector3d& b, const Vector3d& c,
                             double eps = 1e-8) {
+    Vector3d normal = (b - a).cross(c - a);
+    double normalLen2 = normal.dot(normal);
+    if (normalLen2 < 1e-20) return false;
+
+    double edgeLen2_ab = (b - a).dot(b - a);
+    double edgeLen2_ac = (c - a).dot(c - a);
+    double edgeLen2_bc = (c - b).dot(c - b);
+    double maxEdgeLen2 = std::max({edgeLen2_ab, edgeLen2_ac, edgeLen2_bc});
+    double scale = std::sqrt(maxEdgeLen2);
+
+    double distToPlane = std::abs((p - a).dot(normal)) / std::sqrt(normalLen2);
+    double planeEps = 1e-6 * scale;
+    if (distToPlane > planeEps) { return false; }
+
     Vector3d v0 = c - a;
     Vector3d v1 = b - a;
     Vector3d v2 = p - a;
@@ -111,6 +125,19 @@ static void ReadPointAttribute(ArrayObject* attr, igIndex pointId, std::vector<d
     }
 
     int dim = attr->GetDimension();
+    if (dim <= 0) {
+        values.clear();
+        return;
+    }
+
+    IGsize numElements = attr->GetNumberOfElements();
+    if (pointId < 0 || (IGsize) pointId >= numElements) {
+        std::cerr << "PlaneSamplingFilter: pointId " << pointId << " out of range (numElements=" << numElements << ")"
+                  << std::endl;
+        values.assign(dim, 0.0);
+        return;
+    }
+
     values.resize(dim);
 
     if (auto floatArr = DynamicCast<FloatArray>(attr)) {
@@ -118,9 +145,8 @@ static void ReadPointAttribute(ArrayObject* attr, igIndex pointId, std::vector<d
     } else if (auto doubleArr = DynamicCast<DoubleArray>(attr)) {
         for (int d = 0; d < dim; d++) { values[d] = doubleArr->GetValue(pointId * dim + d); }
     } else {
-        double tmp[16] = {0};
-        attr->GetElement(pointId, tmp);
-        for (int d = 0; d < dim && d < 16; d++) { values[d] = tmp[d]; }
+        attr->GetElement(pointId, values);
+        if ((int) values.size() != dim) { values.resize(dim, 0.0); }
     }
 }
 
@@ -263,33 +289,38 @@ bool PlaneSamplingFilter::Execute() {
 
     if (!m_AttributeName.empty() && attrSet) {
         auto& attr = attrSet->GetAttribute(m_AttributeName);
-        if (!attr.IsNone()) {
-            targetAttr = attr.pointer;
-            selectedAttrName = m_AttributeName;
-            std::cout << "Using attribute: " << selectedAttrName << " (dimension: " << targetAttr->GetDimension() << ")"
-                      << std::endl;
+        if (!attr.IsNone() && attr.pointer) {
+            if (attr.attachmentType != IG_POINT) {
+                std::cerr << "PlaneSamplingFilter: attribute '" << m_AttributeName
+                          << "' is not PointData (attachmentType=" << attr.attachmentType << "), ignoring" << std::endl;
+            } else {
+                targetAttr = attr.pointer;
+                selectedAttrName = m_AttributeName;
+                std::cout << "Using attribute: " << selectedAttrName << " (dimension: " << targetAttr->GetDimension()
+                          << ")" << std::endl;
+            }
         }
     }
 
     if (!targetAttr && attrSet) {
-        auto allAttrs = attrSet->GetAllAttributes();
-        if (allAttrs && allAttrs->GetNumberOfElements() > 0) {
-            for (igIndex i = 0; i < allAttrs->GetNumberOfElements(); i++) {
-                auto& attr = allAttrs->GetElement(i);
-                if (attr.type == IG_SCALAR && attr.pointer && !attr.isDeleted) {
+        auto pointAttrs = attrSet->GetAllPointAttributes();
+        if (pointAttrs && pointAttrs->GetNumberOfElements() > 0) {
+            for (igIndex i = 0; i < pointAttrs->GetNumberOfElements(); i++) {
+                auto& attr = pointAttrs->GetElement(i);
+                if (attr.pointer && !attr.isDeleted && attr.type == IG_SCALAR) {
                     targetAttr = attr.pointer;
                     selectedAttrName = targetAttr->GetName();
-                    std::cout << "Auto-selected scalar: " << selectedAttrName << std::endl;
+                    std::cout << "Auto-selected scalar PointData: " << selectedAttrName << std::endl;
                     break;
                 }
             }
             if (!targetAttr) {
-                for (igIndex i = 0; i < allAttrs->GetNumberOfElements(); i++) {
-                    auto& attr = allAttrs->GetElement(i);
+                for (igIndex i = 0; i < pointAttrs->GetNumberOfElements(); i++) {
+                    auto& attr = pointAttrs->GetElement(i);
                     if (attr.pointer && !attr.isDeleted) {
                         targetAttr = attr.pointer;
                         selectedAttrName = targetAttr->GetName();
-                        std::cout << "Auto-selected attr: " << selectedAttrName << std::endl;
+                        std::cout << "Auto-selected PointData: " << selectedAttrName << std::endl;
                         break;
                     }
                 }
@@ -297,7 +328,7 @@ bool PlaneSamplingFilter::Execute() {
         }
     }
 
-    if (!targetAttr) { std::cout << "No attribute found, using Z coordinate as fallback" << std::endl; }
+    if (!targetAttr) { std::cout << "No PointData attribute found, using Z coordinate as fallback" << std::endl; }
 
     // 第6步：判断是标量还是矢量
     bool isVector = (targetAttr && targetAttr->GetDimension() > 1);
@@ -306,33 +337,21 @@ bool PlaneSamplingFilter::Execute() {
 
     int totalSamples = m_Resolution * m_Resolution;
 
-    // 第7步：创建输出网格
+    // 第7步：创建输出数组
+    // 修改（AddVector）：矢量输出一个 dim=3 的 vector，标量输出一个 scalar 
+    // 不再输出 _Magnitude / _X / _Y / _Z 四个标量，
     auto outputMesh = UnstructuredMesh::New();
     auto outputPoints = Points::New();
     outputPoints->Resize(totalSamples);
 
-    FloatArray::Pointer scalarData = nullptr;
-    FloatArray::Pointer magData = nullptr;
-    FloatArray::Pointer xData = nullptr;
-    FloatArray::Pointer yData = nullptr;
-    FloatArray::Pointer zData = nullptr;
+    FloatArray::Pointer scalarData = nullptr; // 标量模式：dim=1
+    FloatArray::Pointer vectorData = nullptr; // 矢量模式：dim=3
 
     if (isVector) {
-        magData = FloatArray::New();
-        magData->SetName(baseName + "_Magnitude");
-        magData->Resize(totalSamples);
-
-        xData = FloatArray::New();
-        xData->SetName(baseName + "_X");
-        xData->Resize(totalSamples);
-
-        yData = FloatArray::New();
-        yData->SetName(baseName + "_Y");
-        yData->Resize(totalSamples);
-
-        zData = FloatArray::New();
-        zData->SetName(baseName + "_Z");
-        zData->Resize(totalSamples);
+        vectorData = FloatArray::New();
+        vectorData->SetName(baseName);    // "StaticDisplacement"
+        vectorData->SetDimension(3);      
+        vectorData->Resize(totalSamples); 
     } else {
         scalarData = FloatArray::New();
         scalarData->SetName(baseName);
@@ -346,7 +365,6 @@ bool PlaneSamplingFilter::Execute() {
     // 第8步：获取单元类型数组
     auto typeArray = inputMesh->GetCellTypes();
 
-    // ---- 诊断：打印单元类型分布 ----
     std::cout << "========== Cell Type Diagnostics ==========" << std::endl;
     std::map<IGenum, int> typeCount;
     for (IGsize i = 0; i < numCells; i++) {
@@ -366,6 +384,9 @@ bool PlaneSamplingFilter::Execute() {
     };
     std::vector<CellData> cellList;
 
+    // 修改：按真实单元类型判断 
+    int skippedCellCount = 0;
+
     for (IGsize cellId = 0; cellId < numCells; cellId++) {
         igIndex pointIds[IGAME_CELL_MAX_SIZE];
         int numCellPoints = inputMesh->GetCellPointIds(cellId, pointIds);
@@ -373,73 +394,171 @@ bool PlaneSamplingFilter::Execute() {
         if (numCellPoints < 3) continue;
 
         std::vector<Vector3d> cellCoords;
+        cellCoords.reserve(numCellPoints);
         for (int k = 0; k < numCellPoints; k++) {
             Point p = inputMesh->GetPoint(pointIds[k]);
             cellCoords.emplace_back(p[0], p[1], p[2]);
         }
 
-        // 六面体拆分为四面体
-        if (numCellPoints == 8) {
-            auto hexa = Hexahedron::New();
-            hexa->m_PointIds->Reset();
-            hexa->m_Points->Reset();
-            for (int k = 0; k < 8; k++) {
-                hexa->m_PointIds->AddId(pointIds[k]);
-                hexa->m_Points->AddPoint(cellCoords[k]);
-            }
-            auto tetras = hexa->clipCelltoTetra();
-            for (auto& tetra: tetras) {
+        IGenum cellType = inputMesh->GetCellType(cellId);
+
+        switch (cellType) {
+            case IG_TETRA: {
+                if (numCellPoints != 4) {
+                    skippedCellCount++;
+                    break;
+                }
                 CellData data;
                 data.numPoints = 4;
                 for (int k = 0; k < 4; k++) {
-                    Point p = tetra->m_Points->GetPoint(k);
-                    data.coords.emplace_back(p[0], p[1], p[2]);
-                    data.pointIds.push_back(tetra->m_PointIds->GetId(k));
+                    data.coords.push_back(cellCoords[k]);
+                    data.pointIds.push_back(pointIds[k]);
                 }
-                cellList.push_back(data);
+                cellList.push_back(std::move(data));
+                break;
             }
-        }
-        // 四面体直接加入
-        else if (numCellPoints == 4) {
-            CellData data;
-            data.numPoints = 4;
-            for (int k = 0; k < 4; k++) {
-                data.coords.emplace_back(cellCoords[k]);
-                data.pointIds.push_back(pointIds[k]);
+            case IG_HEXAHEDRON: {
+                if (numCellPoints != 8) {
+                    skippedCellCount++;
+                    break;
+                }
+                auto hexa = Hexahedron::New();
+                hexa->m_PointIds->Reset();
+                hexa->m_Points->Reset();
+                for (int k = 0; k < 8; k++) {
+                    hexa->m_PointIds->AddId(pointIds[k]);
+                    hexa->m_Points->AddPoint(cellCoords[k]);
+                }
+                auto tetras = hexa->clipCelltoTetra();
+                for (auto& tetra: tetras) {
+                    Vector3d a, b, c, d;
+                    tetra->m_Points->GetPoint(0, a);
+                    tetra->m_Points->GetPoint(1, b);
+                    tetra->m_Points->GetPoint(2, c);
+                    tetra->m_Points->GetPoint(3, d);
+                    double det = (a - d).dot((b - d).cross(c - d));
+                    if (std::abs(det) < 1e-20) continue;
+
+                    CellData data;
+                    data.numPoints = 4;
+                    for (int k = 0; k < 4; k++) {
+                        Point p = tetra->m_Points->GetPoint(k);
+                        data.coords.emplace_back(p[0], p[1], p[2]);
+                        data.pointIds.push_back(tetra->m_PointIds->GetId(k));
+                    }
+                    cellList.push_back(std::move(data));
+                }
+                break;
             }
-            cellList.push_back(data);
-        }
-        // 三角形直接加入
-        else if (numCellPoints == 3) {
-            CellData data;
-            data.numPoints = 3;
-            for (int k = 0; k < 3; k++) {
-                data.coords.emplace_back(cellCoords[k]);
-                data.pointIds.push_back(pointIds[k]);
+            case IG_PRISM: {
+                if (numCellPoints != 6) {
+                    skippedCellCount++;
+                    break;
+                }
+                static constexpr int prismToTetra[3][4] = {
+                        {0, 1, 2, 5},
+                        {0, 3, 4, 5},
+                        {0, 1, 4, 5},
+                };
+                for (int t = 0; t < 3; t++) {
+                    CellData data;
+                    data.numPoints = 4;
+                    for (int k = 0; k < 4; k++) {
+                        int vi = prismToTetra[t][k];
+                        data.coords.push_back(cellCoords[vi]);
+                        data.pointIds.push_back(pointIds[vi]);
+                    }
+                    cellList.push_back(std::move(data));
+                }
+                break;
             }
-            cellList.push_back(data);
+            case IG_PYRAMID: {
+                if (numCellPoints != 5) {
+                    skippedCellCount++;
+                    break;
+                }
+                static constexpr int pyramidToTetra[2][4] = {
+                        {0, 1, 2, 4},
+                        {0, 2, 3, 4},
+                };
+                for (int t = 0; t < 2; t++) {
+                    CellData data;
+                    data.numPoints = 4;
+                    for (int k = 0; k < 4; k++) {
+                        int vi = pyramidToTetra[t][k];
+                        data.coords.push_back(cellCoords[vi]);
+                        data.pointIds.push_back(pointIds[vi]);
+                    }
+                    cellList.push_back(std::move(data));
+                }
+                break;
+            }
+            case IG_TRIANGLE: {
+                if (numCellPoints != 3) {
+                    skippedCellCount++;
+                    break;
+                }
+                CellData data;
+                data.numPoints = 3;
+                for (int k = 0; k < 3; k++) {
+                    data.coords.push_back(cellCoords[k]);
+                    data.pointIds.push_back(pointIds[k]);
+                }
+                cellList.push_back(std::move(data));
+                break;
+            }
+            case IG_QUAD: {
+                if (numCellPoints != 4) {
+                    skippedCellCount++;
+                    break;
+                }
+                {
+                    CellData data;
+                    data.numPoints = 3;
+                    data.coords = {cellCoords[0], cellCoords[1], cellCoords[2]};
+                    data.pointIds = {pointIds[0], pointIds[1], pointIds[2]};
+                    cellList.push_back(std::move(data));
+                }
+                {
+                    CellData data;
+                    data.numPoints = 3;
+                    data.coords = {cellCoords[0], cellCoords[2], cellCoords[3]};
+                    data.pointIds = {pointIds[0], pointIds[2], pointIds[3]};
+                    cellList.push_back(std::move(data));
+                }
+                break;
+            }
+            case IG_POLYGON: {
+                if (numCellPoints < 3) {
+                    skippedCellCount++;
+                    break;
+                }
+                for (int k = 1; k < numCellPoints - 1; k++) {
+                    CellData data;
+                    data.numPoints = 3;
+                    data.coords = {cellCoords[0], cellCoords[k], cellCoords[k + 1]};
+                    data.pointIds = {pointIds[0], pointIds[k], pointIds[k + 1]};
+                    cellList.push_back(std::move(data));
+                }
+                break;
+            }
+            default:
+                skippedCellCount++;
+                break;
         }
     }
 
-    std::cout << "Collected " << cellList.size() << " cells for interpolation" << std::endl;
+    std::cout << "Collected " << cellList.size() << " tetra/triangle cells for interpolation" << std::endl;
+    if (skippedCellCount > 0) {
+        std::cout << "Skipped " << skippedCellCount << " unsupported/degenerate cells" << std::endl;
+    }
 
-    // ---- 创建 PointFinder（用于最近点后备） ----
-    auto finder = PointFinder::New();
-    finder->SetPoints(points);
-    finder->Initialize();
 
-    // 第9步：核心采样循环
-    std::cout << "Sampling " << totalSamples << " points..." << std::endl;
+    // 第9步：核心采样循环（已去掉吸附）
+    std::cout << "\nSampling " << totalSamples << " points..." << std::endl;
     int validCount = 0;
     int tetraFoundCount = 0;
     int triangleFoundCount = 0;
-    int fallbackCount = 0;
-
-    // 吸附阈值：采样范围的 0.5%
-    double snapThreshold = m_HalfRange * 0.005;
-
-    // ---- 调试计数器 ----
-    int debugSampleIdx = 0;
 
     for (int i = 0; i < m_Resolution; i++) {
         for (int j = 0; j < m_Resolution; j++) {
@@ -459,10 +578,8 @@ bool PlaneSamplingFilter::Execute() {
             bool foundCell = false;
             bool isValid = false;
             double resultScalar = 0.0;
-            double resultMag = 0.0;
             double resultVx = 0.0, resultVy = 0.0, resultVz = 0.0;
 
-            // ---- 第1步：尝试单元定位 + 插值 ----
             for (size_t cellIdx = 0; cellIdx < cellList.size() && !foundCell; cellIdx++) {
                 auto& cell = cellList[cellIdx];
                 const auto& coords = cell.coords;
@@ -485,15 +602,12 @@ bool PlaneSamplingFilter::Execute() {
                                 resultScalar = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3],
                                                                 v0[0], v1[0], v2[0], v3[0]);
                             } else {
-                                std::vector<double> interpVec(dim, 0.0);
-                                for (int d = 0; d < dim; d++) {
-                                    interpVec[d] = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3],
-                                                                    v0[d], v1[d], v2[d], v3[d]);
-                                }
-                                resultMag = ComputeMagnitude(interpVec);
-                                resultVx = (dim > 0) ? interpVec[0] : 0.0;
-                                resultVy = (dim > 1) ? interpVec[1] : 0.0;
-                                resultVz = (dim > 2) ? interpVec[2] : 0.0;
+                                resultVx = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3], v0[0],
+                                                            v1[0], v2[0], v3[0]);
+                                resultVy = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3], v0[1],
+                                                            v1[1], v2[1], v3[1]);
+                                resultVz = InterpolateTetra(query, coords[0], coords[1], coords[2], coords[3], v0[2],
+                                                            v1[2], v2[2], v3[2]);
                             }
                         } else {
                             resultScalar = query[2];
@@ -517,15 +631,12 @@ bool PlaneSamplingFilter::Execute() {
                                 resultScalar = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[0], v1[0],
                                                                    v2[0]);
                             } else {
-                                std::vector<double> interpVec(dim, 0.0);
-                                for (int d = 0; d < dim; d++) {
-                                    interpVec[d] = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[d],
-                                                                       v1[d], v2[d]);
-                                }
-                                resultMag = ComputeMagnitude(interpVec);
-                                resultVx = (dim > 0) ? interpVec[0] : 0.0;
-                                resultVy = (dim > 1) ? interpVec[1] : 0.0;
-                                resultVz = (dim > 2) ? interpVec[2] : 0.0;
+                                resultVx = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[0], v1[0],
+                                                               v2[0]);
+                                resultVy = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[1], v1[1],
+                                                               v2[1]);
+                                resultVz = InterpolateTriangle(query, coords[0], coords[1], coords[2], v0[2], v1[2],
+                                                               v2[2]);
                             }
                         } else {
                             resultScalar = query[2];
@@ -537,70 +648,21 @@ bool PlaneSamplingFilter::Execute() {
                 }
             }
 
-            // ---- 第2步：如果单元定位失败，使用最近点后备（带吸附阈值） ----
-            if (!foundCell) {
-                double minDist2;
-                igIndex closestId = finder->FindClosestPoint(query, minDist2);
-                double dist = std::sqrt(minDist2);
-
-                // 如果距离小于吸附阈值，使用最近点的属性值
-                if (closestId != -1 && dist < snapThreshold) {
-                    fallbackCount++;
-                    if (targetAttr) {
-                        int dim = targetAttr->GetDimension();
-                        if (dim == 1) {
-                            double val = 0.0;
-                            targetAttr->GetElement(closestId, &val);
-                            resultScalar = val;
-                        } else {
-                            std::vector<double> vals;
-                            ReadPointAttribute(targetAttr, closestId, vals);
-                            resultMag = ComputeMagnitude(vals);
-                            resultVx = (dim > 0) ? vals[0] : 0.0;
-                            resultVy = (dim > 1) ? vals[1] : 0.0;
-                            resultVz = (dim > 2) ? vals[2] : 0.0;
-                        }
-                    } else {
-                        Point p = points->GetPoint(closestId);
-                        resultScalar = p[2];
-                    }
-                    isValid = true;
-                }
-            }
-
-            //// ---- 调试：前几个采样点的详细信息 ----
-            //if (debugSampleIdx < 5) {
-            //    std::cout << "\n[DEBUG Sample " << debugSampleIdx << "]" << std::endl;
-            //    std::cout << "  Point: (" << samplePoint[0] << ", " << samplePoint[1] << ", " << samplePoint[2] << ")"
-            //              << std::endl;
-            //    std::cout << "  Found cell: " << (foundCell ? "YES" : "NO") << std::endl;
-            //    if (foundCell) {
-            //        std::cout << "  Method: INTERPOLATION" << std::endl;
-            //    } else {
-            //        std::cout << "  Method: FALLBACK (nearest point)" << std::endl;
-            //    }
-            //    std::cout << "  Valid: " << (isValid ? "YES" : "NO") << std::endl;
-            //    if (isValid) { std::cout << "  Result: " << resultScalar << std::endl; }
-            //    debugSampleIdx++;
-            //}
-
-            // ---- 填充输出数据 ----
+            // 修改（AddVector）：矢量按 dim=3 写入，标量按 dim=1 写入 
             if (isValid) {
                 validCount++;
                 if (isVector) {
-                    magData->SetValue(idx, (float) resultMag);
-                    xData->SetValue(idx, (float) resultVx);
-                    yData->SetValue(idx, (float) resultVy);
-                    zData->SetValue(idx, (float) resultVz);
+                    vectorData->SetValue(idx * 3 + 0, (float) resultVx);
+                    vectorData->SetValue(idx * 3 + 1, (float) resultVy);
+                    vectorData->SetValue(idx * 3 + 2, (float) resultVz);
                 } else {
                     scalarData->SetValue(idx, (float) resultScalar);
                 }
             } else {
                 if (isVector) {
-                    magData->SetValue(idx, 0.0f);
-                    xData->SetValue(idx, 0.0f);
-                    yData->SetValue(idx, 0.0f);
-                    zData->SetValue(idx, 0.0f);
+                    vectorData->SetValue(idx * 3 + 0, 0.0f);
+                    vectorData->SetValue(idx * 3 + 1, 0.0f);
+                    vectorData->SetValue(idx * 3 + 2, 0.0f);
                 } else {
                     scalarData->SetValue(idx, 0.0f);
                 }
@@ -610,15 +672,12 @@ bool PlaneSamplingFilter::Execute() {
         this->UpdateProgress(static_cast<double>(i + 1) / m_Resolution);
     }
 
-    // ---- 输出采样统计 ----
     std::cout << "\n========================================" << std::endl;
     std::cout << "========= Sampling Result =========" << std::endl;
     std::cout << "Valid points: " << validCount << " / " << totalSamples << std::endl;
     std::cout << "Tetra interpolation: " << tetraFoundCount << std::endl;
     std::cout << "Triangle interpolation: " << triangleFoundCount << std::endl;
-    std::cout << "Fallback (nearest point, dist < threshold): " << fallbackCount << std::endl;
     std::cout << "Unsampled points: " << (totalSamples - validCount) << std::endl;
-    std::cout << "Snap threshold: " << snapThreshold << std::endl;
     std::cout << "========================================" << std::endl;
 
     // 第10步：创建四边形网格
@@ -640,15 +699,12 @@ bool PlaneSamplingFilter::Execute() {
     for (int i = 0; i < totalCellsOut; i++) { cellTypes->AddValue(IG_QUAD); }
     outputMesh->SetCells(cellArrayOut, cellTypes);
 
-    // 第11步：组装输出
     outputMesh->SetPoints(outputPoints);
 
+    // 修改（AddVector）：矢量用 AddVector 加入 
     auto outputAttrSet = AttributeSet::New();
     if (isVector) {
-        outputAttrSet->AddScalar(IG_POINT, magData);
-        outputAttrSet->AddScalar(IG_POINT, xData);
-        outputAttrSet->AddScalar(IG_POINT, yData);
-        outputAttrSet->AddScalar(IG_POINT, zData);
+        outputAttrSet->AddVector(IG_POINT, vectorData);
     } else {
         outputAttrSet->AddScalar(IG_POINT, scalarData);
     }
