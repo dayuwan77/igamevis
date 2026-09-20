@@ -55,56 +55,66 @@ bool IsoVolumeFilter::Execute() {
     if (!input) { return false; }
 
     // 若输入是 DrawObject(.pvd / 时序等容器对象):
-    //   1) 含时间帧时, 取第 m_TimeStep 帧的网格; 走 StreamingData::GetTargetTimeFrameData,
-    //      命中帧缓存时直接复用(反复切帧/播放时不再重复读盘), 未命中则读盘并写回缓存;
-    //   2) 否则退化为使用容器内第一个子网格。
+    //   时序数据的【当前帧】由框架维护 —— 动画控件调用 UpdateAnimation 时会把容器的
+    //   子对象换成该帧的网格。因此默认(未显式指定帧号)直接使用容器【当前已加载】的
+    //   子网格: "用框架动画面板切到某帧 -> 重新提取"得到的就是那一帧, 无需传入帧号。
+    //   仅当调用方显式 SetTimeStep(n >= 0) 时, 才按帧号从时序元数据解析该帧的文件。
     if (input->GetDataObjectType() == IG_DRAW_OBJECT) {
         DataObject::Pointer resolved = nullptr;
+        std::vector<UnstructuredMesh::Pointer> parts;
 
-        auto frames = input->PeekTimeFrames();
-        if (frames && frames->GetTimeNum() > 0) {
-            int idx = m_TimeStep;
-            if (idx < 0) { idx = 0; }
-            if (idx >= (int)frames->GetTimeNum()) { idx = (int)frames->GetTimeNum() - 1; }
-            auto frameData = frames->GetTargetTimeFrameData(idx);
-            // 收集该帧的各个分块(并行分区可能一帧多块)
-            std::vector<UnstructuredMesh::Pointer> parts;
-            for (auto& obj : frameData) {
-                auto mesh = DynamicCast<DataObject>(obj);
-                if (mesh && mesh->GetDataObjectType() != IG_DRAW_OBJECT) {
+        if (m_TimeStep >= 0) {
+            // 显式指定帧号: 走 StreamingData::GetTargetTimeFrameData
+            // (命中帧缓存时直接复用, 反复切帧/播放时不再重复读盘)
+            auto frames = input->PeekTimeFrames();
+            if (frames && frames->GetTimeNum() > 0) {
+                int idx = m_TimeStep;
+                if (idx >= (int)frames->GetTimeNum()) { idx = (int)frames->GetTimeNum() - 1; }
+                for (auto& obj : frames->GetTargetTimeFrameData(idx)) {
+                    auto mesh = DynamicCast<DataObject>(obj);
+                    if (!mesh || mesh->GetDataObjectType() == IG_DRAW_OBJECT) { continue; }
                     auto um = DynamicCast<UnstructuredMesh>(mesh);
                     if (um) {
                         parts.push_back(um);
                         if (!resolved) { resolved = mesh; }
                     }
                 }
+                // 指定了帧号却取不到 -> 失败, 不静默改用别的帧
+                if (parts.empty() || !resolved) { return false; }
             }
-            // 有时序但该帧取不到 -> 直接失败, 避免静默返回其它帧的结果
-            if (parts.empty() || !resolved) { return false; }
-
-            // 多分块帧: 逐块提取后合并成一个网格。
-            // 各分块互不重叠, 因此逐块处理在几何上等价于整体处理。
-            if (parts.size() > 1) {
-                std::vector<UnstructuredMesh::Pointer> partResults;
-                for (auto& p : parts) {
-                    auto one = UnstructuredMesh::New();
-                    if (this->ExtractToMesh(p, one) && one->GetNumberOfCells() > 0) {
-                        partResults.push_back(one);
-                    }
+        } else {
+            // 默认: 用容器当前已加载的子网格
+            // (即框架动画控件正在显示的那一帧; 打开 .pvd 时为第一帧)
+            for (auto it = input->SubDataObjectIteratorBegin();
+                 it != input->SubDataObjectIteratorEnd(); ++it) {
+                auto um = DynamicCast<UnstructuredMesh>(it->second);
+                if (um) {
+                    parts.push_back(um);
+                    if (!resolved) { resolved = it->second; }
                 }
-                if (partResults.empty()) { return false; }
-                if (partResults.size() == 1) {
-                    this->SetOutput(0, partResults[0]);
-                } else {
-                    auto merged = this->MergeParts(partResults);
-                    if (!merged) { return false; }
-                    this->SetOutput(0, merged);
-                }
-                return true;
             }
+            if (parts.empty()) { return false; }
         }
-        else if (input->HasSubDataObject()) {
-            resolved = input->SubDataObjectIteratorBegin()->second;
+
+        // 同一帧可能由多个分块组成(并行分区): 逐块提取后合并成一个网格。
+        // 各分块互不重叠, 因此逐块处理在几何上等价于整体处理。
+        if (parts.size() > 1) {
+            std::vector<UnstructuredMesh::Pointer> partResults;
+            for (auto& p : parts) {
+                auto one = UnstructuredMesh::New();
+                if (this->ExtractToMesh(p, one) && one->GetNumberOfCells() > 0) {
+                    partResults.push_back(one);
+                }
+            }
+            if (partResults.empty()) { return false; }
+            if (partResults.size() == 1) {
+                this->SetOutput(0, partResults[0]);
+            } else {
+                auto merged = this->MergeParts(partResults);
+                if (!merged) { return false; }
+                this->SetOutput(0, merged);
+            }
+            return true;
         }
         if (resolved) { input = resolved; }
 
@@ -180,10 +190,14 @@ bool IsoVolumeFilter::ExtractToMesh(UnstructuredMesh::Pointer input, Unstructure
     }
 
     // 第一步：保留标量值 >= LowerValue 的部分
+    this->UpdateProgress(0.0);   // 第一趟裁剪(>= lower)开始
+    if (m_ProgressNotify) { m_ProgressNotify(0.0); }
     auto lowerClipped = UnstructuredMesh::New();
     if (!ClipMeshByScalar(input, m_SelectedScalar, m_LowerValue, true, lowerClipped)) {
         return false;
     }
+    this->UpdateProgress(0.5);   // 第一趟完成, 第二趟(<= upper)开始
+    if (m_ProgressNotify) { m_ProgressNotify(0.5); }
 
     // 第二步：在第一步结果上保留标量值 <= UpperValue 的部分
     // 需要从中间网格的 AttributeSet 中找到同名标量数组
@@ -600,6 +614,18 @@ bool IsoVolumeFilter::ClipMeshByScalar(UnstructuredMesh::Pointer input, ArrayObj
     igIndex vcnt = 0;
     const igIndex* vhs = nullptr;
     for (igIndex cellId = 0; cellId < inCellNum; cellId++) {
+        // 进度: 每处理约 5% 的单元上报一次(只影响等值体提取这一次操作)。
+        // 第一趟(keepAbove=true) 走 5%->50%, 第二趟 走 55%->95%;
+        // 用已有的 keepAbove 参数区分两趟, 不改函数签名/类布局 -> 无 ABI 风险。
+        if (inCellNum > 0) {
+            const igIndex step = inCellNum / 20 + 1;
+            if (cellId % step == 0) {
+                const double base = keepAbove ? 0.05 : 0.55;
+                const double p = base + 0.45 * static_cast<double>(cellId) / static_cast<double>(inCellNum);
+                this->UpdateProgress(p);
+                if (m_ProgressNotify) { m_ProgressNotify(p); }
+            }
+        }
         if (cellVisible[cellId] == 1) {
             vcnt = static_cast<igIndex>(inCells->GetCellIds(cellId, vhs));
             OutConn->AddCellIds(vhs, vcnt);

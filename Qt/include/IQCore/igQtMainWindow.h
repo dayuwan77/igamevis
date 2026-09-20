@@ -225,6 +225,26 @@ private:
     void minimizeWithAnimation();
     void toggleMaximizeRestore();
     void updateMaximizeButtonIcon();
+
+    // IsoVolume 时序: 由框架动画控件驱动时保存信号连接;
+    // 重复执行 IsoVolume 前先断开, 避免连接叠加导致一次切帧重跑多次。
+    QMetaObject::Connection m_IsoAnimFrameConn;
+
+    // IsoVolume 时序会话的源容器(只有多帧 .pvd 提取过才有效)。
+    // 打开动画面板时用它把"当前模型"切回去 —— 框架动画面板绑定当前模型,
+    // 若它停在静态结果上则只有 1 帧, 无法拖动/播放。
+    iGame::DataObject::Pointer m_IsoAnimContainerObj;
+
+    // 时序会话中"当前这一帧"的等值体结果: 源数据被隐藏后, 用户切换属性着色时
+    // 用它把同一套着色同步刷新到结果上。
+    iGame::DataObject::Pointer m_IsoAnimResultObj;
+
+    // 「选中谁就播谁」: true = 播等值体结果(每帧重跑滤镜); false = 播源数据原始帧。
+    // 由模型树的选择决定, 见 CurrendModelChanged 处理。
+    bool m_IsoAnimShowResult{true};
+    // 选择处理里会回头改"场景当前模型", 可能再次触发 CurrendModelChanged, 用它防重入。
+    bool m_IsoAnimSelecting{false};
+    QMetaObject::Connection m_IsoAnimSelectConn;
 };
 
 

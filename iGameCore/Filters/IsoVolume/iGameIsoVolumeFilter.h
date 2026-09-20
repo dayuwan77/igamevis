@@ -9,6 +9,7 @@
 #define iGameIsoVolumeFilter_h
 
 #include "../Clip/iGameCellClip.h"
+#include <functional>
 #include "iGameFilter.h"
 #include "iGameUnstructuredMesh.h"
 
@@ -29,7 +30,13 @@ public:
     // dimension 表示使用数组的第几个分量（默认 0）
     void SetIsoScalarData(ArrayObject::Pointer array, double lower, double upper, int dimension = 0);
 
-    // 时序数据(.pvd 等容器对象)时, 指定处理第几个时间帧(从 0 开始)
+    // 进度回调(可选): 每到一个进度节点被调用一次, 由 GUI 注入。
+    // 核心库不依赖 Qt —— 这是"只影响本次提取"的关键。
+    void SetProgressNotify(std::function<void(double)> cb) { m_ProgressNotify = std::move(cb); }
+
+    // 时序数据(.pvd 等容器对象): 默认(-1)使用容器【当前已加载】的帧 ——
+    // 即框架动画控件正在显示的那一帧(打开 .pvd 时为第一帧);
+    // 传 n >= 0 可显式指定帧号(越界钳制到最后一帧)。
     void SetTimeStep(int timeStep) { m_TimeStep = timeStep; }
     int GetTimeStep() const { return m_TimeStep; }
 
@@ -41,7 +48,8 @@ protected:
     double m_LowerValue{0.0};
     double m_UpperValue{0.0};
     double m_SelectDimension{0.0};
-    int m_TimeStep{0};   // 时序数据要处理的时间帧索引
+    std::function<void(double)> m_ProgressNotify;
+    int m_TimeStep{-1};  // <0: 用容器当前帧(默认); >=0: 显式指定帧号
 
     bool ExecuteWithUnstructuredMesh(UnstructuredMesh::Pointer um);
     bool ExecuteWithVolumeMesh(VolumeMesh::Pointer vm);
