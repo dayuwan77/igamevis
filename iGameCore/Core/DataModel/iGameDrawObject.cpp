@@ -1,4 +1,4 @@
-#include "iGameDrawObject.h"
+﻿#include "iGameDrawObject.h"
 
 #include "DataProcessing/iGameMeshSimplificationFilterPro.h"
 #include "iGameScene.h"
@@ -165,6 +165,27 @@ bool DrawObject::IsUseNormalSmooth() {
         IGAME_RENDERING_WARN("You have enabled normal smoothing, but have not provided normals.");
     }
     return m_UseNormalSmooth;
+}
+
+void DrawObject::SetLightingNormal(FloatArray::Pointer normals) {
+    if (normals && normals->GetNumberOfValues() > 0) {
+        m_Normals = normals;
+        m_UseNormalSmooth = true;
+        m_Normals->Modified(); // 让法向缓冲区(下帧 SyncGpuBuffers)据 mtime 重新上传
+    }
+    ForceReConvertToDrawableData();
+}
+
+void DrawObject::ClearLightingNormal() {
+    // 修复切换“使用几何法向 (Geometric)”时的崩溃：
+    // 顶点着色器 (Vertex.vert) 会无条件读取属性槽位 2 (in_Normal)，
+    // 而偏转法向模式已通过 SetNormalBufferToVAO 启用该槽位。
+    // 若此处把 m_Normals 替换为空数组，SyncGpuBuffers 会上传 0 字节的法向 VBO，
+    // 绘制时 NVIDIA 驱动从空缓冲抓取顶点导致访问冲突（读取 0xA90 等小地址）。
+    // 因此只关闭平滑法向标志，让片元着色器改用面片导数几何法向 (GetFaceNormal)，
+    // 保留已有法向缓冲数据不被清空。
+    m_UseNormalSmooth = false;
+    ForceReConvertToDrawableData();
 }
 
 void DrawObject::SetVisibility(bool f) {

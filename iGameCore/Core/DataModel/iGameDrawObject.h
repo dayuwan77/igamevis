@@ -38,6 +38,12 @@ public:
     bool IsUseColor();        //是否使用颜色
     bool IsUseNormalSmooth(); //是否使用法线平滑
 
+    // 设置/清除用于光照的顶点法向：
+    //   SetLightingNormal(normals) 用给定点向量数组作为光照法向并启用法线平滑；
+    //   ClearLightingNormal()      清除自定义光照法向，回退到几何法向（面片导数）。
+    void SetLightingNormal(FloatArray::Pointer normals);
+    void ClearLightingNormal();
+
     void SetVisibility(bool f); //设置可见性
     bool GetVisibility();       //获取可见性
     /*ViewStyle's detail. See iGameType.h */
