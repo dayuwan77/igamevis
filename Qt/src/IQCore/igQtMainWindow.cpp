@@ -3604,38 +3604,15 @@ void igQtMainWindow::initAllFilters() {
                     return;
                 }
 
-                auto attributes = data->GetAttributeSet();
-                const int coordinatesIndex = attributes ? attributes->GetAttributeIndex(filter->GetArrayName()) : -1;
-                modelTreeWidget->updateAllAttriubute(data);
-
-                auto item = modelTreeWidget->getItemFromObject(data);
-                if (item && coordinatesIndex >= 0) {
-                    item->setExpanded(true);
-                    for (int i = 0; i < item->childCount(); ++i) {
-                        auto child = item->child(i);
-                        if (child && child->data(0, Qt::UserRole).toInt() == coordinatesIndex) {
-                            item->setCurrentChild(child);
-                            item->setSelected(false);
-                            if (auto attributeItem = dynamic_cast<AttribTreeWidgetItem*>(child)) {
-                                attributeItem->get()->setCurrentIndex(0);
-                            }
-                            // Clear the active attribute first so selecting Coordinates
-                            // again cannot be skipped by the rendering cache.
-                            item->viewAttribute(-1, -1);
-                            item->viewAttribute(coordinatesIndex, -1);
-                            child->setSelected(true);
-                            modelTreeWidget->setCurrentItem(child);
-                            break;
-                        }
-                    }
+                auto output = filter->GetOutput();
+                if (!output) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("Warning"),
+                            QStringLiteral("点坐标提取未产生有效输出。"));
+                    return;
                 }
 
-                if (ui->dockWidget_SearchInfo && ui->widget_SearchInfo) {
-                    ui->dockWidget_SearchInfo->show();
-                    ui->dockWidget_SearchInfo->raise();
-                    ui->widget_SearchInfo->showPointAttributeDetails(scene->GetCurrentModel(),
-                                                                     QString::fromStdString(filter->GetArrayName()));
-                }
+                modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
                 rendererWidget->update();
             });
 

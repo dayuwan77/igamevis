@@ -51,18 +51,36 @@ bool TestCoordinatesArray() {
     }
 
     auto originalCells = mesh->GetCells();
+    auto originalAttrCount = mesh->GetAttributeSet()->GetNumberOfAttributes();
 
     auto filter = iGame::PointCoordinatesFilter::New();
     filter->SetInput(mesh);
     if (!Check(filter->Execute(), "valid mesh must be processed")) { return false; }
-    if (!Check(filter->GetOutput().get() == mesh.get(), "filter must preserve the input data object")) { return false; }
-    if (!Check(mesh->GetCells().get() == originalCells.get(), "filter must preserve mesh topology")) { return false; }
 
-    auto attributes = mesh->GetAttributeSet();
-    const int coordinateIndex = attributes->GetAttributeIndex("Coordinates");
-    if (!Check(coordinateIndex >= 0, "Coordinates attribute must be present")) { return false; }
+    // Output must be a different object from the input (independent output node)
+    auto output = filter->GetOutput();
+    if (!Check(output.get() != mesh.get(),
+               "filter must produce an independent output, not modify the input")) {
+        return false;
+    }
+    if (!Check(mesh->GetAttributeSet()->GetNumberOfAttributes() == originalAttrCount,
+               "the original input must not be modified by the filter")) {
+        return false;
+    }
 
-    auto& attribute = attributes->GetAttribute(coordinateIndex);
+    // Output must have the Coordinates attribute
+    auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(output);
+    if (!Check(outMesh != nullptr, "output must be an unstructured mesh")) { return false; }
+    if (!Check(outMesh->GetCells().get() != originalCells.get(),
+               "output must have its own cells (deep copied)")) {
+        return false;
+    }
+
+    auto outAttributes = outMesh->GetAttributeSet();
+    const int coordinateIndex = outAttributes->GetAttributeIndex("Coordinates");
+    if (!Check(coordinateIndex >= 0, "Coordinates attribute must be present on output")) { return false; }
+
+    auto& attribute = outAttributes->GetAttribute(coordinateIndex);
     if (!Check(attribute.GetType() == IG_VECTOR, "Coordinates must be a vector attribute")) { return false; }
     if (!Check(attribute.GetAttachmentType() == IG_POINT, "Coordinates must be attached to points")) { return false; }
 
@@ -70,8 +88,8 @@ bool TestCoordinatesArray() {
     if (!Check(coordinates && coordinates->GetDimension() == 3, "Coordinates must be a three-component FloatArray")) {
         return false;
     }
-    if (!Check(coordinates->GetNumberOfElements() == mesh->GetNumberOfPoints(),
-               "coordinate tuple count must equal point count")) {
+    if (!Check(coordinates->GetNumberOfElements() == outMesh->GetNumberOfPoints(),
+               "coordinate tuple count must equal output point count")) {
         return false;
     }
 
@@ -83,26 +101,22 @@ bool TestCoordinatesArray() {
         }
     }
 
-    const auto attributeCount = attributes->GetNumberOfAttributes();
-    mesh->GetPoints()->SetPoint(0, 10.0f, 20.0f, 30.0f);
-    if (!Check(filter->Execute(), "repeated execution after point edits must succeed")) { return false; }
-    if (!Check(attributes->GetNumberOfAttributes() == attributeCount,
-               "repeated execution must not create duplicate attributes")) {
+    // Verify that repeated execution on the same input still produces valid independent output
+    const auto outputAttrCount = outAttributes->GetNumberOfAttributes();
+    auto filter2 = iGame::PointCoordinatesFilter::New();
+    filter2->SetInput(mesh);
+    if (!Check(filter2->Execute(), "repeated execution on original input must succeed")) { return false; }
+    auto output2 = filter2->GetOutput();
+    if (!Check(output2.get() != output.get(),
+               "repeated execution must produce a new independent output")) {
         return false;
     }
-    if (!Check(NearlyEqual(coordinates->GetValue(0), 10.0f) && NearlyEqual(coordinates->GetValue(1), 20.0f) &&
-                       NearlyEqual(coordinates->GetValue(2), 30.0f),
-               "coordinate array must stay synchronized with point edits")) {
+    if (!Check(mesh->GetAttributeSet()->GetNumberOfAttributes() == originalAttrCount,
+               "repeated execution must not modify the original input")) {
         return false;
     }
 
-    auto refreshedRange = attribute.GetDataRange();
-    const float expectedMagnitude = std::sqrt(10.0f * 10.0f + 20.0f * 20.0f + 30.0f * 30.0f);
-    return Check(refreshedRange && NearlyEqual(refreshedRange->GetValue(1), expectedMagnitude) &&
-                         NearlyEqual(refreshedRange->GetValue(3), 10.0f) &&
-                         NearlyEqual(refreshedRange->GetValue(5), 20.0f) &&
-                         NearlyEqual(refreshedRange->GetValue(7), 30.0f),
-                 "repeated execution must refresh magnitude and component ranges");
+    return true;
 }
 
 bool TestNameCollision() {
