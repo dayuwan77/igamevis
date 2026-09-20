@@ -1,149 +1,131 @@
-﻿#pragma once
+#pragma once
 #ifndef iGameResampleToLine_h
 #define iGameResampleToLine_h
+
+#include "iGameCellCenter.h"
 #include "iGameDrawObject.h"
-#include "iGameSceneManager.h"
-
-
-#include "Eigen/Dense"
-#include "Eigen/Eigenvalues"
 #include "iGameFilter.h"
 #include "iGamePointSet.h"
+#include "iGameSceneManager.h"
 #include "iGameSurfaceMesh.h"
-#include "iGameVolumeMesh.h"
-#include "iGameStructuredMesh.h"
 #include "iGameUnstructuredMesh.h"
-#include <cmath>
-#include <unordered_set>
-#include <algorithm>
-#include <iGameCellCenter.h>
-#include <iGameVector.h>
+#include "iGameVector.h"
+#include "iGameVolumeMesh.h"
+
+#include <string>
 #include <vector>
+
 IGAME_NAMESPACE_BEGIN
+
+/**
+ * @brief 重采样至直线（Resample to line）
+ *
+ * 沿给定线段均匀生成采样点，为每个采样点定位其所在的（体）单元：
+ *   1) 优先查找真正包含该采样点的单元；
+ *   2) 若没有单元包含它，则吸附到最近的单元（可用 SetSnapToNearestCell 关闭）。
+ * 定位到单元后使用该单元的形函数 / 参数坐标（自然坐标）插值所有数值型 Point Data，
+ * 保留数组的分量数并选择合理的数据类型；同时把命中单元的 Cell Data 复制到对应采样点。
+ *
+ * 输出：
+ *   output 0 : UnstructuredMesh 折线（IG_LINE 单元），与既有流程兼容;
+ *   output 1 : SurfaceMesh 折线（点 + 边），真正的折线数据，可直接渲染为折线。
+ *
+ * 采样点坐标保持在线段上（即"沿直线重采样"），命中单元信息可通过
+ * GetSampleCellIds() / GetSampleCellInside() 查询。
+ */
 class ResampleToLine : public Filter {
 public:
     I_OBJECT(ResampleToLine);
     static Pointer New() { return new ResampleToLine; }
+
     bool Execute() override;
+
+    /* ---------------- 参数设置 ---------------- */
+
+    /** 设置采样线段：起点 p0、终点 p1、采样点数量 x */
     void setOrigTarget(const Point& p0, const Point& p1, const int& x) {
         orig = p0;
         target = p1;
         n = x;
     }
-    
+    void setOrigTarget(const Vector3d& p0, const Vector3d& p1, const int& x);
+    void SetOrigTarget(const Point& p0, const Point& p1) {
+        orig = p0;
+        target = p1;
+    }
+    void SetSampleNumber(int x) { n = x; }
+    int GetSampleNumber() const { return n; }
+
+    /** 没有单元包含采样点时，是否吸附到最近的单元（默认开启） */
+    void SetSnapToNearestCell(bool flag) { m_SnapToNearest = flag; }
+    bool GetSnapToNearestCell() const { return m_SnapToNearest; }
+
+    /** 单元判定容差（相对于模型包围盒对角线长度，默认 1e-4） */
+    void SetTolerance(double t) { m_Tolerance = t; }
+    double GetTolerance() const { return m_Tolerance; }
 
     std::string GetMessage() const { return m_Message; }
 
+    /* ---------------- 结果查询 ---------------- */
+
+    /** output 1: 折线（SurfaceMesh，点 + 边） */
+    SurfaceMesh::Pointer GetPolyLine() const { return m_PolyLine; }
+    /** output 0: 折线（UnstructuredMesh，IG_LINE 单元） */
+    UnstructuredMesh::Pointer GetLineMesh() const { return m_LineMesh; }
+    /** 每个采样点命中的单元 id，-1 表示没有可用的单元 */
+    const std::vector<igIndex>& GetSampleCellIds() const { return m_SampleCellIds; }
+    /** 每个采样点是否真正落在单元内部（0/1） */
+    const std::vector<unsigned char>& GetSampleCellInside() const { return m_SampleCellInside; }
+
 private:
-    Point orig = {-1.0f, -0.983795f, -0.35714f}, target = {1.0f, 0.983795f, 0.35714f};
-    int n = 40;
-    int g_nx = 50, g_ny = 50, g_nz = 50;
-    float maxdistSq = 1e-6f;
-    UnstructuredMesh::Pointer resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh, const Point& p0,
-                                                              const Point& p1, int n, double maxDistance = 1e-6);
-    bool buildLine(UnstructuredMesh::Pointer& mesh);
-    bool rayTriangleIntersect(const Point& orign, const Point& dir, const Point& v0, const Point& v1, const Point& v2,
-                              double& t, double& u, double& v);
-    std::array<float, 3> GetPosition_face(Face* f, int num);
-    double GetArea(Vector3d a, Vector3d b, Vector3d c);
-    SurfaceMesh::Pointer TriangulateSurfaceMesh(SurfaceMesh::Pointer mesh);
-    
-    struct AABB {
-        Point min, max;
-        //初始化结构体
-        AABB() : min({std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()}),
-              max({std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
-                   std::numeric_limits<float>::lowest()}) {}
-
-        void expand(const Point& p) { 
-            min[0] = std::min(min[0], p[0]);
-            min[1] = std::min(min[1], p[1]);
-            min[2] = std::min(min[2], p[2]);
-            max[0] = std::max(max[0], p[0]);
-            max[1] = std::max(max[1], p[1]);
-            max[2] = std::max(max[2], p[2]);
-        }
-
-        void expand(const AABB& box) {
-            expand(box.min);
-            expand(box.max);
-        }
-
-        Point center() const { return (min + max) * 0.5f; }
-        int longestAxis() const {
-            Point extents = max - min;
-            if (extents[0] >= extents[1] && extents[0] >= extents[2]) return 0;
-            if (extents[1] >= extents[0] && extents[1] >= extents[2]) return 1;
-            return 2;
-        }
-        double minDistSq(const Point& p) const {
-            auto dx = std::max({min[0] - p[0], 0.0f, p[0] - max[0]});
-            auto dy = std::max({min[1] - p[1], 0.0f, p[1] - max[1]});
-            auto dz = std::max({min[2] - p[2], 0.0f, p[2] - max[2]});
-            return dx * dx + dy * dy + dz * dz;
-        }
-        bool contains(const Point& p) const {
-            return p[0] >= min[0] && p[0] <= max[0] && p[1] >= min[1] && p[1] <= max[1] && p[2] >= min[2] &&
-                   p[2] <= max[2];
-        }
+    /** 单个采样点的定位与插值权重 */
+    struct SampleLocation {
+        igIndex cellId{-1};            // 命中的单元 id
+        bool inside{false};            // 是否真正位于单元内部
+        Point point{0.f, 0.f, 0.f};    // 采样点（未命中时为其在最近单元上的投影点）
+        std::vector<igIndex> pointIds; // 命中单元的点 id（与权重一一对应）
+        std::vector<double> weights;   // 形函数权重
     };
 
-    struct BVHNode {
-        AABB box;
-        std::unique_ptr<BVHNode> left;
-        std::unique_ptr<BVHNode> right;
-        std::vector<int> triangleIndices; // 存储三角形索引的数组
-        bool isLeaf() const { return left == nullptr && right == nullptr; }
-    };
+    /* ---------------- 几何搜索 ---------------- */
+    std::vector<std::vector<igIndex>> BuildUniformGrid(const UnstructuredMesh::Pointer& mesh,
+                                                       const BoundingBox& bbox, igIndex nx, igIndex ny, igIndex nz);
+    bool LocateSample(const UnstructuredMesh::Pointer& mesh, const Point& p, const BoundingBox& bbox,
+                      const std::vector<std::vector<igIndex>>& grid, igIndex nx, igIndex ny, igIndex nz,
+                      double distTol, SampleLocation& out);
+    bool ComputeCellWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p,
+                            double distTol, std::vector<double>& weights, bool& inside);
+    double DistanceToCell(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, Point& closest);
 
-    struct NearestResult {
-        double distanceSq = std::numeric_limits<double>::max();
-        Point closestPoint;
-        int triangleIndex = -1;
-        double w0, w1, w2; // Barycentric coordinates
-    };
-    //AABB triangleAABB(const SurfaceMesh::Pointer Mesh, int faceida, int faceidb, int faceidc);
-    //std::unique_ptr<BVHNode> buildBVH(SurfaceMesh::Pointer& mesh, std::vector<int>& triangleIndices, int depth);
-    std::vector<std::vector<int>> builduniformGrid(const BoundingBox& bbox, const UnstructuredMesh::Pointer& mesh, int nx, int ny,
-                                                   int nz);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c, Point& closest,
-                                 float& distSq);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c,
-                                                const Point& d, Point& closest, float& distSq);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c,
-                                                const Point& d, const Point& e, Point& closest, float& distSq);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c, const Point& d,
-                                const Point& e, const Point& f, Point& closest, float& distSq);
-    bool findNearest(const UnstructuredMesh::Pointer& mesh, const Point& p, Point& closest, int& cellid, int& faceid,
-                     float& distSq, const std::vector<std::vector<int>>& grid, const BoundingBox& bbox);
-    float Interpolate(const Point& target, const std::vector<Point>& points, const std::vector<float>& values,
-                      float power = 2.f);
-    bool IsPointInCell(const Point& p, const std::vector<Point>& cellPoints);
-    float NearestVal(const Point& target, const std::vector<Point>& points, const std::vector<float>& values);
+    /* ---------------- 属性处理 ---------------- */
+    void InterpolatePointData(AttributeSet* inSet, AttributeSet::Pointer outSet,
+                              const std::vector<SampleLocation>& locations, int sampleNum);
+    void CopyCellData(AttributeSet* inSet, AttributeSet::Pointer outSet,
+                      const std::vector<SampleLocation>& locations, int sampleNum);
 
-protected:
-    ResampleToLine()
-    {
+    /* ---------------- 输出构建 ---------------- */
+    void BuildPolyLineOutputs(const Points::Pointer& samples, AttributeSet::Pointer attrSet, int sampleNum);
+
+    ResampleToLine() {
         SetNumberOfInputs(1);
-        SetNumberOfOutputs(1);
+        SetNumberOfOutputs(2);
     }
     ~ResampleToLine() override = default;
 
-    SurfaceMesh::Pointer surface_Mesh{};
-    VolumeMesh::Pointer volume_Mesh{};
-    AttributeSet* attributeSet{nullptr};
+    Point orig{-1.0f, -0.983795f, -0.35714f};
+    Point target{1.0f, 0.983795f, 0.35714f};
+    int n{40};
 
-    int curIndex{-1};
-    std::string name;
+    double m_Tolerance{1e-4};
+    bool m_SnapToNearest{true};
 
-    int dim{-1};
-    int m_currentAttributeDimension{-1};
     std::string m_Message{"Not Unstructured Mesh !"};
+
+    SurfaceMesh::Pointer m_PolyLine{};
+    UnstructuredMesh::Pointer m_LineMesh{};
+    std::vector<igIndex> m_SampleCellIds;
+    std::vector<unsigned char> m_SampleCellInside;
 };
-
-
-
 
 IGAME_NAMESPACE_END
 #endif
-

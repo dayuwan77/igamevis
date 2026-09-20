@@ -1,4 +1,4 @@
-﻿#include <ResampleToLine/iGameResampleToLine.h>
+#include <ResampleToLine/iGameResampleToLine.h>
 #include <Core/iGameScene.h>
 #include <VectorView/iGameVectorBase.h>
 #include <iGameFileIO.h>
@@ -42,8 +42,8 @@ int main() {
     filter->SetInput(mesh);
     //执行
     filter->Execute();
-    //返回结果
-    auto res = filter->GetOutput(0);
+    //返回结果：输出 1 为折线数据（SurfaceMesh，点 + 边）
+    auto res = filter->GetOutput(1);
     if (res == nullptr) {
         std::cout << "OutPut EERROR!" << std::endl;
         return 0;

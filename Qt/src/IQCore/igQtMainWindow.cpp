@@ -2020,59 +2020,13 @@ void igQtMainWindow::initAllFilters() {
         });
     });
 
-    auto makeWidgetScrollable = [](QWidget* content, QWidget* parent) -> QWidget* {
-        if (!content) return nullptr;
-        if (qobject_cast<QScrollArea*>(content)) return content;
-
-        content->setMinimumHeight(0);
-        content->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-
-        auto* scroll = new QScrollArea(parent);
-        scroll->setWidgetResizable(true);
-        scroll->setFrameShape(QFrame::NoFrame);
-        scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        scroll->setWidget(content);
-
-        return scroll;
-    };
-
-    auto makeDockWidgetScrollable = [makeWidgetScrollable](QDockWidget* dock) {
-        if (!dock) return;
-
-        QWidget* content = dock->widget();
-        if (!content || qobject_cast<QScrollArea*>(content)) return;
-
-        dock->setWidget(makeWidgetScrollable(content, dock));
-    };
-
     QAction* ResampleToLineAct1 = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
 
-    connect(ResampleToLineAct1, &QAction::triggered, this, [this, makeDockWidgetScrollable](bool) {
-        if (ResampleToLineDockWidget != nullptr) {
-            ResampleToLineDockWidget->show();
-            ResampleToLineDockWidget->raise();
-            ResampleToLineDockWidget->activateWindow();
-            return;
-        }
-
-        ResampleToLineDockWidget = new QDockWidget(this);
-        ResampleToLineDockWidget->setObjectName(QStringLiteral("dockWidget_ResampleToLine"));
-        ResampleToLineDockWidget->setWindowTitle(QStringLiteral("重采样至直线"));
-        ResampleToLineDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
-        ResampleToLineDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
-
-        ResampleToLineWidget = new igQtResampleToLine(ResampleToLineDockWidget);
-        ResampleToLineWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-        ResampleToLineWidget->setMinimumWidth(300);
-
-        ResampleToLineDockWidget->setWidget(ResampleToLineWidget);
-        addDockWidget(Qt::LeftDockWidgetArea, ResampleToLineDockWidget);
-
-        ResampleToLineWidget->SetLine(iGame::Vector3d{-1, -1, -1}, iGame::Vector3d{1, 1, 1});
-
-        makeDockWidgetScrollable(ResampleToLineDockWidget);
-        ResampleToLineDockWidget->show();
+    connect(ResampleToLineAct1, &QAction::triggered, this, [this](bool) {
+        // 与「网格切面」一致：面板挂在左侧上方工具 Tab 中
+        ensureResampleToLinePanel();
+        openLeftToolPanel(LeftToolPanelId::ResampleToLine);
+        if (ResampleToLineWidget != nullptr) { ResampleToLineWidget->BindCurrentModel(); }
     });
     /*SliceDockWidget = new QDockWidget(this);
     SliceDockWidget->setObjectName("dockWidget_Slice");
@@ -2731,6 +2685,7 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
     case LeftToolPanelId::Flow: return ui->dockWidget_FlowField;
     case LeftToolPanelId::ContourExtract: return ui->dockWidget_ContourExtract;
     case LeftToolPanelId::Slice: return SliceDockWidget;
+    case LeftToolPanelId::ResampleToLine: return ResampleToLineDockWidget;
     case LeftToolPanelId::Deformation: return DeformationDockWidget;
     case LeftToolPanelId::Selection: return ui->dockWidget_SelectionField;
     case LeftToolPanelId::VariableDensity: return ui->dockWidget_VariableDensityField;
@@ -2753,6 +2708,31 @@ QWidget* igQtMainWindow::wrapContentInScrollArea(QWidget* content, QWidget* pare
     scroll->setWidget(content);
     if (centerFlowField) scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
     return scroll;
+}
+
+void igQtMainWindow::ensureResampleToLinePanel() {
+    if (ResampleToLineWidget != nullptr) { return; }
+
+    ResampleToLineDockWidget = new QDockWidget(this);
+    ResampleToLineDockWidget->setObjectName(QStringLiteral("dockWidget_ResampleToLine"));
+    ResampleToLineDockWidget->setWindowTitle(QStringLiteral("重采样至直线"));
+    ResampleToLineDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
+    ResampleToLineDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
+
+    // 第一个参数是模型树控件（igQtModelDialogWidget 派生自 QObject，不是 QWidget），
+    // 第二个参数才是 Dock 父窗口
+    ResampleToLineWidget = new igQtResampleToLine(modelTreeWidget, ResampleToLineDockWidget);
+    ResampleToLineWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    ResampleToLineWidget->setMinimumWidth(300);
+
+    ResampleToLineDockWidget->setWidget(ResampleToLineWidget);
+    addDockWidget(Qt::LeftDockWidgetArea, ResampleToLineDockWidget);
+    // 面板内容会在 openLeftToolPanel() 里迁入左侧工具 Tab，这里先把壳 Dock 收起来
+    ResampleToLineDockWidget->hide();
+
+    // 源模型/结果被删除时：关闭该 Tab 并还原基础交互风格
+    connect(ResampleToLineWidget, &igQtResampleToLine::ResetInteractor, this,
+            [this]() { closeLeftToolPanel(LeftToolPanelId::ResampleToLine); });
 }
 
 void igQtMainWindow::applyLeftToolStackVerticalSplit() {
@@ -2842,8 +2822,8 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
     case LeftToolPanelId::Count:
         break;
     case LeftToolPanelId::ResampleToLine:
-        relocateContentToLeftTab(ui->dockWidget_DataChangeField, ui->widget_DataChangeField,
-                                 QStringLiteral("重采样至直线"), id, false);
+        relocateContentToLeftTab(ResampleToLineDockWidget, ResampleToLineWidget, QStringLiteral("重采样至直线"), id,
+                                 false);
         break;
     }
     
@@ -2887,8 +2867,8 @@ void igQtMainWindow::closeLeftToolPanel(LeftToolPanelId id) {
         if (t == idx) t = -1;
         else if (t > idx) --t;
     }
-    if (id == LeftToolPanelId::Slice && rendererWidget && rendererWidget->getInteractor() &&
-        !rendererWidget->getInteractor()->IsBasicStyle()) {
+    if ((id == LeftToolPanelId::Slice || id == LeftToolPanelId::ResampleToLine) && rendererWidget &&
+        rendererWidget->getInteractor() && !rendererWidget->getInteractor()->IsBasicStyle()) {
         rendererWidget->getInteractor()->RequestBasicStyle();
     }
     if (id == LeftToolPanelId::Deformation && ui->action_deformation) ui->action_deformation->setChecked(false);

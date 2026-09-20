@@ -9,6 +9,7 @@
 #include "iGameDragCenterStyle.h"
 #include "iGameInteractorStyle.h"
 #include "iGameMultiSelectionStyle.h"
+#include "iGameResampleToLineStyle.h"
 #include "iGameSingleDragStyle.h"
 #include "iGameSingleSelectionStyle.h"
 #include "iGameSlicingStyle.h"
@@ -99,6 +100,12 @@ public:
      * @param Selection s 事件响应后将会通知的对象
      */
     void RequestStreamLineStyle(SmartPointer<Selection> s);
+
+    /**
+     * @brief 切换成"重采样至直线"交互器（可拖动的起点/终点）
+     * @param Selection s 事件响应后将会通知的对象
+     */
+    void RequestResampleToLineStyle(SmartPointer<Selection> s);
 
     /**
      * @brief 设置特殊交互器

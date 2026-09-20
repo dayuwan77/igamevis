@@ -86,7 +86,7 @@ public:
     igQtColorManagerWidget* ColorManagerWidget;
     igQtFilterDialogDockWidget* filterDialogDockWidget;
     QDockWidget* SliceDockWidget;
-    QDockWidget* ResampleToLineDockWidget;
+    QDockWidget* ResampleToLineDockWidget{nullptr};
     igQtResampleToLine* ResampleToLineWidget{nullptr};
     QDockWidget* ContourDockWidget;
     igQtModelClipWidget* SliceWidget;
@@ -148,7 +148,11 @@ private:
     // 左侧工具 Tab（按需添加；下方 Properties 常驻）
     QDockWidget* m_leftFieldDock = nullptr;
     QTabWidget* m_leftFieldTabs = nullptr;
-    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
+            {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+
+    /** 按需创建「重采样至直线」面板（与网格切面一样挂在左侧工具 Tab 中） */
+    void ensureResampleToLinePanel();
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
