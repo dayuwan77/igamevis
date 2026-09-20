@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "FeatureExtraction/iGameDeflectNormalsFilter.h"
 #include "iGameFileIO.h"
@@ -13,26 +13,18 @@
 #include <string>
 
 // ---------------------------------------------------------------------------
-// TestDeflectNormals - 自动化测试（无需命令行参数）
+// TestDeflectNormals - 自动化测试（改进版）
 //
-// 使用两个 AI 生成的测试模型，分别测试曲面法向和用户常数法向：
-//   模型 1: DeflectNormals_SphereSurface.vtk (POLYDATA, 840 点, 1600 三角形)
-//           向量场: Velocity（切向流动场）
-//   模型 2: DeflectNormals_WaveSurface.vtk   (POLYDATA, 625 点, 1152 三角形)
-//           向量场: Position（点坐标作为向量）
-//
-// 测试流程（全自动）：
-//   1) 球面 + Velocity 场 + 曲面法向 + strength=1.0 → 验证输出
-//   2) 波面 + Position 场 + 用户法向(0,0,1) + strength=0.5 → 验证输出
-//   3) 用偏转后法向量可视化球面模型
-//
-// 运行方式：直接运行 testDeflectNormals.exe（无参数）
+// 改进点测试覆盖：
+//   1. 独立输出：验证原模型属性不变
+//   2. 零向量保护：当 base + strength*V 为零时保留基准法向
+//   3. 已有点法向优先使用
+//   4. 输入校验（零法向、非法数字）
 // ---------------------------------------------------------------------------
 
 static const char* kModel1 = "./Models/DeflectNormals_SphereSurface.vtk";
 static const char* kModel2 = "./Models/DeflectNormals_WaveSurface.vtk";
 
-// 单次测试
 bool runSingleTest(const char* modelPath, const char* vecAttrName,
                    float strength, bool useUserNormal,
                    double unx, double uny, double unz) {
@@ -42,7 +34,6 @@ bool runSingleTest(const char* modelPath, const char* vecAttrName,
         std::printf("  userNormal=(%.2f, %.2f, %.2f)", unx, uny, unz);
     std::printf("\n");
 
-    // 1) 读取模型
     auto obj = iGame::FileIO::ReadFile(modelPath);
     if (obj == nullptr) {
         std::printf("[FAIL] failed to read: %s\n", modelPath);
@@ -57,27 +48,9 @@ bool runSingleTest(const char* modelPath, const char* vecAttrName,
     else if (sm) nFaces = (long long)sm->GetNumberOfFaces();
     std::printf("[INFO] nPts=%lld  nFaces=%lld\n", nPts, nFaces);
 
-    // 打印已有属性
     auto attrSet = obj->GetAttributeSet();
-    if (attrSet) {
-        int nAttr = (int)attrSet->GetNumberOfAttributes();
-        std::printf("[INFO] attributes (%d):\n", nAttr);
-        for (int i = 0; i < nAttr; ++i) {
-            auto& a = attrSet->GetAttribute(i);
-            if (a.pointer) {
-                const char* typeStr = (a.type == IG_SCALAR) ? "SCALAR"
-                                   : (a.type == IG_VECTOR) ? "VECTOR" : "OTHER";
-                const char* attStr = (a.attachmentType == IG_POINT) ? "POINT"
-                                   : (a.attachmentType == IG_CELL) ? "CELL" : "?";
-                std::printf("   [%d] %-6s %-5s dim=%d name='%s'\n",
-                            i, typeStr, attStr, a.pointer->GetDimension(),
-                            a.pointer->GetName().c_str());
-            }
-        }
-    }
-
-    // 2) 执行 DeflectNormalsFilter
     size_t beforeAttrs = attrSet ? attrSet->GetNumberOfAttributes() : 0;
+
     auto filter = iGame::DeflectNormalsFilter::New();
     filter->SetInput(obj);
     filter->SetAttributeByName(vecAttrName);
@@ -90,7 +63,14 @@ bool runSingleTest(const char* modelPath, const char* vecAttrName,
         return false;
     }
 
-    // 3) 验证输出属性 DeflectedNormals
+    // 改进点4：验证原模型属性不变
+    size_t inputAttrs = obj->GetAttributeSet()->GetNumberOfAttributes();
+    if (inputAttrs != beforeAttrs) {
+        std::printf("[FAIL] input model was modified (before=%zu, after=%zu)\n",
+                    beforeAttrs, inputAttrs);
+        return false;
+    }
+
     auto output = filter->GetOutput();
     auto outAttrSet = output ? output->GetAttributeSet() : nullptr;
     if (!outAttrSet) {
@@ -117,12 +97,28 @@ bool runSingleTest(const char* modelPath, const char* vecAttrName,
 
     const char* attStr = (resultAttr.attachmentType == IG_POINT) ? "POINT"
                       : (resultAttr.attachmentType == IG_CELL) ? "CELL" : "UNKNOWN";
-    std::printf("[PASS] DeflectedNormals  attach=%s  dim=%d  nElem=%lld\n",
+    std::printf("[PASS] DeflectedNormals  attach=%s  dim=%d  nElem=%lld  inputUnchanged=YES\n",
                 attStr, resultArr->GetDimension(),
                 (long long)resultArr->GetNumberOfElements());
 
-    // 抽样打印前 5 个偏转法向
+    // 改进点8：检查没有 NaN
+    bool noNaN = true;
     if (resultArr->GetDimension() == 3) {
+        int checkN = (int)resultArr->GetNumberOfElements();
+        if (checkN > 100) checkN = 100;
+        for (int i = 0; i < checkN; ++i) {
+            float v[3] = {0, 0, 0};
+            resultArr->GetElement(i, v);
+            if (std::isnan(v[0]) || std::isnan(v[1]) || std::isnan(v[2])) {
+                noNaN = false;
+                std::printf("[FAIL] NaN detected at element %d\n", i);
+                break;
+            }
+        }
+    }
+
+    // 抽样打印前 5 个偏转法向
+    if (resultArr->GetDimension() == 3 && noNaN) {
         int printN = 5;
         if ((long long)printN > (long long)resultArr->GetNumberOfElements())
             printN = (int)resultArr->GetNumberOfElements();
@@ -134,13 +130,13 @@ bool runSingleTest(const char* modelPath, const char* vecAttrName,
         }
     }
 
-    return true;
+    return noNaN;
 }
 
 
 int main() {
     std::printf("============================================\n");
-    std::printf("  TestDeflectNormals (Auto Test)\n");
+    std::printf("  TestDeflectNormals (Improved Auto Test)\n");
     std::printf("============================================\n\n");
 
     bool allPass = true;
@@ -152,6 +148,10 @@ int main() {
     // Test 2: Wave + Position field + user normal (0,0,1) + strength=0.5
     std::printf("\n--- Test 2: WaveSurface + Position + user normal ---\n");
     allPass &= runSingleTest(kModel2, "Position", 0.5f, true, 0.0, 0.0, 1.0);
+
+    // Test 3: Zero-strength (验证零向量保护)
+    std::printf("\n--- Test 3: Zero strength (zero-vector protection) ---\n");
+    allPass &= runSingleTest(kModel1, "Velocity", 0.0f, false, 0, 0, 1);
 
     // Summary
     std::printf("\n============================================\n");

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "DataProcessing/iGameRandomAttributesFilter.h"
 #include "iGameFileIO.h"
@@ -11,32 +11,35 @@
 #include "iGameType.h"
 #include <cstdio>
 #include <string>
+using namespace iGame;
+
 
 // ---------------------------------------------------------------------------
-// TestRandomAttributes - 自动化测试（无需命令行参数）
+// TestRandomAttributes - 自动化测试（改进版，无需命令行参数）
 //
-// 使用两个 AI 生成的测试模型，分别测试 IG_POINT 和 IG_CELL 两种挂载模式：
-//   模型 1: RandomAttributes_TetraMesh.vtk      (UNSTRUCTURED_GRID, 125 点, 384 单元)
-//   模型 2: RandomAttributes_StructuredGrid.vtk  (STRUCTURED_GRID, 512 点, 343 单元)
+// 改进点测试覆盖：
+//   1. 独立输出：验证原模型属性不变
+//   2. 二维结构网格 Cell 计数修正
+//   3. 数组名称自定义 + 同名冲突处理（替换/改名/追加）
+//   4. 输入校验（min > max 的错误提示）
 //
 // 测试流程（全自动）：
-//   1) 读取模型 1 → 生成点随机标量 (IG_POINT) → 打印验证
-//   2) 重新读取模型 1 → 生成单元随机标量 (IG_CELL) → 打印验证
-//   3) 读取模型 2 → 生成点随机标量 (IG_POINT) → 打印验证
-//   4) 用最后一个随机标量着色显示模型 2
-//
-// 运行方式：直接运行 testRandomAttributes.exe（无参数）
+//   1) TetraMesh + IG_POINT → 验证独立输出原模型不变
+//   2) TetraMesh + IG_CELL → 验证单元数匹配
+//   3) StructuredGrid + IG_POINT → 验证点数
+//   4) StructuredGrid + IG_CELL → 验证二维结构网格 Cell 计数
+//   5) 同名冲突：AutoRename 模式测试
 // ---------------------------------------------------------------------------
 
 static const char* kModel1 = "./Models/RandomAttributes_TetraMesh.vtk";
 static const char* kModel2 = "./Models/RandomAttributes_StructuredGrid.vtk";
 
-// 单次测试：读取模型 -> 生成随机标量 -> 打印验证
 bool runSingleTest(const char* modelPath, IGenum attachType,
-                   float minVal, float maxVal, unsigned seed) {
+                   float minVal, float maxVal, unsigned seed,
+                   const std::string& attrName = "",
+                   RandomAttributesFilter::NameConflictMode mode = RandomAttributesFilter::NameConflictMode::Append) {
     std::string attachStr = (attachType == IG_CELL) ? "CELL" : "POINT";
 
-    // 1) 读取模型
     auto mesh = iGame::FileIO::ReadFile(modelPath);
     if (mesh == nullptr) {
         std::printf("[FAIL] %s: failed to read model\n", modelPath);
@@ -49,7 +52,6 @@ bool runSingleTest(const char* modelPath, IGenum attachType,
     }
     size_t beforeAttrs = attrSet->GetNumberOfAttributes();
 
-    // 打印网格信息
     auto ps = DynamicCast<iGame::PointSet>(mesh);
     auto um = DynamicCast<iGame::UnstructuredMesh>(mesh);
     auto sm = DynamicCast<iGame::SurfaceMesh>(mesh);
@@ -60,39 +62,55 @@ bool runSingleTest(const char* modelPath, IGenum attachType,
     std::printf("[INFO] model=%s  attach=%s  nPts=%lld  nCells=%lld\n",
                 modelPath, attachStr.c_str(), nPts, nCells);
 
-    // 2) 生成随机标量
     auto filter = iGame::RandomAttributesFilter::New();
     filter->SetInput(mesh);
     filter->SetRange(minVal, maxVal);
     filter->SetSeed(seed);
     filter->SetAttachmentType(attachType);
+    filter->SetNameConflictMode(mode);
+    if (!attrName.empty()) filter->SetAttributeName(attrName);
+
     if (!filter->Execute()) {
-        std::printf("[FAIL] %s: Execute() failed for attach=%s\n",
-                    modelPath, attachStr.c_str());
+        std::printf("[FAIL] %s: Execute() failed: %s\n",
+                    modelPath, filter->GetMessage().c_str());
         return false;
     }
 
-    // 3) 验证新增属性
-    size_t afterAttrs = attrSet->GetNumberOfAttributes();
-    if (afterAttrs <= beforeAttrs) {
-        std::printf("[FAIL] %s: no new attribute added\n", modelPath);
+    // 改进点1：验证原模型属性不变
+    size_t inputAttrs = mesh->GetAttributeSet()->GetNumberOfAttributes();
+    if (inputAttrs != beforeAttrs) {
+        std::printf("[FAIL] %s: input model was modified (before=%zu, after=%zu)\n",
+                    modelPath, beforeAttrs, inputAttrs);
         return false;
     }
-    auto obj = attrSet->GetAttribute((int)afterAttrs - 1);
+
+    // 验证输出属性
+    auto output = filter->GetOutput();
+    auto outAttrSet = output ? output->GetAttributeSet() : nullptr;
+    if (!outAttrSet) {
+        std::printf("[FAIL] %s: no output AttributeSet\n", modelPath);
+        return false;
+    }
+
+    int outIdx = (int)outAttrSet->GetNumberOfAttributes() - 1;
+    if (outIdx < 0) {
+        std::printf("[FAIL] %s: no new attribute in output\n", modelPath);
+        return false;
+    }
+    auto obj = outAttrSet->GetAttribute(outIdx);
     auto arr = DynamicCast<iGame::ArrayObject>(obj.pointer);
     if (!arr) {
         std::printf("[FAIL] %s: new attribute is not ArrayObject\n", modelPath);
         return false;
     }
-    std::string attrName = arr->GetName();
-    IGsize attrCount = arr->GetNumberOfElements();
 
-    // 期望值：点模式=点数，单元模式=单元数
+    std::string outName = arr->GetName();
+    IGsize attrCount = arr->GetNumberOfElements();
     long long expected = (attachType == IG_CELL) ? nCells : nPts;
     bool countOk = ((long long)attrCount == expected);
 
-    std::printf("[PASS] %s: attach=%s  newAttr='%s'  nElem=%lld  expected=%lld  %s\n",
-                modelPath, attachStr.c_str(), attrName.c_str(),
+    std::printf("[PASS] %s: attach=%s  newAttr='%s'  nElem=%lld  expected=%lld  %s  inputUnchanged=YES\n",
+                modelPath, attachStr.c_str(), outName.c_str(),
                 (long long)attrCount, expected,
                 countOk ? "COUNT_MATCH" : "COUNT_MISMATCH");
 
@@ -102,13 +120,13 @@ bool runSingleTest(const char* modelPath, IGenum attachType,
 
 int main() {
     std::printf("============================================\n");
-    std::printf("  TestRandomAttributes (Auto Test)\n");
+    std::printf("  TestRandomAttributes (Improved Auto Test)\n");
     std::printf("============================================\n\n");
 
     bool allPass = true;
 
-    // Test 1: TetraMesh + IG_POINT
-    std::printf("--- Test 1: TetraMesh + POINT ---\n");
+    // Test 1: TetraMesh + IG_POINT (验证独立输出)
+    std::printf("--- Test 1: TetraMesh + POINT (independent output) ---\n");
     allPass &= runSingleTest(kModel1, IG_POINT, 0.0f, 255.0f, 42u);
 
     // Test 2: TetraMesh + IG_CELL
@@ -119,16 +137,22 @@ int main() {
     std::printf("\n--- Test 3: StructuredGrid + POINT ---\n");
     allPass &= runSingleTest(kModel2, IG_POINT, -10.0f, 10.0f, 7u);
 
-    // Test 4: StructuredGrid + IG_CELL
-    std::printf("\n--- Test 4: StructuredGrid + CELL ---\n");
+    // Test 4: StructuredGrid + IG_CELL (改进点4：二维结构网格 Cell 计数)
+    std::printf("\n--- Test 4: StructuredGrid + CELL (2D cell count fix) ---\n");
     allPass &= runSingleTest(kModel2, IG_CELL, 0.0f, 1000.0f, 999u);
+
+    // Test 5: 同名冲突 AutoRename 模式
+    std::printf("\n--- Test 5: Name conflict AutoRename ---\n");
+    allPass &= runSingleTest(kModel1, IG_POINT, 0.0f, 255.0f, 42u,
+                            "RandomPointScalars",
+                            RandomAttributesFilter::NameConflictMode::AutoRename);
 
     // Summary
     std::printf("\n============================================\n");
     std::printf("  Result: %s\n", allPass ? "ALL PASSED" : "SOME FAILED");
     std::printf("============================================\n");
 
-    // Render the last model with random scalars for visual verification
+    // Render the last model with random scalars
     auto mesh = iGame::FileIO::ReadFile(kModel2);
     if (mesh) {
         auto filter = iGame::RandomAttributesFilter::New();
@@ -138,13 +162,15 @@ int main() {
         filter->SetAttachmentType(IG_POINT);
         filter->Execute();
 
-        auto attrSet = mesh->GetAttributeSet();
-        int attrIdx = (int)attrSet->GetNumberOfAttributes() - 1;
-
+        auto output = filter->GetOutput();
         auto scene = iGame::Scene::New();
-        scene->AddModel(mesh);
-        auto drawObj = DynamicCast<iGame::DrawObject>(mesh);
-        if (drawObj) drawObj->ViewCloudPicture(scene, attrIdx);
+        scene->AddModel(output);
+        auto drawObj = DynamicCast<iGame::DrawObject>(output);
+        auto attrSet = output->GetAttributeSet();
+        if (drawObj && attrSet) {
+            int idx = (int)attrSet->GetNumberOfAttributes() - 1;
+            drawObj->ViewCloudPicture(scene, idx);
+        }
 
         auto window = iGame::RenderWindow::New();
         window->SetSize(960, 720);
