@@ -1,5 +1,3 @@
-#pragma once
-
 #include "DataProcessing/iGameRandomAttributesFilter.h"
 #include "iGameFileIO.h"
 #include "iGameInteractor.h"
@@ -53,12 +51,25 @@ bool runSingleTest(const char* modelPath, IGenum attachType,
     size_t beforeAttrs = attrSet->GetNumberOfAttributes();
 
     auto ps = DynamicCast<iGame::PointSet>(mesh);
+    auto stm = DynamicCast<iGame::StructuredMesh>(mesh);
     auto um = DynamicCast<iGame::UnstructuredMesh>(mesh);
     auto sm = DynamicCast<iGame::SurfaceMesh>(mesh);
     long long nPts = ps ? (long long)ps->GetNumberOfPoints() : -1;
     long long nCells = -1;
-    if (um) nCells = (long long)um->GetNumberOfCells();
-    else if (sm) nCells = (long long)sm->GetNumberOfFaces();
+    if (stm) {
+        // 结构化网格：单元数由结构尺寸隐式决定，与 RandomAttributesFilter::ComputeCount 保持一致
+        // （StructuredMesh 继承 SurfaceMesh，若走 GetNumberOfFaces() 会取到面数而非体单元数，导致误判）
+        int s[3] = {0, 0, 0};
+        if (auto* sz = stm->GetDimensionSize()) { s[0] = sz[0]; s[1] = sz[1]; s[2] = sz[2]; }
+        nCells = 1;
+        if (s[0] > 1) nCells *= (s[0] - 1);
+        if (s[1] > 1) nCells *= (s[1] - 1);
+        if (s[2] > 1) nCells *= (s[2] - 1);
+    } else if (um) {
+        nCells = (long long)um->GetNumberOfCells();
+    } else if (sm) {
+        nCells = (long long)sm->GetNumberOfFaces();
+    }
     std::printf("[INFO] model=%s  attach=%s  nPts=%lld  nCells=%lld\n",
                 modelPath, attachStr.c_str(), nPts, nCells);
 

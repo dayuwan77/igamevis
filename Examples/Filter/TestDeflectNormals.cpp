@@ -1,5 +1,3 @@
-#pragma once
-
 #include "FeatureExtraction/iGameDeflectNormalsFilter.h"
 #include "iGameFileIO.h"
 #include "iGameInteractor.h"
@@ -9,8 +7,11 @@
 #include "iGameUnstructuredMesh.h"
 #include "iGameAttributeSet.h"
 #include "iGameType.h"
+#include <cmath>
 #include <cstdio>
 #include <string>
+
+using namespace iGame;
 
 // ---------------------------------------------------------------------------
 // TestDeflectNormals - 自动化测试（改进版）
