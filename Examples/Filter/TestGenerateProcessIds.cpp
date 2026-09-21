@@ -104,7 +104,8 @@ bool VerifyResultValues(iGame::DataObject::Pointer output, bool pointData, const
     return ok;
 }
 
-// 常数进程号：结果为独立节点，值全部等于常数
+// 常数进程号：结果为独立节点，值全部等于常数（对齐 vtkGenerateProcessIds 的官方测试：
+// 数组存在、长度等于点数/单元数、每个元素都等于当前进程号）
 bool VerifyConstant(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName, IGsize expectCount,
                     int expectValue) {
     const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
@@ -178,9 +179,10 @@ bool VerifyRepeatedExecution(iGame::DataObject::Pointer mesh, bool pointData, co
     return true;
 }
 
-// 外部 process_id 数组：结果沿用其值，该数组被拷入结果，输入保持不变
-bool VerifyExternalProcessId(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
-                             IGsize expectCount) {
+// 输入自带的 process_id 数组：对齐 vtkGenerateProcessIds —— 结果只写当前进程号，不沿用输入值；
+// 该数组本身被原样拷入结果属性集，输入保持不变。
+bool VerifyInputProcessIdsIgnored(iGame::DataObject::Pointer mesh, bool pointData, const std::string& arrayName,
+                                  IGsize expectCount, int expectValue) {
     auto pidArray = iGame::LongLongArray::New();
     pidArray->SetName("process_id");
     pidArray->Resize(expectCount);
@@ -196,51 +198,51 @@ bool VerifyExternalProcessId(iGame::DataObject::Pointer mesh, bool pointData, co
     filter->SetInput(mesh);
     filter->SetGeneratePointData(pointData);
     filter->SetGenerateCellData(!pointData);
+    filter->SetProcessId(expectValue);
     if (!filter->Execute()) {
-        std::cout << "FAIL: Execute (external process_id)\n";
+        std::cout << "FAIL: Execute (input process_id)\n";
         return false;
     }
     if (InputPointsMTime(mesh) != pointsMTimeBefore) {
-        std::cout << "FAIL: input geometry should not be marked modified (external process_id)\n";
+        std::cout << "FAIL: input geometry should not be marked modified (input process_id)\n";
         return false;
     }
     auto output = filter->GetOutput();
     if (!VerifyIndependentOutput(mesh, output, pointData, arrayName)) return false;
+
+    // 结果值必须全部是当前进程号，而不是输入 process_id 里的 i % 3
     if (!VerifyResultValues(output, pointData, arrayName, expectCount,
-                            [](IGsize i) { return static_cast<long long>(i % 3); })) {
+                            [expectValue](IGsize) { return static_cast<long long>(expectValue); })) {
+        std::cout << "FAIL: result should ignore the input process_id array\n";
         return false;
     }
 
-    // 输入上的 process_id 未被修改，且被拷贝到结果属性集中
-    auto& inputPid = mesh->GetAttributeSet()->GetScalar("process_id");
-    auto& outputPid = output->GetAttributeSet()->GetScalar("process_id");
-    bool ok = (inputPid.pointer != nullptr) && (outputPid.pointer != nullptr) &&
-              (outputPid.pointer->GetNumberOfElements() == expectCount);
+    // 输入上的 process_id 未被修改，并原样拷入结果属性集。
+    // 必须按「名字 + 挂载类型」定位：GetScalar(name) 不区分挂载类型，点 / 单元同时存在
+    // 同名数组时会取到另一个（点数与单元数不同，校验必然失败）。
+    const IGenum attachment = pointData ? IG_POINT : IG_CELL;
+    auto* inputPid = mesh->GetAttributeSet()->GetArrayPointer(IG_SCALAR, attachment, "process_id");
+    auto* outputPid = output->GetAttributeSet()->GetArrayPointer(IG_SCALAR, attachment, "process_id");
+    bool ok = (inputPid != nullptr) && (outputPid != nullptr) && (outputPid->GetNumberOfElements() == expectCount);
     for (IGsize i = 0; ok && i < expectCount; ++i) {
-        ok = (inputPid.pointer->GetValue(i) == static_cast<long long>(i % 3)) &&
-             (outputPid.pointer->GetValue(i) == static_cast<long long>(i % 3));
+        ok = (inputPid->GetValue(i) == static_cast<long long>(i % 3)) &&
+             (outputPid->GetValue(i) == static_cast<long long>(i % 3));
+    }
+    if (!ok) {
+        std::cout << "FAIL: input process_id array should be copied unchanged\n";
     }
     return ok;
 }
 }  // namespace
 
-iGame::UnstructuredMesh::Pointer CreateMesh(int argc, char* argv[]) {
-    if (argc > 1) {
-        auto obj = iGame::FileIO::ReadFile(argv[1]);
-        auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
-        if (mesh == nullptr) {
-            std::cout << "FAIL: read model " << argv[1] << "\n";
-            return nullptr;
-        }
-        return mesh;
+// 读取 AI 生成的测试模型（相对路径，需在 Examples 构建目录下运行，模型由构建时自动拷贝）
+iGame::UnstructuredMesh::Pointer LoadModel(const std::string& fileName) {
+    auto obj = iGame::FileIO::ReadFile(fileName);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
+    if (mesh == nullptr) {
+        std::cout << "FAIL: read model " << fileName << "\n";
+        return nullptr;
     }
-    auto mesh = iGame::UnstructuredMesh::New();
-    mesh->AddPoint(iGame::Point(0.f, 0.f, 0.f));
-    mesh->AddPoint(iGame::Point(1.f, 0.f, 0.f));
-    mesh->AddPoint(iGame::Point(0.f, 1.f, 0.f));
-    mesh->AddPoint(iGame::Point(0.f, 0.f, 1.f));
-    igIndex cell[4] = {0, 1, 2, 3};
-    mesh->AddCell(cell, 4, iGame::IG_TETRA);
     return mesh;
 }
 
@@ -277,51 +279,92 @@ iGame::VolumeMesh::Pointer CreateVolumeMesh() {
     return mesh;
 }
 
-bool VerifyUnsupportedCellData() {
+// 纯点云：单元数据被跳过（点进程号照常生成、返回成功并给出提示），两个开关都关时执行失败
+bool VerifyCellDataSkippedOnPointSet() {
     auto mesh = iGame::PointSet::New();
     mesh->AddPoint(iGame::Point(0.f, 0.f, 0.f));
 
+    // 1) 只勾单元数据：跳过单元并给出提示，执行仍成功，结果里没有 CellProcessIds
     auto cellOnly = iGame::GenerateProcessIdsFilter::New();
     cellOnly->SetInput(mesh);
     cellOnly->SetGeneratePointData(false);
     cellOnly->SetGenerateCellData(true);
-    if (cellOnly->Execute()) {
-        std::cout << "FAIL: cell data on PointSet should fail\n";
+    if (!cellOnly->Execute()) {
+        std::cout << "FAIL: skipped cell data should still succeed\n";
         return false;
     }
     if (cellOnly->GetMessage().empty()) {
-        std::cout << "FAIL: GetMessage should be non-empty\n";
+        std::cout << "FAIL: skipped cell data should leave a message\n";
         return false;
     }
-    if (cellOnly->GetOutput() != nullptr) {
-        std::cout << "FAIL: failed execution should not keep an output\n";
+    auto cellOnlyOutput = cellOnly->GetOutput();
+    if (cellOnlyOutput == nullptr) {
+        std::cout << "FAIL: skipped cell data should still produce an output\n";
+        return false;
+    }
+    if (CountArrays(cellOnlyOutput, false, "CellProcessIds") != 0) {
+        std::cout << "FAIL: PointSet result should not carry CellProcessIds\n";
         return false;
     }
 
+    // 2) 点 + 单元都勾：点数组照常生成，单元部分跳过
     const unsigned int pointsMTimeBefore = InputPointsMTime(mesh);
-    auto pointOnly = iGame::GenerateProcessIdsFilter::New();
-    pointOnly->SetInput(mesh);
-    pointOnly->SetGeneratePointData(true);
-    pointOnly->SetGenerateCellData(false);
-    pointOnly->SetProcessId(3);
-    if (!pointOnly->Execute()) {
+    auto both = iGame::GenerateProcessIdsFilter::New();
+    both->SetInput(mesh);
+    both->SetGeneratePointData(true);
+    both->SetGenerateCellData(true);
+    both->SetProcessId(3);
+    if (!both->Execute()) {
         std::cout << "FAIL: point data on PointSet should succeed\n";
+        return false;
+    }
+    if (both->GetMessage().empty()) {
+        std::cout << "FAIL: skipped cell data should leave a message\n";
         return false;
     }
     if (InputPointsMTime(mesh) != pointsMTimeBefore) {
         std::cout << "FAIL: input geometry should not be marked modified (PointSet)\n";
         return false;
     }
-    // 点云只生成点进程号：结果仍是独立对象（PointSet -> PointSet）
-    auto output = pointOnly->GetOutput();
+    auto output = both->GetOutput();
     if (!VerifyIndependentOutput(mesh, output, true, "PointProcessIds")) return false;
-    return VerifyResultValues(output, true, "PointProcessIds", 1, [](IGsize) { return 3LL; });
+    if (CountArrays(output, false, "CellProcessIds") != 0) {
+        std::cout << "FAIL: PointSet result should not carry CellProcessIds\n";
+        return false;
+    }
+    if (!VerifyResultValues(output, true, "PointProcessIds", 1, [](IGsize) { return 3LL; })) {
+        std::cout << "FAIL: point PointProcessIds values on PointSet\n";
+        return false;
+    }
+
+    // 3) 两个开关都关：执行失败并给出提示，不保留输出
+    auto none = iGame::GenerateProcessIdsFilter::New();
+    none->SetInput(mesh);
+    none->SetGeneratePointData(false);
+    none->SetGenerateCellData(false);
+    if (none->Execute()) {
+        std::cout << "FAIL: no requested data should fail\n";
+        return false;
+    }
+    if (none->GetMessage().empty()) {
+        std::cout << "FAIL: GetMessage should be non-empty when nothing is requested\n";
+        return false;
+    }
+    if (none->GetOutput() != nullptr) {
+        std::cout << "FAIL: failed execution should not keep an output\n";
+        return false;
+    }
+    return true;
 }
 
 int main(int argc, char* argv[]) {
     bool allOk = true;
 
-    auto mesh = CreateMesh(argc, argv);
+    // 默认使用仓库自带的 AI 测试模型，无参即可完整运行；第一个命令行参数可覆盖主模型路径
+    const std::string mainModel =
+            (argc > 1) ? std::string(argv[1]) : std::string("./Models/GenerateProcessIds_SteppedPipe.vtk");
+
+    auto mesh = LoadModel(mainModel);
     if (mesh == nullptr) return 1;
 
     IGsize pointNum = mesh->GetNumberOfPoints();
@@ -334,7 +377,7 @@ int main(int argc, char* argv[]) {
     std::cout << (cellOk ? "PASS" : "FAIL") << ": cell CellProcessIds count=" << cellNum << " value=7\n";
     allOk = allOk && cellOk;
 
-    auto partMesh = CreateMesh(argc, argv);
+    auto partMesh = LoadModel(mainModel);
     if (partMesh == nullptr) return 1;
 
     IGsize partPointNum = partMesh->GetNumberOfPoints();
@@ -356,18 +399,45 @@ int main(int argc, char* argv[]) {
     std::cout << (cellRepeatOk ? "PASS" : "FAIL") << ": repeated cell CellProcessIds count=" << cellNum << "\n";
     allOk = allOk && cellRepeatOk;
 
-    auto extMesh = CreateMesh(argc, argv);
+    // 输入自带 process_id 数组：结果仍写当前进程号（对齐 VTK，不再沿用输入值）
+    auto extMesh = LoadModel(mainModel);
     if (extMesh == nullptr) return 1;
 
     IGsize extPointNum = extMesh->GetNumberOfPoints();
-    bool extPointOk = VerifyExternalProcessId(extMesh, true, "PointProcessIds", extPointNum);
-    std::cout << (extPointOk ? "PASS" : "FAIL") << ": external point PointProcessIds count=" << extPointNum << "\n";
+    bool extPointOk = VerifyInputProcessIdsIgnored(extMesh, true, "PointProcessIds", extPointNum, 7);
+    std::cout << (extPointOk ? "PASS" : "FAIL") << ": input process_id ignored (point) count=" << extPointNum << "\n";
     allOk = allOk && extPointOk;
 
     IGsize extCellNum = extMesh->GetNumberOfCells();
-    bool extCellOk = VerifyExternalProcessId(extMesh, false, "CellProcessIds", extCellNum);
-    std::cout << (extCellOk ? "PASS" : "FAIL") << ": external cell CellProcessIds count=" << extCellNum << "\n";
+    bool extCellOk = VerifyInputProcessIdsIgnored(extMesh, false, "CellProcessIds", extCellNum, 7);
+    std::cout << (extCellOk ? "PASS" : "FAIL") << ": input process_id ignored (cell) count=" << extCellNum << "\n";
     allOk = allOk && extCellOk;
+
+    // 第二个 AI 测试模型（文丘里缩放喷管）：常数 / 分区两类校验
+    auto venturiMesh = LoadModel("./Models/GenerateProcessIds_VenturiTube.vtk");
+    if (venturiMesh == nullptr) return 1;
+
+    IGsize venturiPointNum = venturiMesh->GetNumberOfPoints();
+    bool venturiPointOk = VerifyConstant(venturiMesh, true, "PointProcessIds", venturiPointNum, 7);
+    std::cout << (venturiPointOk ? "PASS" : "FAIL") << ": venturi point PointProcessIds count=" << venturiPointNum
+              << " value=7\n";
+    allOk = allOk && venturiPointOk;
+
+    IGsize venturiCellNum = venturiMesh->GetNumberOfCells();
+    bool venturiCellOk = VerifyConstant(venturiMesh, false, "CellProcessIds", venturiCellNum, 7);
+    std::cout << (venturiCellOk ? "PASS" : "FAIL") << ": venturi cell CellProcessIds count=" << venturiCellNum
+              << " value=7\n";
+    allOk = allOk && venturiCellOk;
+
+    bool venturiPointPartOk = VerifyPartitioned(venturiMesh, true, "PointProcessIds", venturiPointNum);
+    std::cout << (venturiPointPartOk ? "PASS" : "FAIL") << ": venturi partitioned point PointProcessIds count="
+              << venturiPointNum << "\n";
+    allOk = allOk && venturiPointPartOk;
+
+    bool venturiCellPartOk = VerifyPartitioned(venturiMesh, false, "CellProcessIds", venturiCellNum);
+    std::cout << (venturiCellPartOk ? "PASS" : "FAIL") << ": venturi partitioned cell CellProcessIds count="
+              << venturiCellNum << "\n";
+    allOk = allOk && venturiCellPartOk;
 
     auto surfMesh = CreateSurfaceMesh();
     IGsize surfFaceNum = surfMesh->GetNumberOfFaces();
@@ -391,9 +461,9 @@ int main(int argc, char* argv[]) {
               << "\n";
     allOk = allOk && volCellPartOk;
 
-    bool unsupportedOk = VerifyUnsupportedCellData();
-    std::cout << (unsupportedOk ? "PASS" : "FAIL") << ": unsupported cell data on PointSet\n";
-    allOk = allOk && unsupportedOk;
+    bool skippedCellOk = VerifyCellDataSkippedOnPointSet();
+    std::cout << (skippedCellOk ? "PASS" : "FAIL") << ": skipped cell data on PointSet\n";
+    allOk = allOk && skippedCellOk;
 
     return allOk ? 0 : 1;
 }
