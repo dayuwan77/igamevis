@@ -1,185 +1,132 @@
-#pragma once
+﻿#pragma once
 
 #include "FeatureExtraction/iGameDeflectNormalsFilter.h"
 #include "iGameFileIO.h"
 #include "iGameInteractor.h"
 #include "iGameRenderWindow.h"
 #include "iGameScene.h"
-#include "iGameUnstructuredMesh.h"
 #include "iGameSurfaceMesh.h"
+#include "iGameUnstructuredMesh.h"
 #include "iGameAttributeSet.h"
 #include "iGameType.h"
 #include <cstdio>
-#include <cstring>
 #include <string>
-#include <iostream>
 
 // ---------------------------------------------------------------------------
-// 说明：
-//   本测试对指定的非结构化/表面网格模型执行"法向偏转"（DeflectNormals）。
-//   模型中必须已经存在一个 3 分量的向量场属性（常用名如 Position / Velocity 等），
-//   filter 会取该向量场 V，把每个点的基准法向 base（曲面法向 或 用户常数法向）
-//   按 ND = normalize(base + strength * V) 进行偏转，结果写入一个新的 3 分量
-//   点向量属性，名字固定为 DeflectedNormals。
+// TestDeflectNormals - 自动化测试（无需命令行参数）
 //
-//   用法：
-//     testDeflectNormals.exe [modelPath] [vecAttrName] [strength] [useUserNormal nx ny nz]
+// 使用两个 AI 生成的测试模型，分别测试曲面法向和用户常数法向：
+//   模型 1: DeflectNormals_SphereSurface.vtk (POLYDATA, 840 点, 1600 三角形)
+//           向量场: Velocity（切向流动场）
+//   模型 2: DeflectNormals_WaveSurface.vtk   (POLYDATA, 625 点, 1152 三角形)
+//           向量场: Position（点坐标作为向量）
 //
-//       例1：最简调用（默认模型、默认向量属性 "Position"、strength=1.0、用曲面法向）
-//             testDeflectNormals.exe
+// 测试流程（全自动）：
+//   1) 球面 + Velocity 场 + 曲面法向 + strength=1.0 → 验证输出
+//   2) 波面 + Position 场 + 用户法向(0,0,1) + strength=0.5 → 验证输出
+//   3) 用偏转后法向量可视化球面模型
 //
-//       例2：指定模型 + 向量场名字
-//             testDeflectNormals.exe  ./Models/VectorFieldTest_Fan_UnstructuredGrid.vtk  Position
-//
-//       例3：指定偏转强度为 0.5
-//             testDeflectNormals.exe  ./Models/VectorFieldTest_Fan_UnstructuredGrid.vtk  Position  0.5
-//
-//       例4：使用用户常数法向 (0,0,1) 作为基准法向 + strength=2.0
-//             testDeflectNormals.exe  ./Models/VectorFieldTest_Fan_UnstructuredGrid.vtk  Position  2.0  1  0 0 1
-//             （useUserNormal=1 表示启用，后面跟 nx ny nz；0 或省略则用曲面法向）
+// 运行方式：直接运行 testDeflectNormals.exe（无参数）
 // ---------------------------------------------------------------------------
 
-// 默认测试模型（运行时工作目录为 cmake-build-examples，Models 会被自动拷贝过去）
-static const char* kDefaultModel = "./Models/VectorFieldTest_Fan_UnstructuredGrid.vtk";
-// 默认向量场属性名（根据 summary：该模型 POINT_DATA 里有 3 分量的 Position 可作为向量场）
-static const char* kDefaultVecAttr = "Position";
-// 默认偏转强度
-static const float kDefaultStrength = 1.0f;
+static const char* kModel1 = "./Models/DeflectNormals_SphereSurface.vtk";
+static const char* kModel2 = "./Models/DeflectNormals_WaveSurface.vtk";
 
-
-int main(int argc, char** argv) {
-    // ---------- 1) 解析命令行参数 ----------
-    std::string modelPath   = kDefaultModel;
-    std::string vecAttrName = kDefaultVecAttr;
-    float       strength    = kDefaultStrength;
-    bool        useUserNormal = false;
-    double      unx = 0.0, uny = 0.0, unz = 1.0;  // 用户法向默认 +Z
-
-    if (argc >= 2)  modelPath   = argv[1];
-    if (argc >= 3)  vecAttrName = argv[2];
-    if (argc >= 4)  strength    = (float)std::atof(argv[3]);
-    if (argc >= 5) {
-        int flag = std::atoi(argv[4]);
-        useUserNormal = (flag != 0);
-        if (useUserNormal && argc >= 8) {
-            unx = std::atof(argv[5]);
-            uny = std::atof(argv[6]);
-            unz = std::atof(argv[7]);
-        }
-    }
-
-    std::printf("[TestDeflectNormals] model=%s\n", modelPath.c_str());
-    std::printf("[TestDeflectNormals] vecAttr='%s'  strength=%.3f  useUserNormal=%d",
-                vecAttrName.c_str(), strength, useUserNormal ? 1 : 0);
+// 单次测试
+bool runSingleTest(const char* modelPath, const char* vecAttrName,
+                   float strength, bool useUserNormal,
+                   double unx, double uny, double unz) {
+    std::printf("[INFO] model=%s  vecAttr='%s'  strength=%.3f  useUserNormal=%d",
+                modelPath, vecAttrName, strength, useUserNormal ? 1 : 0);
     if (useUserNormal)
         std::printf("  userNormal=(%.2f, %.2f, %.2f)", unx, uny, unz);
     std::printf("\n");
 
-    // ---------- 2) 读取模型 ----------
+    // 1) 读取模型
     auto obj = iGame::FileIO::ReadFile(modelPath);
     if (obj == nullptr) {
-        std::printf("[Error] 读取模型失败：%s\n", modelPath.c_str());
-        return -1;
+        std::printf("[FAIL] failed to read: %s\n", modelPath);
+        return false;
     }
-    auto dataObjType = obj->GetDataObjectType();
-    std::printf("[Info] dataObjectType = %d  (4=SurfaceMesh, 6=UnstructuredMesh)\n", (int)dataObjType);
-
-    // 尝试拿 PointSet 基类（点数）、SurfaceMesh/UnstructuredMesh（单元/面数）
     auto ps = DynamicCast<iGame::PointSet>(obj);
     auto sm = DynamicCast<iGame::SurfaceMesh>(obj);
     auto um = DynamicCast<iGame::UnstructuredMesh>(obj);
-    if (ps) std::printf("[Info] nPoints = %lld\n", (long long)ps->GetNumberOfPoints());
-    if (um) std::printf("[Info] nCells  = %lld\n", (long long)um->GetNumberOfCells());
-    if (sm && !um) std::printf("[Info] nFaces  = %lld\n", (long long)sm->GetNumberOfFaces());
+    long long nPts = ps ? (long long)ps->GetNumberOfPoints() : -1;
+    long long nFaces = -1;
+    if (um) nFaces = (long long)um->GetNumberOfCells();
+    else if (sm) nFaces = (long long)sm->GetNumberOfFaces();
+    std::printf("[INFO] nPts=%lld  nFaces=%lld\n", nPts, nFaces);
 
-    // 打印当前已有的属性名列表，方便调试确认向量场叫啥
+    // 打印已有属性
     auto attrSet = obj->GetAttributeSet();
     if (attrSet) {
         int nAttr = (int)attrSet->GetNumberOfAttributes();
-        std::printf("[Info] number of attributes = %d\n", nAttr);
+        std::printf("[INFO] attributes (%d):\n", nAttr);
         for (int i = 0; i < nAttr; ++i) {
             auto& a = attrSet->GetAttribute(i);
             if (a.pointer) {
-                const char* typeStr = "UNKNOWN";
-                if      (a.type == IG_SCALAR) typeStr = "SCALAR";
-                else if (a.type == IG_VECTOR) typeStr = "VECTOR";
-                else if (a.type == IG_TENSOR) typeStr = "TENSOR";
-                const char* attachStr = "?";
-                if      (a.attachmentType == IG_POINT) attachStr = "POINT";
-                else if (a.attachmentType == IG_CELL)  attachStr = "CELL";
-                std::printf("   [%d] %-8s %-6s dim=%d  nElem=%lld  name='%s'\n",
-                            i, typeStr, attachStr,
-                            a.pointer->GetDimension(),
-                            (long long)a.pointer->GetNumberOfElements(),
+                const char* typeStr = (a.type == IG_SCALAR) ? "SCALAR"
+                                   : (a.type == IG_VECTOR) ? "VECTOR" : "OTHER";
+                const char* attStr = (a.attachmentType == IG_POINT) ? "POINT"
+                                   : (a.attachmentType == IG_CELL) ? "CELL" : "?";
+                std::printf("   [%d] %-6s %-5s dim=%d name='%s'\n",
+                            i, typeStr, attStr, a.pointer->GetDimension(),
                             a.pointer->GetName().c_str());
             }
         }
     }
 
-    // ---------- 3) 执行 DeflectNormalsFilter ----------
+    // 2) 执行 DeflectNormalsFilter
     size_t beforeAttrs = attrSet ? attrSet->GetNumberOfAttributes() : 0;
-
     auto filter = iGame::DeflectNormalsFilter::New();
     filter->SetInput(obj);
-    filter->SetAttributeByName(vecAttrName);     // 按名指定向量场属性
-    filter->SetDeflectStrength(strength);        // 偏转强度
-    filter->SetUseUserNormal(useUserNormal);     // 是否用用户常数法向
-    if (useUserNormal)
-        filter->SetUserNormal(unx, uny, unz);    // 用户法向
+    filter->SetAttributeByName(vecAttrName);
+    filter->SetDeflectStrength(strength);
+    filter->SetUseUserNormal(useUserNormal);
+    if (useUserNormal) filter->SetUserNormal(unx, uny, unz);
 
-    bool ok = filter->Execute();
-    if (!ok) {
-        std::printf("[Error] DeflectNormalsFilter::Execute() 失败！message=%s\n",
-                    filter->GetMessage().c_str());
-        return -1;
+    if (!filter->Execute()) {
+        std::printf("[FAIL] Execute() failed: %s\n", filter->GetMessage().c_str());
+        return false;
     }
 
-    // ---------- 4) 验证输出：新增的 DeflectedNormals 属性 ----------
+    // 3) 验证输出属性 DeflectedNormals
     auto output = filter->GetOutput();
     auto outAttrSet = output ? output->GetAttributeSet() : nullptr;
     if (!outAttrSet) {
-        std::printf("[Error] filter 输出没有 AttributeSet！\n");
-        return -1;
+        std::printf("[FAIL] no output AttributeSet\n");
+        return false;
     }
 
-    // 定位名字为 "DeflectedNormals" 的属性
-    std::string resultAttrName = "DeflectedNormals";
-    int resultIdx = outAttrSet->GetAttributeIndex(resultAttrName);
+    int resultIdx = outAttrSet->GetAttributeIndex("DeflectedNormals");
     if (resultIdx < 0) {
-        // 若按名找不到，就尝试使用"执行后新增的最后一个属性"
         int nAttr = (int)outAttrSet->GetNumberOfAttributes();
         if (nAttr > (int)beforeAttrs) resultIdx = nAttr - 1;
-        if (resultIdx >= 0) {
-            auto& a = outAttrSet->GetAttribute(resultIdx);
-            if (a.pointer) resultAttrName = a.pointer->GetName();
-        }
     }
-
     if (resultIdx < 0) {
-        std::printf("[Error] 找不到输出属性 DeflectedNormals！\n");
-        return -1;
+        std::printf("[FAIL] DeflectedNormals not found in output\n");
+        return false;
     }
 
     auto& resultAttr = outAttrSet->GetAttribute(resultIdx);
     auto resultArr = DynamicCast<iGame::ArrayObject>(resultAttr.pointer);
     if (!resultArr) {
-        std::printf("[Error] 输出属性不是有效 ArrayObject！\n");
-        return -1;
+        std::printf("[FAIL] output attribute not ArrayObject\n");
+        return false;
     }
 
-    const char* attachStr = (resultAttr.attachmentType == IG_POINT) ? "POINT"
-                          : (resultAttr.attachmentType == IG_CELL)  ? "CELL"  : "UNKNOWN";
-    std::printf("[OK] DeflectNormals 执行成功！输出属性：'%s'  attach=%s  dim=%d  nElem=%lld\n",
-                resultAttrName.c_str(), attachStr,
-                resultArr->GetDimension(),
+    const char* attStr = (resultAttr.attachmentType == IG_POINT) ? "POINT"
+                      : (resultAttr.attachmentType == IG_CELL) ? "CELL" : "UNKNOWN";
+    std::printf("[PASS] DeflectedNormals  attach=%s  dim=%d  nElem=%lld\n",
+                attStr, resultArr->GetDimension(),
                 (long long)resultArr->GetNumberOfElements());
 
-    // 抽样打印前几个点的偏转后法向
+    // 抽样打印前 5 个偏转法向
     if (resultArr->GetDimension() == 3) {
-        std::printf("[Sample] 前 5 个点的偏转后法向：\n");
         int printN = 5;
         if ((long long)printN > (long long)resultArr->GetNumberOfElements())
             printN = (int)resultArr->GetNumberOfElements();
+        std::printf("[SAMPLE] first %d deflected normals:\n", printN);
         for (int i = 0; i < printN; ++i) {
             float v[3] = {0, 0, 0};
             resultArr->GetElement(i, v);
@@ -187,27 +134,63 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ---------- 5) 用偏转后的法向属性显示模型 ----------
-    auto scene = iGame::Scene::New();
-    scene->AddModel(output);
+    return true;
+}
 
-    auto drawObj = DynamicCast<iGame::DrawObject>(output);
-    if (drawObj) {
-        // 用偏转后的向量属性做云图着色；实际 UI 里一般会做法向渲染，
-        // 这里用 ViewCloudPicture 至少能把属性挂上去让用户能看到变化
-        drawObj->SetViewStyle(IG_SURFACE);
-        drawObj->ViewCloudPicture(scene, resultIdx);
+
+int main() {
+    std::printf("============================================\n");
+    std::printf("  TestDeflectNormals (Auto Test)\n");
+    std::printf("============================================\n\n");
+
+    bool allPass = true;
+
+    // Test 1: Sphere + Velocity field + surface normal + strength=1.0
+    std::printf("--- Test 1: SphereSurface + Velocity + surface normal ---\n");
+    allPass &= runSingleTest(kModel1, "Velocity", 1.0f, false, 0, 0, 1);
+
+    // Test 2: Wave + Position field + user normal (0,0,1) + strength=0.5
+    std::printf("\n--- Test 2: WaveSurface + Position + user normal ---\n");
+    allPass &= runSingleTest(kModel2, "Position", 0.5f, true, 0.0, 0.0, 1.0);
+
+    // Summary
+    std::printf("\n============================================\n");
+    std::printf("  Result: %s\n", allPass ? "ALL PASSED" : "SOME FAILED");
+    std::printf("============================================\n");
+
+    // Render sphere model with deflected normals
+    auto obj = iGame::FileIO::ReadFile(kModel1);
+    if (obj) {
+        auto filter = iGame::DeflectNormalsFilter::New();
+        filter->SetInput(obj);
+        filter->SetAttributeByName("Velocity");
+        filter->SetDeflectStrength(1.0f);
+        filter->SetUseUserNormal(false);
+        filter->Execute();
+
+        auto output = filter->GetOutput();
+        auto outAttrSet = output ? output->GetAttributeSet() : nullptr;
+
+        auto scene = iGame::Scene::New();
+        scene->AddModel(output);
+
+        auto drawObj = DynamicCast<iGame::DrawObject>(output);
+        if (drawObj && outAttrSet) {
+            int idx = outAttrSet->GetAttributeIndex("DeflectedNormals");
+            drawObj->SetViewStyle(IG_SURFACE);
+            if (idx >= 0) drawObj->ViewCloudPicture(scene, idx);
+        }
+
+        auto window = iGame::RenderWindow::New();
+        window->SetSize(960, 720);
+        window->SetScene(scene);
+
+        auto interactor = iGame::Interactor::New();
+        interactor->Initialize(scene);
+        interactor->CreateDefaultStyle();
+        window->SetInteractor(interactor);
+        window->Show();
     }
 
-    auto window = iGame::RenderWindow::New();
-    window->SetSize(1280, 960);
-    window->SetScene(scene);
-
-    auto interactor = iGame::Interactor::New();
-    interactor->Initialize(scene);
-    interactor->CreateDefaultStyle();
-    window->SetInteractor(interactor);
-
-    window->Show();
-    return 0;
+    return allPass ? 0 : 1;
 }
