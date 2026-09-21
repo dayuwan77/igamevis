@@ -135,6 +135,7 @@ public:
     // 点与单元 ID 参数面板
     QDockWidget* PointAndCellIdsDockWidget{nullptr};
     igQtPointAndCellIdsWidget* PointAndCellIdsWidget{nullptr};
+    int m_pointAndCellIdsCount{0};
 
 private slots:
     void updateRecentFilePaths();

@@ -929,19 +929,16 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     connect(PointAndCellIdsWidget, &igQtPointAndCellIdsWidget::cancelRequested, PointAndCellIdsDockWidget,
             &QDockWidget::hide);
 
-    // Filter 完成后刷新模型属性和渲染
-    connect(PointAndCellIdsWidget, &igQtPointAndCellIdsWidget::idsGenerated, this, [this]() {
-        auto scene = rendererWidget->GetScene();
-        auto model = scene ? scene->GetCurrentModel() : nullptr;
-        if (!model) return;
+    // Filter 完成后把独立输出对象挂到模型树
+    connect(PointAndCellIdsWidget, &igQtPointAndCellIdsWidget::idsGenerated, this,
+            [this](iGame::DataObject::Pointer output) {
+                if (!output) return;
 
-        auto data = model->GetDataObject();
-        if (!data) return;
-
-        modelTreeWidget->updateAllAttriubute(data);
-        modelTreeWidget->updateCurrentModelInfo();
-        rendererWidget->update();
-    });
+                output->SetName(
+                        QStringLiteral("PointAndCellIds_%1").arg(++m_pointAndCellIdsCount).toStdString());
+                modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+                rendererWidget->update();
+            });
 
     auto makeWidgetScrollable = [&](QWidget* content, QWidget* parent) -> QWidget* {
         if (!content) return nullptr;
