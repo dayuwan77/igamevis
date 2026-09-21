@@ -3,6 +3,8 @@
 #include "iGameAttributeSet.h"
 #include "iGameFlatArray.h"
 #include "iGameLagrangeUnstructuredMesh.h"
+#include "iGamePointSet.h"
+#include "iGamePoints.h"
 #include "iGameStructuredMesh.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
@@ -14,29 +16,53 @@ IGAME_NAMESPACE_BEGIN
 
 namespace {
 
-// 输入上用于提供进程号的外部数组名（只读来源）
-const char* const ProcessIdSourceName = "process_id";
 // 生成结果数组名（固定命名，便于 GUI 与测试直接引用）
 const char* const PointProcessIdsName = "PointProcessIds";
 const char* const CellProcessIdsName = "CellProcessIds";
 
-// 在输入属性集中查找指定挂载类型上的 process_id(LongLong) 数组。
-LongLongArray::Pointer FindProcessIdArray(AttributeSet* attributes, IGenum attachmentType) {
-    if (attributes == nullptr) { return nullptr; }
-    auto allAttributes = attributes->GetAllAttributes();
-    if (allAttributes == nullptr) { return nullptr; }
-    for (IGsize i = 0; i < allAttributes->GetNumberOfElements(); ++i) {
-        auto& attribute = allAttributes->GetElement(i);
-        if (attribute.IsNone() || attribute.pointer == nullptr) { continue; }
-        if (attribute.attachmentType != attachmentType) { continue; }
-        if (attribute.pointer->GetName() != ProcessIdSourceName) { continue; }
-        if (auto ids = DynamicCast<LongLongArray>(attribute.pointer)) { return ids; }
+// 返回输入网格的单元总数；网格类型没有单元（如纯点云 PointSet）时返回 false。
+// 作为实现细节留在匿名命名空间，不进头文件，避免把「按网格类型分发」固化成对外接口。
+bool GetCellCount(PointSet* mesh, IGsize& cellCount) {
+    switch (mesh->GetDataObjectType()) {
+        case IG_SURFACE_MESH: {
+            auto surfaceMesh = DynamicCast<SurfaceMesh>(mesh);
+            if (surfaceMesh == nullptr) return false;
+            cellCount = surfaceMesh->GetNumberOfFaces();
+            return true;
+        }
+        case IG_VOLUME_MESH: {
+            auto volumeMesh = DynamicCast<VolumeMesh>(mesh);
+            if (volumeMesh == nullptr) return false;
+            cellCount = volumeMesh->GetNumberOfVolumes();
+            return true;
+        }
+        case IG_UNSTRUCTURED_MESH: {
+            auto unstructuredMesh = DynamicCast<UnstructuredMesh>(mesh);
+            if (unstructuredMesh == nullptr) return false;
+            cellCount = unstructuredMesh->GetNumberOfCells();
+            return true;
+        }
+        case IG_STRUCTURED_MESH: {
+            auto structuredMesh = DynamicCast<StructuredMesh>(mesh);
+            if (structuredMesh == nullptr) return false;
+            cellCount = structuredMesh->GetNumberOfCells();
+            return true;
+        }
+        case IG_LAGRANGE_UNSTRUCTURED_MESH: {
+            auto lagrangeMesh = DynamicCast<LagrangeUnstructuredMesh>(mesh);
+            if (lagrangeMesh == nullptr) return false;
+            cellCount = lagrangeMesh->GetNumberOfCells();
+            return true;
+        }
+        case IG_POINT_SET:
+        default:
+            return false;
     }
-    return nullptr;
 }
 
 // 结果属性集 = 输入属性集的拷贝（Attribute 记录是新的，数组直接共享），
-// 跳过与输出同名的旧数组（覆盖语义，避免 isDeleted 残留）。
+// 按「名字 + 挂载类型」精确跳过与输出同名的旧数组（覆盖语义，避免 isDeleted 残留，
+// 也避免误删点 / 单元上的同名数组）。
 // 数组只读共享：结果只新增自己的进程号数组，从不修改已有数组；
 // 深拷贝会让大模型的内存翻倍并一直驻留到删除结果节点，这里不做。
 void CopyInputAttributes(const AttributeSet::Pointer& source, const AttributeSet::Pointer& target) {
@@ -131,7 +157,7 @@ DataObject::Pointer CreateResultObject(DataObject::Pointer input) {
     }
 }
 
-// 按输入元素数量生成进程号数组。
+// 按输入元素数量生成进程号数组（count 为 0 时同样产出空数组，对齐 VTK）。
 template <typename ValueOf>
 LongLongArray::Pointer CreateProcessIds(const char* const name, const IGsize count, ValueOf valueOf) {
     auto ids = LongLongArray::New();
@@ -149,17 +175,14 @@ GenerateProcessIdsFilter::GenerateProcessIdsFilter() {
     SetNumberOfOutputs(1);
 }
 
+// 默认策略：所有点 / 单元都写当前进程号；派生类可重写这两个方法自定义分区。
 long long GenerateProcessIdsFilter::GetPointProcessId(IGsize index) {
-    if (m_InputPointProcessIdArray != nullptr && index < m_InputPointProcessIdArray->GetNumberOfElements()) {
-        return static_cast<long long>(m_InputPointProcessIdArray->GetValue(index));
-    }
+    (void)index;
     return m_ProcessId;
 }
 
 long long GenerateProcessIdsFilter::GetCellProcessId(IGsize index) {
-    if (m_InputCellProcessIdArray != nullptr && index < m_InputCellProcessIdArray->GetNumberOfElements()) {
-        return static_cast<long long>(m_InputCellProcessIdArray->GetValue(index));
-    }
+    (void)index;
     return m_ProcessId;
 }
 
@@ -191,15 +214,14 @@ bool GenerateProcessIdsFilter::Execute() {
         return false;
     }
 
-    // 输入上已有的 process_id 数组：只读来源，输入本身不被修改
-    m_InputPointProcessIdArray = FindProcessIdArray(attributeSet, IG_POINT);
-    m_InputCellProcessIdArray = FindProcessIdArray(attributeSet, IG_CELL);
-
     const IGsize pointNum = mesh->GetNumberOfPoints();
+
+    // 单元数据是可选项：网格类型没有单元（如纯点云 PointSet）时不整体失败，
+    // 已经生成的点进程号照常保留，只跳过单元数据并记录原因。
     IGsize cellNum = 0;
-    if (m_GenerateCellData && !GetCellCount(mesh, cellNum)) {
-        m_Message = "GenerateProcessIdsFilter cannot generate cell data on this mesh type.";
-        return false;
+    const bool generateCellData = m_GenerateCellData && GetCellCount(mesh, cellNum);
+    if (m_GenerateCellData && !generateCellData) {
+        m_Message = "GenerateProcessIdsFilter skipped cell data: this mesh type has no cells.";
     }
 
     // 结果属性集：输入属性拷贝 + 新生成的进程号数组
@@ -211,7 +233,7 @@ bool GenerateProcessIdsFilter::Execute() {
                                          [this](IGsize index) { return this->GetPointProcessId(index); });
         resultAttributeSet->AddScalar(IG_POINT, pointIds);
     }
-    if (m_GenerateCellData) {
+    if (generateCellData) {
         auto cellIds = CreateProcessIds(CellProcessIdsName, cellNum,
                                         [this](IGsize index) { return this->GetCellProcessId(index); });
         resultAttributeSet->AddScalar(IG_CELL, cellIds);
@@ -229,44 +251,6 @@ bool GenerateProcessIdsFilter::Execute() {
     result->SetAttributeSet(resultAttributeSet);
     SetOutput(result);
     return true;
-}
-
-bool GenerateProcessIdsFilter::GetCellCount(PointSet* mesh, IGsize& cellCount) {
-    switch (mesh->GetDataObjectType()) {
-        case IG_SURFACE_MESH: {
-            auto surfaceMesh = DynamicCast<SurfaceMesh>(mesh);
-            if (surfaceMesh == nullptr) return false;
-            cellCount = surfaceMesh->GetNumberOfFaces();
-            return true;
-        }
-        case IG_VOLUME_MESH: {
-            auto volumeMesh = DynamicCast<VolumeMesh>(mesh);
-            if (volumeMesh == nullptr) return false;
-            cellCount = volumeMesh->GetNumberOfVolumes();
-            return true;
-        }
-        case IG_UNSTRUCTURED_MESH: {
-            auto unstructuredMesh = DynamicCast<UnstructuredMesh>(mesh);
-            if (unstructuredMesh == nullptr) return false;
-            cellCount = unstructuredMesh->GetNumberOfCells();
-            return true;
-        }
-        case IG_STRUCTURED_MESH: {
-            auto structuredMesh = DynamicCast<StructuredMesh>(mesh);
-            if (structuredMesh == nullptr) return false;
-            cellCount = structuredMesh->GetNumberOfCells();
-            return true;
-        }
-        case IG_LAGRANGE_UNSTRUCTURED_MESH: {
-            auto lagrangeMesh = DynamicCast<LagrangeUnstructuredMesh>(mesh);
-            if (lagrangeMesh == nullptr) return false;
-            cellCount = lagrangeMesh->GetNumberOfCells();
-            return true;
-        }
-        case IG_POINT_SET:
-        default:
-            return false;
-    }
 }
 
 IGAME_NAMESPACE_END
