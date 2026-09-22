@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QScreen>
+#include <QSizeGrip>
 #include <QColor>
 #include <QHeaderView>
 #include <QPalette>
@@ -174,13 +175,15 @@ igQtModelDialogWidget::igQtModelDialogWidget(QWidget* parent) : QObject(parent),
     modelTreeWidget = ui->modelTreeWidget;
     propertyWidget = ui->propertyWidget;
 
-    int totalWidth = parent ? parent->width() / 6 : 200;
+    // 面板最小宽度：给一个小常数即可。原先用「主窗口宽度的 1/6」当硬下限（1920 宽时 ≈ 320px），
+    // 导致模型树 / 属性面板横向缩不动；现在只留一个能看清的最小值，其余交给用户拖拽。
+    constexpr int kMinPanelWidth = 120;
 
     // 上半部分：圖層/模型樹 Dock（可單獨拖出懸浮）
     m_treeDock = new QDockWidget(QStringLiteral("模型树"), parent);
     m_treeDock->setObjectName("LayerTreeDock");
     m_treeDock->setWidget(modelTreeWidget);
-    m_treeDock->setMinimumWidth(totalWidth);
+    m_treeDock->setMinimumWidth(kMinPanelWidth);
     // LayerDialog 允许悬浮 + 可拖动（可关闭、可移动、可浮动）
     m_treeDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable |
                             QDockWidget::DockWidgetFloatable);
@@ -192,11 +195,19 @@ igQtModelDialogWidget::igQtModelDialogWidget(QWidget* parent) : QObject(parent),
     auto* treeTitle = new DockTitleBar(m_treeDock, m_treeDock->windowTitle(), m_treeDock);
     m_treeDock->setTitleBarWidget(treeTitle);
 
+    // 无边框悬浮窗没有系统边框，这里在右下角跟一个尺寸手柄，保证面板可以自由缩放（含横向缩短）
+    m_treeDock->installEventFilter(this);
+    m_treeSizeGrip = new QSizeGrip(m_treeDock);
+    m_treeSizeGrip->setStyleSheet(QStringLiteral("background: transparent;"));
+    m_treeSizeGrip->setFixedSize(16, 16);
+    m_treeSizeGrip->setToolTip(QStringLiteral("拖动可缩放面板"));
+    m_treeSizeGrip->setVisible(false);
+
     //  Properties Dock（也可懸浮）
     m_propertiesDock = new QDockWidget(QStringLiteral("属性"), parent);
     m_propertiesDock->setObjectName("LayerPropertiesDock");
     m_propertiesDock->setWidget(tabWidget);
-    m_propertiesDock->setMinimumWidth(totalWidth);
+    m_propertiesDock->setMinimumWidth(kMinPanelWidth);
     // Properties 不允许悬浮/拖动（只保留可关闭）
     m_propertiesDock->setFeatures(QDockWidget::DockWidgetClosable);
     m_propertiesDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea | Qt::TopDockWidgetArea);
@@ -208,6 +219,8 @@ igQtModelDialogWidget::igQtModelDialogWidget(QWidget* parent) : QObject(parent),
     // floating 时强制无系统边框（但仍可通过自定义 title bar 拖拽移动）
     connect(m_treeDock, &QDockWidget::topLevelChanged, m_treeDock, [this](bool floating) {
         if (!m_treeDock) return;
+        // 尺寸手柄只在悬浮（无边框）时才有意义
+        if (m_treeSizeGrip) m_treeSizeGrip->setVisible(floating);
         if (floating) {
             m_treeDock->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
             // 關閉透明背景：使用樣式表來控制外觀與邊框
@@ -234,15 +247,12 @@ igQtModelDialogWidget::igQtModelDialogWidget(QWidget* parent) : QObject(parent),
     tabWidget->addTab(ui->ModelInformationWidget, QStringLiteral("模型信息"));
     tabWidget->addTab(ui->propertyWidget, QStringLiteral("模型属性"));
 
-    // 根据总宽度调整列宽
-    int col1Width = totalWidth * 0.4;
-    int col2Width = totalWidth * 0.6;
-
-
+    // 列宽可交互：面板拖窄时不出横向滚动条（列下限 40px，最后一列自适应剩余宽度）
     modelTreeWidget->setColumnCount(2);
     modelTreeWidget->header()->hide();
+    modelTreeWidget->header()->setMinimumSectionSize(40);
+    modelTreeWidget->header()->setStretchLastSection(true);
     modelTreeWidget->setColumnWidth(0, 140);
-    modelTreeWidget->setColumnWidth(1, 200);
     // 减小缩进，让模型和 attribute 文本更靠近左侧
     modelTreeWidget->setIndentation(10);
     modelTreeWidget->setAlternatingRowColors(true);
@@ -541,10 +551,23 @@ void igQtModelDialogWidget::deleteCurrentModel() {
     int index = modelTreeWidget->indexOfTopLevelItem(currentItem);
     if (index != -1) { delete modelTreeWidget->takeTopLevelItem(index); }
 
-    currentItem = dynamic_cast<ModelTreeWidgetItem*>(modelTreeWidget->currentItem());
-    if (currentItem) {
-        scene->SetCurrentModel(currentItem->getModelId());
+    // 删除后必须显式回退选中并刷新左侧面板：
+    // Scene::RemoveModel 会把当前模型悄悄切到模型池里的第一个模型，而这里如果不刷新，
+    // 「模型信息 / 模型属性」会一直停在被删模型的内容上（再点旧模型也不会刷新，
+    // 因为鼠标事件里只有"模型与当前模型不同"才发 ChangeCurrentModel）。
+    ModelTreeWidgetItem* nextItem = nullptr;
+    const int count = modelTreeWidget->topLevelItemCount();
+    if (count > 0) {
+        const int row = (index < 0) ? 0 : (index >= count ? count - 1 : index);
+        nextItem = dynamic_cast<ModelTreeWidgetItem*>(modelTreeWidget->topLevelItem(row));
     }
+    modelTreeWidget->setCurrentItem(nextItem);
+    if (nextItem) {
+        scene->SetCurrentModel(nextItem->getModelId());
+        updateCurrentModelProperty(nextItem->getModel());
+    }
+    // 没有剩余模型时，updateInformationFrame() 内部会清空并隐藏信息面板
+    updateCurrentModelInfo();
 }
 
 void igQtModelDialogWidget::onPropertyChanged(QtProperty* property, const QVariant& value) {
@@ -584,6 +607,17 @@ iGame::Model* igQtModelDialogWidget::GetCurrentModel() {
     return scene->GetCurrentModel();
 }
 
+
+// 悬浮无边框窗口没有系统边框：让右下角的尺寸手柄跟随窗口大小，用户可自由缩放
+bool igQtModelDialogWidget::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == m_treeDock && m_treeSizeGrip != nullptr &&
+        (event->type() == QEvent::Resize || event->type() == QEvent::Show)) {
+        m_treeSizeGrip->move(m_treeDock->width() - m_treeSizeGrip->width(),
+                             m_treeDock->height() - m_treeSizeGrip->height());
+        m_treeSizeGrip->raise();
+    }
+    return QObject::eventFilter(watched, event);
+}
 
 void igQtModelDialogWidget::positionTreeDockToRendererCorner(QWidget* rendererWidget) {
     if (!rendererWidget || !m_treeDock) return;
