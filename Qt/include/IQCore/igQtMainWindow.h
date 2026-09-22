@@ -45,6 +45,8 @@ class igQtTriangleStripWidget;
 class igQtExtractCellsByTypeWidget;
 class igQtAxisAlignedReflectionWidget;
 class igQtPointAndCellIdsWidget;
+class igQtExtractComponentWidget;
+class QDialog;
 
 
 class IG_QT_MODULE_EXPORT igQtMainWindow : public QMainWindow {
@@ -65,7 +67,6 @@ public:
         VariableDensity,
         DataChange,
         MergeVectorComponents,
-        ExtractComponent,
         ExtractCellsByType,
         GenerateProcessIds,
         Count
@@ -182,8 +183,12 @@ private:
     igQtExtractCellsByTypeWidget* m_extractCellsByTypeWidget = nullptr;
     iGame::ExtractCellsByTypeFilter::Pointer m_extractCellsByTypeFilter;
     iGame::Model::Pointer m_extractCellsByTypeModel;
+    // 提取分量：独立置顶弹窗（首次打开时懒创建），不占用左侧工具面板；
+    // 面板由用户点 X 关闭，关闭后再次打开复用同一面板（保留上次选择与结果节点）
+    QDialog* m_extractComponentDialog = nullptr;
+    igQtExtractComponentWidget* m_extractComponentWidget = nullptr;
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);

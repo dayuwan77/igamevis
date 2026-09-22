@@ -1504,21 +1504,6 @@ QLabel#CustomTitleLabel {
    </attribute>
    <widget class="igQtMergeVectorComponentsWidget" name="widget_MergeVectorComponents"/>
   </widget>
-  <widget class="QDockWidget" name="dockWidget_ExtractComponent">
-   <property name="minimumSize">
-    <size>
-     <width>115</width>
-     <height>55</height>
-    </size>
-   </property>
-   <property name="windowTitle">
-    <string>提取分量</string>
-   </property>
-   <attribute name="dockWidgetArea">
-    <number>1</number>
-   </attribute>
-   <widget class="igQtExtractComponentWidget" name="widget_ExtractComponent"/>
-  </widget>
   <widget class="QDockWidget" name="dockWidget_GenerateProcessIds">
    <property name="minimumSize">
     <size>
@@ -2405,12 +2390,6 @@ QLabel#CustomTitleLabel {
   </action>
  </widget>
  <customwidgets>
-  <customwidget>
-   <class>igQtExtractComponentWidget</class>
-   <extends>QWidget</extends>
-   <header>IQWidgets/igQtExtractComponentWidget.h</header>
-   <container>1</container>
-  </customwidget>
   <customwidget>
    <class>igQtAnimationWidget</class>
    <extends>QWidget</extends>

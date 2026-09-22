@@ -78,6 +78,7 @@
 #include <IQWidgets/igQtCharts.h>
 #include <IQWidgets/igQtDeformationWidget.h>
 #include <IQWidgets/igQtExtractCellsByTypeWidget.h>
+#include <IQWidgets/igQtExtractComponentWidget.h>
 #include <IQWidgets/igQtExtractLocationWidget.h>
 #include <IQWidgets/igQtGlobalIdWidget.h>
 #include <IQWidgets/igQtMergeVectorComponentsWidget.h>
@@ -823,7 +824,6 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     this->addDockWidget(Qt::BottomDockWidgetArea, ui->dockWidget_Animation);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ModelList);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ContourExtract);
-    this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ExtractComponent);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_GenerateProcessIds);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ExtractEdges);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_CountCellVertices);
@@ -848,7 +848,6 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     ui->dockWidget_Animation->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_ModelList->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_ContourExtract->setFeatures(QDockWidget::DockWidgetClosable);
-    ui->dockWidget_ExtractComponent->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_ExtractEdges->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_CountCellVertices->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_MergeVectorComponents->setFeatures(QDockWidget::DockWidgetClosable);
@@ -872,7 +871,6 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     ui->dockWidget_Animation->hide();
     ui->dockWidget_ModelList->hide();
     ui->dockWidget_ContourExtract->hide();
-    ui->dockWidget_ExtractComponent->hide();
     ui->dockWidget_GenerateProcessIds->hide();
     ui->dockWidget_ExtractEdges->hide();
     ui->dockWidget_CountCellVertices->hide();
@@ -3990,15 +3988,69 @@ void igQtMainWindow::initAllFilters() {
     });
 
 
-    // 提取分量 (Extract Component)：从多分量数组（向量/张量）提取单个分量生成标量属性，
-    // 打开左侧工具面板（继承语义：首次执行新增模型树节点，再次执行更新结果节点）
+    // 提取分量 (Extract Component)：从多分量数组（向量/张量）提取分量生成标量属性。
+    // 独立置顶弹窗（非模态）：不占用左侧工具面板，不点 X 不会消失；
+    // 继承语义：首次执行新增模型树节点，再次执行更新结果节点
     QAction* extractComponent = ui->menu_filters->addAction(QStringLiteral("提取分量 (Extract Component)"));
     connect(extractComponent, &QAction::triggered, this, [this](bool checked) {
-        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
-        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-        if (data == nullptr) return;
-        openLeftToolPanel(LeftToolPanelId::ExtractComponent);
-        ui->widget_ExtractComponent->SetOriginDataObject(data);
+        auto scene = rendererWidget->GetScene();
+        if (scene == nullptr || scene->GetCurrentModel() == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("请先选择一个模型。"));
+            return;
+        }
+        auto data = scene->GetCurrentModel()->GetDataObject();
+        if (data == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("当前模型没有数据。"));
+            return;
+        }
+        if (m_extractComponentDialog == nullptr) {
+            // 首次打开时创建独立弹窗：非模态 + 置顶，用户点 X 才关闭；
+            // 面板内容仍是 igQtExtractComponentWidget，只是宿主从左侧工具面板换成独立窗口
+            m_extractComponentDialog = new QDialog(this);
+            m_extractComponentDialog->setWindowTitle(QStringLiteral("提取分量"));
+            m_extractComponentDialog->setWindowFlag(Qt::WindowStaysOnTopHint, true);
+            // 面板配色只作用于本弹窗：黑底白字、边框可见、字号比全局 12pt 更小
+            const QString panelStyle = QString::fromUtf8(
+                    "QDialog { background-color: #1E1E1E; }"
+                    "QLabel { color: #FFFFFF; font-size: 11px; }"
+                    "QGroupBox { border: 1px solid #3C3C3C; border-radius: 4px; padding: 4px; }"
+                    "QComboBox, QLineEdit { background-color: #2A2A2A; color: #FFFFFF; border: 1px solid #4A4A4A;"
+                    " border-radius: 3px; padding: 2px 6px; min-height: 18px; font-size: 11px; }"
+                    "QComboBox QAbstractItemView { background-color: #2A2A2A; color: #FFFFFF;"
+                    " selection-background-color: #007399; }"
+                    "QPushButton { background-color: #2D2D30; color: #FFFFFF; border: 1px solid #4A4A4A;"
+                    " border-radius: 3px; padding: 3px 12px; min-height: 18px; font-size: 11px; }"
+                    "QPushButton:hover { background-color: #3A3A3D; }");
+            m_extractComponentDialog->setStyleSheet(panelStyle);
+            auto* layout = new QVBoxLayout(m_extractComponentDialog);
+            layout->setContentsMargins(0, 0, 0, 0);
+            // 不锁定弹窗尺寸：宽度与高度都交给用户自由拖动
+            layout->setSizeConstraint(QLayout::SetDefaultConstraint);
+            m_extractComponentWidget = new igQtExtractComponentWidget(m_extractComponentDialog);
+            m_extractComponentWidget->setMinimumSize(0, 0);
+            layout->addWidget(m_extractComponentWidget);
+            m_extractComponentDialog->setMinimumSize(0, 0);
+            m_extractComponentDialog->resize(340, 220);
+
+            connect(m_extractComponentWidget, &igQtExtractComponentWidget::DrawExtractComponentModel, this,
+                    [this](iGame::DataObject::Pointer res) {
+                        modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
+                    });
+            connect(m_extractComponentWidget, &igQtExtractComponentWidget::UpdateExtractComponentModel, this,
+                    [this](iGame::DataObject::Pointer res) {
+                        modelTreeWidget->updateCurrentModelInfo();
+                        rendererWidget->update();
+                    });
+            connect(m_extractComponentWidget, &igQtExtractComponentWidget::ApplyFailed, this,
+                    [this](const QString& message) {
+                        showDarkFramelessMessage(QStringLiteral("Warning"), message);
+                    });
+        }
+        // 每次打开都按当前模型刷新输入数组与分量下拉
+        m_extractComponentWidget->SetOriginDataObject(data);
+        m_extractComponentDialog->show();
+        m_extractComponentDialog->raise();
+        m_extractComponentDialog->activateWindow();
     });
 
     // 新增 Transform 菜单项
@@ -4097,18 +4149,6 @@ void igQtMainWindow::initAllFilters() {
         });
     });
 
-
-    connect(ui->widget_ExtractComponent, &igQtExtractComponentWidget::DrawExtractComponentModel, this,
-            [this](iGame::DataObject::Pointer res) {
-                modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
-            });
-    connect(ui->widget_ExtractComponent, &igQtExtractComponentWidget::UpdateExtractComponentModel, this,
-            [this](iGame::DataObject::Pointer res) {
-                modelTreeWidget->updateCurrentModelInfo();
-                rendererWidget->update();
-            });
-    connect(ui->widget_ExtractComponent, &igQtExtractComponentWidget::ApplyFailed, this,
-            [this](const QString& message) { showDarkFramelessMessage(QStringLiteral("Warning"), message); });
 
     QAction* gradient = view->addAction(QStringLiteral("计算梯度 (ComputeGradient)"));
     connect(gradient, &QAction::triggered, this, [this](bool checked) {
@@ -6464,8 +6504,6 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
             return ui->dockWidget_VariableDensityField;
         case LeftToolPanelId::DataChange:
             return ui->dockWidget_DataChangeField;
-        case LeftToolPanelId::ExtractComponent:
-            return ui->dockWidget_ExtractComponent;
         case LeftToolPanelId::ExtractCellsByType:
             return m_extractCellsByTypeShell;
         case LeftToolPanelId::MergeVectorComponents:
@@ -6591,10 +6629,6 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
         case LeftToolPanelId::DataChange:
             relocateContentToLeftTab(ui->dockWidget_DataChangeField, ui->widget_DataChangeField,
                                      QStringLiteral("路径图"), id, false);
-            break;
-        case LeftToolPanelId::ExtractComponent:
-            relocateContentToLeftTab(ui->dockWidget_ExtractComponent, ui->widget_ExtractComponent,
-                                     QStringLiteral("提取分量"), id, false);
             break;
         case LeftToolPanelId::ExtractCellsByType:
             relocateContentToLeftTab(m_extractCellsByTypeShell, m_extractCellsByTypeWidget,
