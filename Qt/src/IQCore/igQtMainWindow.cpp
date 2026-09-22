@@ -6885,11 +6885,17 @@ void igQtMainWindow::initAllMySignalConnections() {
                 modelTreeWidget->updateCurrentModelInfo();
                 rendererWidget->update();
             });
+    connect(ui->widget_GenerateProcessIds, &igQtGenerateProcessIdsWidget::DrawProcessIdsModel, this,
+            [&](iGame::DataObject::Pointer res) {
+                modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
+            });
     connect(ui->widget_GenerateProcessIds, &igQtGenerateProcessIdsWidget::UpdateProcessIdsModel, this,
             [&](iGame::DataObject::Pointer res) {
                 modelTreeWidget->updateCurrentModelInfo();
                 rendererWidget->update();
             });
+    connect(ui->widget_GenerateProcessIds, &igQtGenerateProcessIdsWidget::ApplyFailed, this,
+            [&](const QString& message) { showDarkFramelessMessage(QStringLiteral("Warning"), message); });
     // reset clipping
     connect(ui->action_ResetClipping, &QAction::triggered, this, [&](bool checked) {
         if (!rendererWidget->GetScene()->GetCurrentModel()) {
