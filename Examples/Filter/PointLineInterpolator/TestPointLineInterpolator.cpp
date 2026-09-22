@@ -1,5 +1,6 @@
 #include <PointLineInterpolator/iGamePointLineInterpolatorFilter.h>
 #include <iGameAttributeSet.h>
+#include <iGameFileIO.h>
 #include <iGameFlatArray.h>
 #include <iGamePointSet.h>
 
@@ -8,6 +9,8 @@
 #include <string>
 
 namespace {
+constexpr const char* PointLineInterpolatorModelPath = "./Models/PointLineInterpolatorFilter_Test.vtk";
+
 bool Near(double lhs, double rhs, double tolerance = 1e-5) { return std::abs(lhs - rhs) <= tolerance; }
 
 bool Check(bool condition, const std::string& message) {
@@ -16,37 +19,15 @@ bool Check(bool condition, const std::string& message) {
 }
 
 iGame::PointSet::Pointer CreateSource() {
-    auto source = iGame::PointSet::New();
-    source->SetName("TwoPointCloud");
-    source->AddPoint(iGame::Point(0.0, 0.0, 0.0));
-    source->AddPoint(iGame::Point(2.0, 0.0, 0.0));
-
-    auto scalar = iGame::DoubleArray::New();
-    scalar->SetName("Temperature");
-    scalar->SetDimension(1);
-    scalar->AddValue(0.0);
-    scalar->AddValue(20.0);
-    source->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_POINT, scalar);
-
-    auto vector = iGame::FloatArray::New();
-    vector->SetName("Velocity");
-    vector->SetDimension(3);
-    vector->AddElement3(0.0, 0.0, 0.0);
-    vector->AddElement3(2.0, 4.0, 6.0);
-    source->GetAttributeSet()->AddAttribute(IG_VECTOR, IG_POINT, vector);
-
-    auto integer = iGame::IntArray::New();
-    integer->SetName("IntegerSamples");
-    integer->SetDimension(1);
-    integer->AddValue(0);
-    integer->AddValue(3);
-    source->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_POINT, integer);
-    return source;
+    std::cout << "Loading model: " << PointLineInterpolatorModelPath << '\n';
+    auto dataObject = iGame::FileIO::ReadFile(PointLineInterpolatorModelPath);
+    return iGame::DynamicCast<iGame::PointSet>(dataObject);
 }
 
 bool TestParameterizedLineAndVoronoi() {
     std::cout << "Running parameterized-line and Voronoi tests..." << std::endl;
     auto source = CreateSource();
+    if (!Check(source != nullptr, "the PointLineInterpolator test model must load automatically")) { return false; }
     auto filter = iGame::PointLineInterpolatorFilter::New();
     filter->SetInput(source);
     filter->SetPoint1(iGame::Point(0.0, 0.0, 0.0));
@@ -100,6 +81,7 @@ bool TestParameterizedLineAndVoronoi() {
 bool TestGaussianAndShepard() {
     std::cout << "Running Gaussian and Shepard tests..." << std::endl;
     auto source = CreateSource();
+    if (!Check(source != nullptr, "the PointLineInterpolator test model must load automatically")) { return false; }
     auto filter = iGame::PointLineInterpolatorFilter::New();
     filter->SetInput(source);
     filter->SetPoint1(iGame::Point(1.0, 0.0, 0.0));
@@ -140,6 +122,7 @@ bool TestGaussianAndShepard() {
 bool TestNullPointStrategiesAndInvalidParameters() {
     std::cout << "Running null-point and validation tests..." << std::endl;
     auto source = CreateSource();
+    if (!Check(source != nullptr, "the PointLineInterpolator test model must load automatically")) { return false; }
     auto filter = iGame::PointLineInterpolatorFilter::New();
     filter->SetInput(source);
     filter->SetPoint1(iGame::Point(10.0, 0.0, 0.0));
