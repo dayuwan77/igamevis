@@ -44,7 +44,7 @@ QDockWidget* igQtGlobalIdWidget::createDockWidget(QWidget* parent) {
 
 void igQtGlobalIdWidget::setCurrentModel(iGame::Model* model) {
     m_currentModel = model;
-    m_currentModelData = model ? model->GetDataObject().GetPointer() : nullptr;
+    m_currentModelData = model ? model->GetDataObject() : nullptr;
     resetOffsets();
 
     const bool hasPointIds = globalIdArray(0) != nullptr;
@@ -189,7 +189,13 @@ void igQtGlobalIdWidget::generateGlobalIds() {
     }
 
     auto output = filter->GetOutput();
-    m_currentModelData = output ? output.GetPointer() : dataObject.GetPointer();
+    if (!output) {
+        QMessageBox::warning(this, QStringLiteral("全局ID生成失败"), QStringLiteral("过滤器没有生成输出模型。"));
+        return;
+    }
+
+    m_currentModelData = output;
+    emit resultReady(output);
     m_currentDataType = 0;
     m_currentPage = 0;
     {
@@ -228,8 +234,11 @@ iGame::ArrayObject* igQtGlobalIdWidget::globalIdArray(int dataType) const {
 QString igQtGlobalIdWidget::globalIdText(iGame::ArrayObject* array, quint64 index) const {
     if (!array || index >= static_cast<quint64>(array->GetNumberOfElements())) return QStringLiteral("—");
     const double value = array->GetElementValue(static_cast<IGsize>(index), 0);
+    // quint64::max() rounds to 2^64 as double. Use a strict 2^64 upper bound so that
+    // externally supplied arrays cannot trigger an out-of-range floating-to-integer conversion.
+    const double quint64UpperBound = std::ldexp(1.0, std::numeric_limits<quint64>::digits);
     if (std::isfinite(value) && value >= 0.0 && std::floor(value) == value &&
-        value <= static_cast<double>(std::numeric_limits<quint64>::max())) {
+        value < quint64UpperBound) {
         return QString::number(static_cast<quint64>(value));
     }
     return QString::number(value, 'g', 17);

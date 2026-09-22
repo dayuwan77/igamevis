@@ -1,0 +1,49 @@
+# vtk DataFile Version 3.0
+AI-generated mixed-cell mesh for GenerateGlobalIdsFilter
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 12 float
+0 0 0
+1 0 0
+1 1 0
+0 1 0
+0 0 1
+1 0 1
+1 1 1
+0 1 1
+2 0 0
+2 1 0
+2 0 1
+2 1 1
+CELLS 4 27
+8 0 1 2 3 4 5 6 7
+6 1 8 9 5 10 11
+4 1 2 5 8
+5 2 9 11 6 10
+CELL_TYPES 4
+12
+13
+10
+14
+POINT_DATA 12
+SCALARS NodeWeight float 1
+LOOKUP_TABLE default
+0.0
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+1.1
+CELL_DATA 4
+SCALARS MaterialId int 1
+LOOKUP_TABLE default
+10
+20
+30
+40

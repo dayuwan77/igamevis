@@ -103,7 +103,7 @@ igQtTriangleStripWidget::igQtTriangleStripWidget(QWidget* parent) : QWidget(pare
     m_JoinPolyLines->setAccessibleName(QStringLiteral("合并折线"));
     m_JoinPolyLines->setChecked(false);
     joinLabel->setBuddy(m_JoinPolyLines);
-    m_JoinPolyLines->setToolTip(QStringLiteral("按端点 ID 合并表面边界折线。"));
+    m_JoinPolyLines->setToolTip(QStringLiteral("按端点 ID 合并输入中已有的连续线/折线单元。"));
     parameters->addWidget(joinLabel, 1, 0);
     parameters->addWidget(m_JoinPolyLines, 1, 1, 1, 2);
     parameters->setColumnStretch(1, 1);
@@ -137,8 +137,9 @@ igQtTriangleStripWidget::igQtTriangleStripWidget(QWidget* parent) : QWidget(pare
     m_TrianglesBefore = addStatistic(QStringLiteral("转换前三角形数"), "trianglesBefore");
     m_TrianglesAfter = addStatistic(QStringLiteral("转换后三角形数"), "trianglesAfter");
     m_StripCount = addStatistic(QStringLiteral("三角带数量"), "stripCount");
+    m_OutputCellCount = addStatistic(QStringLiteral("输出 Cell 数"), "outputCellCount");
     m_LongestStrip = addStatistic(QStringLiteral("实际最长三角带"), "longestStrip");
-    m_LineCount = addStatistic(QStringLiteral("边界线段 → 输出折线"), "polyLineCount");
+    m_LineCount = addStatistic(QStringLiteral("输入线段 → 输出折线"), "polyLineCount");
     m_PointCount = addStatistic(QStringLiteral("表面点数"), "stripPointCount");
     layout->addLayout(statistics);
     layout->addStretch();
@@ -199,7 +200,9 @@ bool igQtTriangleStripWidget::isOutput(iGame::DataObject* object) const {
 }
 
 void igQtTriangleStripWidget::clearStatistics() {
-    for (auto* label : {m_TrianglesBefore, m_TrianglesAfter, m_StripCount, m_LongestStrip, m_LineCount, m_PointCount}) {
+    for (auto* label : {m_TrianglesBefore, m_TrianglesAfter, m_StripCount,
+                        m_OutputCellCount, m_LongestStrip, m_LineCount,
+                        m_PointCount}) {
         label->setText(QStringLiteral("—"));
     }
 }
@@ -218,16 +221,33 @@ bool igQtTriangleStripWidget::apply() {
     BusyCursor cursor;
     using namespace iGame;
     try {
-        // Do not silently discard explicit lines during surface extraction.
+        // vtkStripper operates on line cells already present in the input; it
+        // does not manufacture lines from polygon boundary edges. Preserve
+        // explicit lines while the surface portion is extracted/triangulated.
+        auto explicitLines = CellArray::New();
+        auto explicitLineTypes = UnsignedIntArray::New();
+        bool hasVolumeCells = false;
         if (auto unstructured = DynamicCast<UnstructuredMesh>(m_Input)) {
             for (IGsize i = 0; i < unstructured->GetNumberOfCells(); ++i) {
-                require(Cell::GetCellDimension(unstructured->GetCellType(i)) >= 2,
-                        "当前过滤器处理表面边界折线，暂不支持显式线/点单元；请先选择或提取表面网格。");
+                const IGenum cellType = unstructured->GetCellType(i);
+                hasVolumeCells = hasVolumeCells ||
+                        Cell::GetCellDimension(cellType) >= 3;
+                if (cellType != IG_LINE && cellType != IG_POLY_LINE) continue;
+                const igIndex* pointIds = nullptr;
+                const int pointCount = unstructured->GetCells()->GetCellIds(
+                        i, pointIds);
+                require(pointIds && pointCount >= 2,
+                        "输入中存在无效的线/折线单元。");
+                explicitLines->AddCellIds(pointIds, pointCount);
+                explicitLineTypes->AddValue(cellType);
             }
         }
         auto extract = ConvertToSurfaceMeshFilter::New();
         extract->SetInput(m_Input);
-        extract->SetConvertMethod(ConvertToSurfaceMeshFilter::IG_EXTRACT_SURFACE_MESH);
+        extract->SetConvertMethod(
+                explicitLines->GetNumberOfCells() > 0 && !hasVolumeCells
+                        ? ConvertToSurfaceMeshFilter::IG_EXTRACT_SURFACE_CELL
+                        : ConvertToSurfaceMeshFilter::IG_EXTRACT_SURFACE_MESH);
         require(extract->Execute(), "表面提取失败，请检查输入网格。");
         auto surface = DynamicCast<SurfaceMesh>(extract->GetOutput());
         require(surface && surface->GetNumberOfFaces() > 0, "输入中没有可处理的表面。");
@@ -241,8 +261,34 @@ bool igQtTriangleStripWidget::apply() {
             require(triangles->GetFaces()->GetCellSize(i) == 3, "三角化结果中仍有非三角形面。");
         }
 
+        DataObject::Pointer filterInput = triangles;
+        if (explicitLines->GetNumberOfCells() > 0) {
+            auto mixedInput = UnstructuredMesh::New();
+            auto cells = CellArray::New();
+            auto types = UnsignedIntArray::New();
+            for (IGsize i = 0; i < triangles->GetNumberOfFaces(); ++i) {
+                const igIndex* pointIds = nullptr;
+                const int pointCount = triangles->GetFaces()->GetCellIds(
+                        i, pointIds);
+                cells->AddCellIds(pointIds, pointCount);
+                types->AddValue(IG_TRIANGLE);
+            }
+            for (IGsize i = 0; i < explicitLines->GetNumberOfCells(); ++i) {
+                const igIndex* pointIds = nullptr;
+                const int pointCount = explicitLines->GetCellIds(i, pointIds);
+                cells->AddCellIds(pointIds, pointCount);
+                types->AddValue(explicitLineTypes->GetValue(i));
+            }
+            mixedInput->SetName(triangles->GetName());
+            mixedInput->SetPoints(triangles->GetPoints());
+            mixedInput->SetCells(cells, types);
+            mixedInput->SetAttributeSet(
+                    AttributeSet::Pointer(triangles->GetAttributeSet()));
+            filterInput = mixedInput;
+        }
+
         auto filter = TriangleStripFilter::New();
-        filter->SetInput(triangles);
+        filter->SetInput(filterInput);
         filter->SetMaximumLength(m_MaximumLength->value());
         filter->SetJoinContiguousSegments(m_JoinPolyLines->isChecked());
         require(filter->Execute(), "三角带转换失败，请检查网格拓扑。");
@@ -287,14 +333,16 @@ bool igQtTriangleStripWidget::apply() {
         m_TrianglesBefore->setText(countText(triangles->GetNumberOfFaces()));
         m_TrianglesAfter->setText(countText(triangleCount));
         m_StripCount->setText(countText(filter->GetNumberOfStrips()));
+        m_OutputCellCount->setText(countText(filter->GetNumberOfOutputCells()));
         m_LongestStrip->setText(countText(filter->GetLongestStripLength()));
         m_LineCount->setText(countText(segmentCount) + QStringLiteral(" → ") + countText(lines ? lines->GetNumberOfCells() : 0));
         m_PointCount->setText(countText(output->GetNumberOfPoints()));
         showStatus(QStringLiteral("转换完成。"));
         std::cout << "[TriangleStrip] Triangles before: " << triangles->GetNumberOfFaces()
                   << ", after: " << triangleCount << ", strips: " << filter->GetNumberOfStrips()
+                  << ", output cells (ParaView): " << filter->GetNumberOfOutputCells()
                   << ", longest: " << filter->GetLongestStripLength()
-                  << ", boundary segments: " << segmentCount
+                  << ", input line segments: " << segmentCount
                   << ", polylines: " << (lines ? lines->GetNumberOfCells() : 0) << '\n';
         Q_EMIT resultReady(output, lineOutput);
         return true;
