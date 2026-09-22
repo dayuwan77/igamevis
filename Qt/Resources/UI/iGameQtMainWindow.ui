@@ -2294,28 +2294,6 @@ QLabel#CustomTitleLabel {
     <string>合并标量数组为向量(merge_vector_components)</string>
    </property>
   </action>
-  <action name="action_ExtractEdges">
-   <property name="checkable">
-    <bool>false</bool>
-   </property>
-   <property name="text">
-    <string>边提取</string>
-   </property>
-   <property name="toolTip">
-    <string>提取网格边</string>
-   </property>
-  </action>
-  <action name="action_CountCellVertices">
-   <property name="checkable">
-    <bool>false</bool>
-   </property>
-   <property name="text">
-    <string>统计单元顶点数</string>
-   </property>
-   <property name="toolTip">
-    <string>统计每个单元的顶点数并列表显示</string>
-   </property>
-  </action>
   <action name="action_GenerateChart">
    <property name="checkable">
     <bool>false</bool>
