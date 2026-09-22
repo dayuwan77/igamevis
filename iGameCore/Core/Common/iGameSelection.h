@@ -230,5 +230,28 @@ protected:
     std::function<void()> Update;
 };
 
+class LineSelection : public Selection {
+public:
+    I_OBJECT(LineSelection);
+    static Pointer New() { return new LineSelection; }
+
+    Vector3d Orig;
+    Vector3d Target;
+    int Selected;
+
+    void UpdateLine() {
+        if (Update) Update();
+    }
+    template<typename Functor, typename... Args>
+    void SetUpdateFunction(Functor&& functor, Args&&... args) {
+        Update = std::bind(std::forward<Functor>(functor), std::forward<Args>(args)...);
+    }
+
+protected:
+    LineSelection() {}
+    ~LineSelection() override = default;
+
+    std::function<void()> Update;
+};
 IGAME_NAMESPACE_END
 #endif

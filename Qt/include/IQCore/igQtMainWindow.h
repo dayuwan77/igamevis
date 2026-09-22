@@ -35,6 +35,7 @@ class igQtSliceWidget;
 class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
+class igQtResampleToLine;
 class igQtDeformationWidget;
 class igQtAiChatWidget;
 class igQtCommandManager;
@@ -64,6 +65,7 @@ public:
         Selection,
         VariableDensity,
         DataChange,
+        ResampleToLine,
         MergeVectorComponents,
         ExtractComponent,
         ExtractCellsByType,
@@ -99,6 +101,8 @@ public:
     igQtColorManagerWidget* ColorManagerWidget;
     igQtFilterDialogDockWidget* filterDialogDockWidget;
     QDockWidget* SliceDockWidget;
+    QDockWidget* ResampleToLineDockWidget{nullptr};
+    igQtResampleToLine* ResampleToLineWidget{nullptr};
     QDockWidget* ContourDockWidget;
     igQtModelClipWidget* SliceWidget;
     QDockWidget* DeformationDockWidget;
@@ -185,6 +189,7 @@ private:
     iGame::Model::Pointer m_extractCellsByTypeModel;
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
         {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    void ensureResampleToLinePanel();
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);

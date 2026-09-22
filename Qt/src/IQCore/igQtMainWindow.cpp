@@ -169,8 +169,11 @@
 
 #include "ui_igQtVariableCorrelationWidget.h"
 
-namespace
-{
+#include "ui_ResampleToLine.h"
+
+#include "IQWidgets/igQtResampleToLineWidget.h"
+
+namespace {
 struct ToolbarSpacingMetrics {
     int btnGap;
     int edgeMargin;
@@ -5391,68 +5394,15 @@ void igQtMainWindow::initAllFilters() {
                 });
             });
 
-    auto DrawLine = [](SurfaceMesh::Pointer m, Painter3D* painter) -> void {
-        //draw line
-        painter->SetPen(Color::White);
-        painter->SetBrush(0, 255, 0);
-        if (m->GetEdges() == nullptr) { m->BuildEdges(); }
-        int np = m->GetNumberOfPoints();
-        if (np <= 0) { throw std::runtime_error("points is zero!"); }
-        for (int i = 0; i < m->GetNumberOfPoints() - 1; i++) { painter->DrawLine(m->GetPoint(i), m->GetPoint(i + 1)); }
-        painter->Modified();
-    };
 
-    QAction* ResampleToLineAct = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
-    connect(ResampleToLineAct, &QAction::triggered, this, [=, this](bool checked) {
-        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
-        ResampleToLine::Pointer filter = ResampleToLine::New();
-        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-        auto drawold = DynamicCast<DrawObject>(data);
-        auto scene = rendererWidget->GetScene();
-        auto model = scene->GetCurrentModel();
-        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
-        dialog->setFilterTitle("重采样至直线");
 
-        int x_1, y_1, z_1, x_2, y_2, z_2, frequence;
-        x_1 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point1 x", "-1.0");
-        y_1 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point1 y", "-0.983795");
-        z_1 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point1 z", "-0.35714");
-        x_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 x", "1.0");
-        y_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 y", "0.983795");
-        z_2 = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "point2 z", "0.35714");
-        frequence = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "采样数量", "40");
-        dialog->show();
+    QAction* ResampleToLineAct1 = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
 
-        auto drawLineFunc = DrawLine;
-        dialog->setApplyFunctor([=, this]() {
-            bool ok;
-            Point orig, target;
-            int n;
-            orig[0] = dialog->getDouble(x_1, ok);
-            orig[1] = dialog->getDouble(y_1, ok);
-            orig[2] = dialog->getDouble(z_1, ok);
-            target[0] = dialog->getDouble(x_2, ok);
-            target[1] = dialog->getDouble(y_2, ok);
-            target[2] = dialog->getDouble(z_2, ok);
-
-            n = dialog->getInt(frequence, ok);
-
-            filter->SetInput(data);
-            filter->setOrigTarget(orig, target, n);
-            if (filter->Execute()) {
-                SurfaceMesh::Pointer res = DynamicCast<SurfaceMesh>(filter->GetOutput(0));
-                res->SetName(res->GetName());
-                auto draw = DynamicCast<DrawObject>(res);
-                if (draw != nullptr) {
-                    int id = modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
-                    drawLineFunc(res, scene->GetModelById(id)->GetPainter3D());
-                    res->SetViewStyle(IG_SURFACE);
-                    rendererWidget->update();
-                    modelTreeWidget->updateAllAttriubute(res);
-                }
-            }
-            QMessageBox::information(dialog, "ResampleToLine", "运行完毕", QMessageBox::Close);
-        });
+    connect(ResampleToLineAct1, &QAction::triggered, this, [this](bool) {
+        // 与「网格切面」一致：面板挂在左侧上方工具 Tab 中
+        ensureResampleToLinePanel();
+        openLeftToolPanel(LeftToolPanelId::ResampleToLine);
+        if (ResampleToLineWidget != nullptr) { ResampleToLineWidget->BindCurrentModel(); }
     });
 
     QAction* pointSetToOctree_action =
@@ -6513,6 +6463,8 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
             return ui->dockWidget_CountCellVertices;
         case LeftToolPanelId::Slice:
             return SliceDockWidget;
+        case LeftToolPanelId::ResampleToLine: 
+            return ResampleToLineDockWidget;
         case LeftToolPanelId::Deformation:
             return DeformationDockWidget;
         case LeftToolPanelId::Selection:
@@ -6546,6 +6498,31 @@ QWidget* igQtMainWindow::wrapContentInScrollArea(QWidget* content, QWidget* pare
     scroll->setWidget(content);
     if (centerFlowField) scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
     return scroll;
+}
+
+void igQtMainWindow::ensureResampleToLinePanel() {
+    if (ResampleToLineWidget != nullptr) { return; }
+
+    ResampleToLineDockWidget = new QDockWidget(this);
+    ResampleToLineDockWidget->setObjectName(QStringLiteral("dockWidget_ResampleToLine"));
+    ResampleToLineDockWidget->setWindowTitle(QStringLiteral("重采样至直线"));
+    ResampleToLineDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
+    ResampleToLineDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
+
+    // 第一个参数是模型树控件（igQtModelDialogWidget 派生自 QObject，不是 QWidget），
+    // 第二个参数才是 Dock 父窗口
+    ResampleToLineWidget = new igQtResampleToLine(modelTreeWidget, ResampleToLineDockWidget);
+    ResampleToLineWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    ResampleToLineWidget->setMinimumWidth(300);
+
+    ResampleToLineDockWidget->setWidget(ResampleToLineWidget);
+    addDockWidget(Qt::LeftDockWidgetArea, ResampleToLineDockWidget);
+    // 面板内容会在 openLeftToolPanel() 里迁入左侧工具 Tab，这里先把壳 Dock 收起来
+    ResampleToLineDockWidget->hide();
+
+    // 源模型/结果被删除时：关闭该 Tab 并还原基础交互风格
+    connect(ResampleToLineWidget, &igQtResampleToLine::ResetInteractor, this,
+            [this]() { closeLeftToolPanel(LeftToolPanelId::ResampleToLine); });
 }
 
 void igQtMainWindow::applyLeftToolStackVerticalSplit() {
@@ -6661,9 +6638,14 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
             relocateContentToLeftTab(ui->dockWidget_MergeVectorComponents, ui->widget_MergeVectorComponents,
                                      QStringLiteral("合并标量数组为向量"), id, false);
             break;
+        case LeftToolPanelId::ResampleToLine:
+            relocateContentToLeftTab(ResampleToLineDockWidget, ResampleToLineWidget, QStringLiteral("重采样至直线"), id,
+                                 false);
+        break;
         case LeftToolPanelId::Count:
             break;
     }
+    
 }
 
 void igQtMainWindow::onLeftToolTabCloseRequested(int index) {
@@ -6704,8 +6686,8 @@ void igQtMainWindow::closeLeftToolPanel(LeftToolPanelId id) {
         else if (t > idx)
             --t;
     }
-    if (id == LeftToolPanelId::Slice && rendererWidget && rendererWidget->getInteractor() &&
-        !rendererWidget->getInteractor()->IsBasicStyle()) {
+    if ((id == LeftToolPanelId::Slice || id == LeftToolPanelId::ResampleToLine) && rendererWidget &&
+        rendererWidget->getInteractor() && !rendererWidget->getInteractor()->IsBasicStyle()) {
         rendererWidget->getInteractor()->RequestBasicStyle();
     }
     if (id == LeftToolPanelId::Deformation && ui->action_deformation) ui->action_deformation->setChecked(false);
