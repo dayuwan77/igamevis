@@ -76,12 +76,12 @@ void igQtExtractCellsByTypeWidget::rebuildCheckBoxes() {
     }
     m_CheckBoxes.clear();
 
-    // 说明：当前模型有几种单元类型
+    // 说明：当前模型有几种单元类型；提示用户勾选后点【提取】才生成新模型
     if (m_Types.empty()) {
         m_infoLabel->setText(QStringLiteral("按单元类型提取\n当前模型没有可提取的单元"));
         return;
     }
-    m_infoLabel->setText(QStringLiteral("按单元类型提取（勾选要提取的类型）"));
+    m_infoLabel->setText(QStringLiteral("按单元类型提取\n勾选类型后点【提取】生成新模型"));
 
     // 注意：勾选框必须插到"全选/全不选"和"提取"按钮之间，
     // 因此插入到布局第 2 个位置（标题=0，工具栏=1）

@@ -201,12 +201,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ============ 测试 3：真实文件冒烟测试 ============
-    std::cout << "===== Test 3: real file smoke test =====" << std::endl;
-    const std::string fileName = "./Models/ClipTest_Plane_UnstructuredGrid.vtk";
-    auto obj = FileIO::ReadFile(fileName);
+    // ============ 测试 3：混合单元文件（三角+四边形+四面体+六面体）============
+    std::cout << "===== Test 3: mixed-type file test =====" << std::endl;
+    auto obj = FileIO::ReadFile("./Models/ExtractCellsByType_mixed.vtk");
     if (obj == nullptr) {
-        std::cout << "FAIL: cannot open " << fileName << std::endl;
+        std::cout << "FAIL: cannot open mixed test model" << std::endl;
         return 1;
     }
     auto inCells = obj->GetCellArray();
@@ -215,6 +214,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     const IGsize fileCellNum = inCells->GetNumberOfCells();
+    if (check(fileCellNum == 4, "mixed model has 4 cells")) return 1;
 
     auto f3 = ExtractCellsByTypeFilter::New();
     f3->SetInput(obj);
@@ -222,7 +222,7 @@ int main(int argc, char** argv) {
     std::cout << "file cell types:";
     for (auto t : fileTypes) { std::cout << " " << ExtractCellsByTypeFilter::GetCellTypeDisplayName(t); }
     std::cout << std::endl;
-    if (check(!fileTypes.empty(), "file has extractable cell types")) return 1;
+    if (check(fileTypes.size() == 4, "mixed model reports 4 distinct cell types")) return 1;
 
     f3->SetExtractCellTypes(fileTypes); // 全选 = 完整复制
     if (check(f3->Execute(), "Execute with all file types")) return 1;
@@ -230,8 +230,22 @@ int main(int argc, char** argv) {
     auto um3 = DynamicCast<UnstructuredMesh>(out3);
     if (check(um3 != nullptr, "file output is UnstructuredMesh")) return 1;
     if (check(um3->GetNumberOfCells() == fileCellNum, "file: all cells extracted")) return 1;
+    // 文件模型的 double 属性类型保留
+    {
+        auto allAttrs = out3->GetAttributeSet()->GetAllAttributes();
+        bool seenDouble = false;
+        for (IGsize i = 0; i < allAttrs->GetNumberOfElements(); i++) {
+            auto& attr = allAttrs->GetElement(i);
+            if (attr.pointer->GetName() == "pid_double") {
+                if (check(attr.pointer->GetArrayType() == IG_DoubleArray,
+                          "file: 'pid_double' keeps DoubleArray type")) return 1;
+                seenDouble = true;
+            }
+        }
+        if (!seenDouble) { check(false, "file: pid_double attribute present"); return 1; }
+    }
 
-    // 只取第一种类型，验证输出单元类型全部一致
+    // 只取第一种类型（三角形），验证输出单元类型全部一致
     f3->SetExtractCellTypes({fileTypes[0]});
     if (check(f3->Execute(), "Execute with single file type")) return 1;
     auto um3b = DynamicCast<UnstructuredMesh>(f3->GetOutput());
@@ -240,6 +254,29 @@ int main(int argc, char** argv) {
         if (um3b->GetCellType(i) != fileTypes[0]) { allMatch = false; break; }
     }
     if (check(allMatch, "file: all output cells match the selected type")) return 1;
+
+    // ============ 测试 4：纯表面文件（三角+四边形）============
+    std::cout << "===== Test 4: surface-type file test =====" << std::endl;
+    auto obj2 = FileIO::ReadFile("./Models/ExtractCellsByType_surface.vtk");
+    if (obj2 == nullptr) {
+        std::cout << "FAIL: cannot open surface test model" << std::endl;
+        return 1;
+    }
+    auto f4 = ExtractCellsByTypeFilter::New();
+    f4->SetInput(obj2);
+    auto surfTypes = f4->GetAvailableCellTypes();
+    std::cout << "surface cell types:";
+    for (auto t : surfTypes) { std::cout << " " << ExtractCellsByTypeFilter::GetCellTypeDisplayName(t); }
+    std::cout << std::endl;
+    if (check(surfTypes.size() == 2, "surface model reports 2 distinct cell types")) return 1;
+    f4->SetExtractCellTypes({surfTypes[0]}); // 只提取一种
+    if (check(f4->Execute(), "Execute with single surface type")) return 1;
+    auto um4 = DynamicCast<UnstructuredMesh>(f4->GetOutput());
+    bool sfMatch = true;
+    for (IGsize i = 0; i < um4->GetNumberOfCells(); i++) {
+        if (um4->GetCellType(i) != surfTypes[0]) { sfMatch = false; break; }
+    }
+    if (check(sfMatch, "surface: all output cells match the selected type")) return 1;
 
     std::cout << "PASS: ExtractCellsByTypeFilter test finished" << std::endl;
 
