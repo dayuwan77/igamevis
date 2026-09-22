@@ -86,7 +86,7 @@ private:
     float m_orig[3] = {-1, 0, 0};
     float m_target[3] = {1, 0, 0};
     int resolution = 40;
-    double m_Tolerance = 1e-4;
+    double m_Tolerance = 0.0; // 0 表示自动容差（包围盒对角线 × 1e-6）
 
     iGame::DataObject::Pointer m_OriginDataObject{nullptr};
     iGame::SurfaceMesh::Pointer m_ResultMesh{nullptr};

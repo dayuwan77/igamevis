@@ -61,7 +61,7 @@ int main() {
     //(DynamicCast<iGame::DrawObject>(res))->SetViewStyle(IG_SURFACE);
     //auto output = iGame::DynamicCast<iGame::DrawObject>(res);
     auto output = iGame::DynamicCast<iGame::SurfaceMesh>(res);
-
+     
     
     if (res != nullptr) { scene->AddModel(output); }
     DrawLine(output, scene->GetModelById(1)->GetPainter3D());

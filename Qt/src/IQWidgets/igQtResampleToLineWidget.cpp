@@ -56,7 +56,9 @@ igQtResampleToLine::igQtResampleToLine(igQtModelDialogWidget* modelTreeWidget, Q
     ui->lineEdit_8->setValidator(new QRegularExpressionValidator(rxFloat, this));
 
     ui->resolution->setText(QString::number(resolution));
-    ui->lineEdit_8->setText(QString::number(m_Tolerance));
+    // 容差留空或填 0 表示「自动容差」（包围盒对角线 × 1e-6）
+    ui->lineEdit_8->setPlaceholderText(QStringLiteral("自动"));
+    ui->lineEdit_8->setText(QString());
 
     m_Selection = GetSelection();
     SyncLineWidgets();
@@ -218,8 +220,9 @@ void igQtResampleToLine::UpdateLine() {
     const int res = ui->resolution->text().toInt(&ok);
     if (ok && res >= 2) { resolution = res; }
 
+    // 容差：留空 / 0 → 自动（过滤器内部按包围盒对角线计算）
     const double tolerance = ui->lineEdit_8->text().toDouble(&ok);
-    if (ok && tolerance > 0.0) { m_Tolerance = tolerance; }
+    m_Tolerance = (ok && tolerance > 0.0) ? tolerance : 0.0;
 
     RefreshLine();
 }
