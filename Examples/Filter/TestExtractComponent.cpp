@@ -1,13 +1,18 @@
 #include <iostream>
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
+#include <string>
 #include <vector>
 #include <iGameFileIO.h>
 #include <iGameUnstructuredMesh.h>
 #include <Attribute/iGameExtractComponentFilter.h>
 
-// 「提取分量」统一验证文件：test/Streamline Test/StreamTest.vtk（8499 点 VECTORS V float）
-// 用法：testExtractComponent.exe "<仓库根>/test/Streamline Test/StreamTest.vtk"
+// 「提取分量」测试用例：默认读取 Examples/Models 下 AI 生成的两个测试模型（无参即可完整运行）。
+// 分量提取语义对齐 VTK vtkImageExtractComponents（官方示例 ExtractComponents.cxx 的用法：
+// 同一输入分别 SetComponents(0)/(1)/(2) 输出多路结果，再逐路核对）。
+// 用法：testExtractComponent.exe [主模型路径]
+//   不带参数：主模型 = ./Models/ExtractComponent_FlowPipe.vtk（需在 Examples 构建目录下运行）
 
 // 输入点集的几何时间戳：校验执行后输入没有被标记为"已修改"
 // （输入被标记修改会连累输入模型重跑表面提取，正是"输出结果后卡顿"的来源）
@@ -33,7 +38,7 @@ bool VerifyGeometrySharing(iGame::PointSet::Pointer input, iGame::PointSet::Poin
     return true;
 }
 
-// 程序化构造：4 点四面体 + 指定维度的点向量属性（值 = i*dim + j）
+// 程序化构造：4 点四面体 + 指定维度的点向量属性 vec（值 = i*dim + j）
 iGame::UnstructuredMesh::Pointer CreateMeshWithDimVector(int dim) {
     auto mesh = iGame::UnstructuredMesh::New();
     mesh->AddPoint(iGame::Point(0.f, 0.f, 0.f));
@@ -55,7 +60,7 @@ iGame::UnstructuredMesh::Pointer CreateMeshWithDimVector(int dim) {
     return mesh;
 }
 
-// 程序化构造：4 点四面体 + 点向量属性 test_1（X/Y/Z 分别取 1/2/3 起，逐点 +3）
+// 程序化构造：4 点四面体 + 3 维点向量属性 vec（X/Y/Z 分别取 0/1/2 起，逐点 +3）
 iGame::UnstructuredMesh::Pointer CreateMeshWithPointVector() {
     return CreateMeshWithDimVector(3);
 }
@@ -82,22 +87,19 @@ iGame::UnstructuredMesh::Pointer CreateMeshWithCellVector() {
     return mesh;
 }
 
-// 仿 TestGenerateProcessIds：带 argv 时读取真实模型，否则用程序化网格
-iGame::UnstructuredMesh::Pointer CreateMesh(int argc, char* argv[]) {
-    if (argc > 1) {
-        auto obj = iGame::FileIO::ReadFile(argv[1]);
-        auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
-        if (mesh == nullptr) {
-            std::cout << "FAIL: read model " << argv[1] << "\n";
-            return nullptr;
-        }
-        return mesh;
+// 读取 AI 生成的测试模型（相对路径，需在 Examples 构建目录下运行，模型由构建时自动拷贝）
+iGame::UnstructuredMesh::Pointer ReadModelFromFile(const std::string& fileName) {
+    auto obj = iGame::FileIO::ReadFile(fileName);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(obj);
+    if (mesh == nullptr) {
+        std::cout << "FAIL: read model " << fileName << "\n";
+        return nullptr;
     }
-    return CreateMeshWithPointVector();
+    return mesh;
 }
 
-// 3 维向量 test_1：第 i 个元素的第 comp 个分量，期望值 = 0 + 3*i + comp（comp 0/1/2）
-double ExpectPointValue(IGsize i, int comp) { return 0.0 + 3.0 * i + comp; }
+// 3 维向量 vec：第 i 个元素的第 comp 个分量，期望值 = 3*i + comp（comp 0/1/2）
+double ExpectPointValue(IGsize i, int comp) { return 3.0 * i + comp; }
 
 namespace {
 
@@ -128,6 +130,7 @@ bool VerifyExtract(int component, const std::string& outputName, IGenum expectAt
     auto& attr = outMesh->GetAttributeSet()->GetScalar(outputName);
     auto arr = attr.pointer;
     ok = ok && (arr != nullptr) && (attr.attachmentType == expectAttachment);
+    ok = ok && (arr->GetDimension() == 1);
     for (IGsize i = 0; ok && i < arr->GetNumberOfElements(); ++i) {
         ok = (arr->GetValue(i) == ExpectPointValue(i, component));
     }
@@ -173,7 +176,7 @@ bool VerifyExtractCell() {
     return ok;
 }
 
-// 空输入名取第一个向量（test_1），显式名取第二个（test_2，值翻倍）
+// 空输入名取第一个向量（vec），显式名取第二个（test_2，值翻倍）
 bool VerifyInputArraySelection(bool useExplicitName) {
     auto mesh = CreateMeshWithPointVector();
     auto extra = iGame::FloatArray::New();
@@ -208,12 +211,12 @@ bool VerifyInputArraySelection(bool useExplicitName) {
     return ok;
 }
 
-// 重名覆盖：输出名与输入已有数组重名时不报错，结果属性集中该名字唯一且为新提取值
+// 重名覆盖：输出名与输入已有向量属性 vec 重名时不报错，结果属性集中该名字唯一且为新提取值
 bool VerifyOverwriteDuplicateName() {
     auto mesh = CreateMeshWithPointVector();
     auto filter = iGame::ExtractComponentFilter::New();
     filter->SetInput(mesh);
-    filter->SetOutputArrayName("test_1");  // 与输入已有向量属性重名 → 覆盖（不报错）
+    filter->SetOutputArrayName("vec");  // 与输入已有向量属性重名 → 覆盖（不报错）
     filter->SetComponent(0);
     if (!filter->Execute()) {
         std::cout << "FAIL: Execute (" << filter->GetMessage() << ")\n";
@@ -224,24 +227,24 @@ bool VerifyOverwriteDuplicateName() {
         std::cout << "FAIL: output is not UnstructuredMesh\n";
         return false;
     }
-    // 输入不被修改（输入属性集仍只有 VECTOR test_1，无标量 test_1）
-    if (!mesh->GetAttributeSet()->GetScalar("test_1").IsNone()) {
+    // 输入不被修改（输入属性集里 vec 仍是向量）
+    if (!mesh->GetAttributeSet()->GetScalar("vec").IsNone()) {
         std::cout << "FAIL: input should not be modified\n";
         return false;
     }
-    // 结果属性集中名为 test_1 的活属性唯一（旧向量被覆盖删除，只有新标量）
+    // 结果属性集中名为 vec 的活属性唯一（旧向量被覆盖删除，只有新标量）
     int count = 0;
     auto all = outMesh->GetAttributeSet()->GetAllAttributes();
     for (IGsize i = 0; i < all->GetNumberOfElements(); ++i) {
         auto& attr = all->GetElement(i);
-        if (!attr.IsNone() && attr.pointer->GetName() == "test_1") ++count;
+        if (!attr.IsNone() && attr.pointer->GetName() == "vec") ++count;
     }
     if (count != 1) {
         std::cout << "FAIL: overwritten name should be unique (count=" << count << ")\n";
         return false;
     }
-    // 值 = 新提取的分量（分量 0 → 1,4,7,10）
-    auto& attr = outMesh->GetAttributeSet()->GetScalar("test_1");
+    // 值 = 新提取的分量（分量 0 → 0,3,6,9），且类型为标量
+    auto& attr = outMesh->GetAttributeSet()->GetScalar("vec");
     auto arr = attr.pointer;
     bool ok = (arr != nullptr) && (attr.type == IG_SCALAR);
     for (IGsize i = 0; ok && i < arr->GetNumberOfElements(); ++i) {
@@ -320,7 +323,7 @@ bool VerifyDimensionGuard() {
     return allOk;
 }
 
-// 回归：对提取分量结果再次提取（触发含 null dataRange 属性的 DeepCopy）不应崩溃
+// 回归：对提取分量结果再次提取（触发含 null dataRange 属性的拷贝）不应崩溃
 bool VerifyExtractOnExtractedResult() {
     auto mesh = CreateMeshWithPointVector();
     auto f1 = iGame::ExtractComponentFilter::New();
@@ -364,7 +367,7 @@ bool VerifyExtractOnExtractedResult() {
         return false;
     }
 
-    // 值 = 第二次提取的分量（输入 V 的第 1 分量 → 1,4,7,10）
+    // 值 = 第二次提取的分量（输入 vec 的第 1 分量 → 1,4,7,10）
     auto& attr = out2->GetAttributeSet()->GetScalar("Result");
     auto arr = attr.pointer;
     bool ok = (arr != nullptr);
@@ -442,6 +445,237 @@ bool VerifyRealData(iGame::UnstructuredMesh::Pointer mesh, const std::string& in
     auto range = outAttr.GetDataRange();
     ok = ok && (range != nullptr) && (range->GetValue(2) == minV) && (range->GetValue(3) == maxV);
     return ok;
+}
+
+// VTK 官方示例 ExtractComponents.cxx 的用法：同一输入建三个 filter，分别提取 0/1/2 分量再逐路核对
+bool VerifyRealDataAllComponents(iGame::UnstructuredMesh::Pointer mesh, const std::string& inputName) {
+    auto* inArr = mesh->GetAttributeSet()->GetArrayPointer(IG_VECTOR, IG_POINT, inputName);
+    if (inArr == nullptr) {
+        std::cout << "FAIL: input vector not found: " << inputName << "\n";
+        return false;
+    }
+    for (int comp = 0; comp < 3; ++comp) {
+        const std::string outputName = "Component" + std::to_string(comp);
+        auto filter = iGame::ExtractComponentFilter::New();
+        filter->SetInput(mesh);
+        filter->SetInputArrayName(inputName);
+        filter->SetOutputArrayName(outputName);
+        filter->SetComponent(comp);
+        if (!filter->Execute()) {
+            std::cout << "FAIL: Execute (component " << comp << ": " << filter->GetMessage() << ")\n";
+            return false;
+        }
+        auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        if (outMesh == nullptr) {
+            std::cout << "FAIL: output is not UnstructuredMesh (component " << comp << ")\n";
+            return false;
+        }
+        auto& attr = outMesh->GetAttributeSet()->GetScalar(outputName);
+        auto arr = attr.pointer;
+        bool ok = (arr != nullptr) && (arr->GetNumberOfElements() == inArr->GetNumberOfElements());
+        for (IGsize i = 0; ok && i < inArr->GetNumberOfElements(); ++i) {
+            ok = (arr->GetValue(i) == inArr->GetElementValue(i, comp));
+        }
+        if (!ok) {
+            std::cout << "FAIL: component " << comp << " values mismatch\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+// 多分量提取：SetComponents(c1) / (c1, c2) / (c1, c2, c3)，输出维度 = 分量个数（对齐 VTK）
+bool VerifyMultiComponent() {
+    bool allOk = true;
+
+    // (0,1)：输出 2 维，逐元素 = 输入的第 0 / 第 1 分量
+    {
+        auto mesh = CreateMeshWithDimVector(3);
+        auto filter = iGame::ExtractComponentFilter::New();
+        filter->SetInput(mesh);
+        filter->SetOutputArrayName("XY");
+        filter->SetComponents(0, 1);
+        if (!filter->Execute()) {
+            std::cout << "FAIL: Execute (0,1) (" << filter->GetMessage() << ")\n";
+            return false;
+        }
+        const int* comps = filter->GetComponents();
+        bool ok = (filter->GetNumberOfComponents() == 2) && (comps[0] == 0) && (comps[1] == 1);
+        auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        auto& attr = outMesh->GetAttributeSet()->GetScalar("XY");
+        auto arr = attr.pointer;
+        ok = ok && (arr != nullptr) && (arr->GetDimension() == 2) && (arr->GetNumberOfElements() == 4);
+        for (IGsize i = 0; ok && i < 4; ++i) {
+            ok = (arr->GetElementValue(i, 0) == ExpectPointValue(i, 0)) &&
+                 (arr->GetElementValue(i, 1) == ExpectPointValue(i, 1));
+        }
+        // dataRange 的 magnitude 段 = 各元素模长的 [min, max]
+        auto range = attr.GetDataRange();
+        ok = ok && (range != nullptr) && (std::fabs(range->GetValue(0) - 1.0) < 1e-6) &&
+             (std::fabs(range->GetValue(1) - std::sqrt(181.0)) < 1e-6);
+        if (!ok) std::cout << "FAIL: SetComponents(0, 1)\n";
+        allOk = allOk && ok;
+    }
+
+    // (2,0)：分量顺序按参数保留
+    {
+        auto mesh = CreateMeshWithDimVector(3);
+        auto filter = iGame::ExtractComponentFilter::New();
+        filter->SetInput(mesh);
+        filter->SetOutputArrayName("ZX");
+        filter->SetComponents(2, 0);
+        if (!filter->Execute()) {
+            std::cout << "FAIL: Execute (2,0) (" << filter->GetMessage() << ")\n";
+            return false;
+        }
+        auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        auto arr = outMesh->GetAttributeSet()->GetScalar("ZX").pointer;
+        bool ok = (arr != nullptr) && (arr->GetDimension() == 2);
+        for (IGsize i = 0; ok && i < 4; ++i) {
+            ok = (arr->GetElementValue(i, 0) == ExpectPointValue(i, 2)) &&
+                 (arr->GetElementValue(i, 1) == ExpectPointValue(i, 0));
+        }
+        if (!ok) std::cout << "FAIL: SetComponents(2, 0) should keep the given order\n";
+        allOk = allOk && ok;
+    }
+
+    // (0,1,2)：等价于原向量；随后 SetComponent(1) 回到单分量
+    {
+        auto mesh = CreateMeshWithDimVector(3);
+        auto filter = iGame::ExtractComponentFilter::New();
+        filter->SetInput(mesh);
+        filter->SetOutputArrayName("XYZ");
+        filter->SetComponents(0, 1, 2);
+        if (!filter->Execute()) {
+            std::cout << "FAIL: Execute (0,1,2) (" << filter->GetMessage() << ")\n";
+            return false;
+        }
+        auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        auto arr = outMesh->GetAttributeSet()->GetScalar("XYZ").pointer;
+        bool ok = (arr != nullptr) && (arr->GetDimension() == 3) && (filter->GetNumberOfComponents() == 3);
+        for (IGsize i = 0; ok && i < 4; ++i) {
+            for (int c = 0; ok && c < 3; ++c) {
+                ok = (arr->GetElementValue(i, c) == ExpectPointValue(i, c));
+            }
+        }
+        auto single = iGame::ExtractComponentFilter::New();
+        single->SetInput(mesh);
+        single->SetOutputArrayName("Y");
+        single->SetComponents(0, 1, 2);
+        single->SetComponent(1);  // 单分量别名：分量个数回到 1
+        ok = ok && (single->GetNumberOfComponents() == 1) && (single->GetComponent() == 1);
+        ok = ok && single->Execute();
+        if (ok) {
+            auto singleOut = iGame::DynamicCast<iGame::UnstructuredMesh>(single->GetOutput());
+            auto singleArr = singleOut->GetAttributeSet()->GetScalar("Y").pointer;
+            ok = (singleArr != nullptr) && (singleArr->GetDimension() == 1);
+            for (IGsize i = 0; ok && i < 4; ++i) {
+                ok = (singleArr->GetValue(i) == ExpectPointValue(i, 1));
+            }
+        }
+        if (!ok) std::cout << "FAIL: SetComponents(0, 1, 2) / SetComponent(1)\n";
+        allOk = allOk && ok;
+    }
+
+    // 非法分量：超出维度（2 维数组取第 3 个分量）、负值 —— 都必须失败并给出消息
+    {
+        auto mesh2d = CreateMeshWithDimVector(2);
+        auto f = iGame::ExtractComponentFilter::New();
+        f->SetInput(mesh2d);
+        f->SetOutputArrayName("Bad");
+        f->SetComponents(0, 2);
+        bool ok = !f->Execute() && !f->GetMessage().empty() && (f->GetOutput() == nullptr);
+        if (!ok) std::cout << "FAIL: out-of-range component should reject\n";
+        allOk = allOk && ok;
+
+        auto mesh3d = CreateMeshWithDimVector(3);
+        auto fNeg = iGame::ExtractComponentFilter::New();
+        fNeg->SetInput(mesh3d);
+        fNeg->SetOutputArrayName("Bad");
+        fNeg->SetComponent(-1);
+        bool negOk = !fNeg->Execute() && !fNeg->GetMessage().empty();
+        if (!negOk) std::cout << "FAIL: negative component should reject\n";
+        allOk = allOk && negOk;
+    }
+
+    return allOk;
+}
+
+// 属性集拷贝策略：默认深拷贝（结果与输入解耦）；SetShallowCopyAttributes(true) 改为只读共享
+bool VerifyAttributeCopyPolicy() {
+    bool allOk = true;
+
+    // 默认深拷贝：结果里的输入属性是副本（不同数组对象 / 不同缓冲），改输入不影响结果
+    {
+        auto mesh = CreateMeshWithPointVector();
+        auto* inVec = mesh->GetAttributeSet()->GetArrayPointer(IG_VECTOR, IG_POINT, "vec");
+        auto filter = iGame::ExtractComponentFilter::New();
+        filter->SetInput(mesh);
+        filter->SetOutputArrayName("Result");
+        filter->SetComponent(0);
+        if (!filter->Execute()) {
+            std::cout << "FAIL: Execute (" << filter->GetMessage() << ")\n";
+            return false;
+        }
+        auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        auto* outVec = outMesh->GetAttributeSet()->GetArrayPointer(IG_VECTOR, IG_POINT, "vec");
+        bool ok = (inVec != nullptr) && (outVec != nullptr) && (outVec != inVec) &&
+                  (outVec->GetArrayType() == inVec->GetArrayType()) &&
+                  (outVec->GetDimension() == inVec->GetDimension()) &&
+                  (outVec->GetNumberOfElements() == inVec->GetNumberOfElements());
+        // 解耦校验：改输入数组后，结果里的副本保持不变（说明是各自独立的缓冲）
+        const double before = (inVec != nullptr) ? inVec->GetElementValue(0, 0) : 0.0;
+        if (inVec != nullptr) inVec->SetValue(0, 999.0);
+        ok = ok && (outVec != nullptr) && (outVec->GetElementValue(0, 0) == before);
+        if (!ok) std::cout << "FAIL: default should deep copy input attributes\n";
+        allOk = allOk && ok;
+    }
+
+    // 共享模式：结果直接引用输入数组（省内存，代价是输入被改时结果同步变化）
+    {
+        auto mesh = CreateMeshWithPointVector();
+        auto* inVec = mesh->GetAttributeSet()->GetArrayPointer(IG_VECTOR, IG_POINT, "vec");
+        auto filter = iGame::ExtractComponentFilter::New();
+        filter->SetInput(mesh);
+        filter->SetOutputArrayName("Result");
+        filter->SetComponent(0);
+        filter->SetShallowCopyAttributes(true);
+        if (!filter->Execute()) {
+            std::cout << "FAIL: Execute (shallow) (" << filter->GetMessage() << ")\n";
+            return false;
+        }
+        auto outMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        auto* outVec = outMesh->GetAttributeSet()->GetArrayPointer(IG_VECTOR, IG_POINT, "vec");
+        bool ok = (inVec != nullptr) && (outVec == inVec) && (filter->GetShallowCopyAttributes());
+        if (inVec != nullptr) inVec->SetValue(0, 777.0);
+        ok = ok && (outVec != nullptr) && (outVec->GetElementValue(0, 0) == 777.0);
+        if (!ok) std::cout << "FAIL: shallow copy should share input arrays\n";
+        allOk = allOk && ok;
+    }
+
+    return allOk;
+}
+
+// 输出数组名为空：直接失败并给出消息，不保留输出
+bool VerifyEmptyOutputName() {
+    auto mesh = CreateMeshWithPointVector();
+    auto filter = iGame::ExtractComponentFilter::New();
+    filter->SetInput(mesh);
+    filter->SetOutputArrayName("");
+    filter->SetComponent(0);
+    if (filter->Execute()) {
+        std::cout << "FAIL: empty output name should reject\n";
+        return false;
+    }
+    if (filter->GetMessage().empty()) {
+        std::cout << "FAIL: empty output name should leave a message\n";
+        return false;
+    }
+    if (filter->GetOutput() != nullptr) {
+        std::cout << "FAIL: failed execution should not keep an output\n";
+        return false;
+    }
+    return true;
 }
 
 // The output array keeps the same concrete type as the input (Int -> Int, LongLong -> LongLong, ...).
@@ -581,21 +815,33 @@ bool VerifyAttachmentSelection() {
 int main(int argc, char* argv[]) {
     bool allOk = true;
 
-    // 真实模型数据验证（带 argv 时，如：testExtractComponent.exe "<仓库根>/test/Streamline Test/StreamTest.vtk"）
-    if (argc > 1) {
-        auto mesh = CreateMesh(argc, argv);
-        if (mesh == nullptr) return 1;
+    // 默认使用仓库自带的 AI 测试模型，无参即可完整运行；第一个命令行参数可覆盖主模型路径
+    const std::string mainModel =
+            (argc > 1) ? std::string(argv[1]) : std::string("./Models/ExtractComponent_FlowPipe.vtk");
 
-        bool defaultOk = VerifyRealData(mesh, "", 0, "Result");
-        std::cout << (defaultOk ? "PASS" : "FAIL") << ": real data, empty input name -> first vector, X\n";
-        allOk = allOk && defaultOk;
+    // 真实模型（直管道螺旋流）：空名取首向量 X、显式名 V 取 Y、VTK 示例式 0/1/2 三路拆分
+    auto pipeMesh = ReadModelFromFile(mainModel);
+    if (pipeMesh == nullptr) return 1;
 
-        bool explicitOk = VerifyRealData(mesh, "V", 1, "ResultV");
-        std::cout << (explicitOk ? "PASS" : "FAIL") << ": real data, explicit input name V, Y\n";
-        allOk = allOk && explicitOk;
+    bool pipeDefaultOk = VerifyRealData(pipeMesh, "", 0, "Result");
+    std::cout << (pipeDefaultOk ? "PASS" : "FAIL") << ": real data (FlowPipe), empty input name -> first vector, X\n";
+    allOk = allOk && pipeDefaultOk;
 
-        return allOk ? 0 : 1;
-    }
+    bool pipeExplicitOk = VerifyRealData(pipeMesh, "V", 1, "ResultV");
+    std::cout << (pipeExplicitOk ? "PASS" : "FAIL") << ": real data (FlowPipe), explicit input name V, Y\n";
+    allOk = allOk && pipeExplicitOk;
+
+    bool pipeSplitOk = VerifyRealDataAllComponents(pipeMesh, "V");
+    std::cout << (pipeSplitOk ? "PASS" : "FAIL") << ": real data (FlowPipe), components 0/1/2 (VTK example style)\n";
+    allOk = allOk && pipeSplitOk;
+
+    // 第二个模型（90° 弯管）：显式名 V 取 Z
+    auto bendMesh = ReadModelFromFile("./Models/ExtractComponent_BendPipe.vtk");
+    if (bendMesh == nullptr) return 1;
+
+    bool bendZOk = VerifyRealData(bendMesh, "V", 2, "ResultZ");
+    std::cout << (bendZOk ? "PASS" : "FAIL") << ": real data (BendPipe), explicit input name V, Z\n";
+    allOk = allOk && bendZOk;
 
     bool xOk = VerifyExtract(0, "Result", IG_POINT);
     std::cout << (xOk ? "PASS" : "FAIL") << ": extract X -> Result\n";
@@ -618,7 +864,7 @@ int main(int argc, char* argv[]) {
     allOk = allOk && cellOk;
 
     bool defaultOk = VerifyInputArraySelection(false);
-    std::cout << (defaultOk ? "PASS" : "FAIL") << ": empty input name -> first vector test_1\n";
+    std::cout << (defaultOk ? "PASS" : "FAIL") << ": empty input name -> first vector vec\n";
     allOk = allOk && defaultOk;
 
     bool explicitOk = VerifyInputArraySelection(true);
@@ -632,6 +878,18 @@ int main(int argc, char* argv[]) {
     bool dimOk = VerifyDimensionGuard();
     std::cout << (dimOk ? "PASS" : "FAIL") << ": dimension guard (1D/2D arrays)\n";
     allOk = allOk && dimOk;
+
+    bool multiOk = VerifyMultiComponent();
+    std::cout << (multiOk ? "PASS" : "FAIL") << ": multi-component extraction + invalid component guard\n";
+    allOk = allOk && multiOk;
+
+    bool copyOk = VerifyAttributeCopyPolicy();
+    std::cout << (copyOk ? "PASS" : "FAIL") << ": attribute copy policy (deep copy default / shallow switch)\n";
+    allOk = allOk && copyOk;
+
+    bool emptyNameOk = VerifyEmptyOutputName();
+    std::cout << (emptyNameOk ? "PASS" : "FAIL") << ": empty output name rejected\n";
+    allOk = allOk && emptyNameOk;
 
     bool regOk = VerifyExtractOnExtractedResult();
     std::cout << (regOk ? "PASS" : "FAIL") << ": extract on extracted result (regression)\n";
