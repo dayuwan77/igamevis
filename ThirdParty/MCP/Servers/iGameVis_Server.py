@@ -981,6 +981,33 @@ def apply_mesh_clip_filter(
     except Exception as e:
         return f"Error applying mesh clip filter: {e}"
 
+@mcp.tool()
+def extract_cells_by_region(region_type: str, box_min: list = None, box_max: list = None,
+                            sphere_center: list = None, sphere_radius: float = 0.0,
+                            require_all_points: bool = True) -> str:
+    """按 Box 或 Sphere 区域提取当前网格中的单元。"""
+    normalized_type = region_type.strip().lower()
+    if normalized_type not in {"box", "sphere"}:
+        return "Error: region_type must be 'box' or 'sphere'"
+    if normalized_type == "box" and (box_min is None or box_max is None):
+        return "Error: box_min and box_max are required for a box"
+    if normalized_type == "sphere" and (sphere_center is None or sphere_radius <= 0):
+        return "Error: sphere_center and a positive sphere_radius are required for a sphere"
+
+    try:
+        data = {
+            "region_type": normalized_type,
+            "box_min": box_min,
+            "box_max": box_max,
+            "sphere_center": sphere_center,
+            "sphere_radius": sphere_radius,
+            "require_all_points": require_all_points,
+        }
+        result = get_igamevis_connection().send_command("extract_cells_by_region", data)
+        return format_tool_result(result, "按区域提取单元完成")
+    except Exception as e:
+        return f"Error extracting cells by region: {e}"
+
 # ============================================================================
 # Prompts for AI Assistant
 # ============================================================================
