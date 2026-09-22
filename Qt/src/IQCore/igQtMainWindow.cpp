@@ -108,6 +108,16 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <QWidgetAction>
+#include <QPushButton>
+#include <QSlider>
+#include <QSpinBox>
+#include <memory>
+#include <functional>
+#include <list>
+#include <map>
+#include <QMouseEvent>
+#include <QPainter>
+#include <QScrollArea>
 #include <Sources/iGameLineTypePointsSourceFilter.h>
 #include <Tests/iGameVolumeMeshFilterTest.h>
 #include <VolumeMeshAlgorithm/iGameVolumeMeshClipper.h>
@@ -169,8 +179,109 @@
 
 #include "ui_igQtVariableCorrelationWidget.h"
 
-namespace
-{
+namespace {
+// [BISECT] 运行时开关: 每次提取时读 C:/Users/18472/dsh-test/iso_cfg.txt 里的一个整数
+//   1 = 每帧重跑等值体(核心)   2 = 提取后隐藏源数据
+//   4 = 结果继承源数据着色     8 = 选择处理(选中结果也能播)
+// 改完文件直接再提取一次即可, 不需要重启或重新编译。
+static int IsoCfg() {
+    // 固定全开: 逐帧重跑(1) + 隐藏源数据(2) + 着色同步(4) + 选择处理(8)。
+    // (开发期间曾用外部文件做过二分定位, 交付版不再依赖任何外部配置。)
+    return 15;
+}
+
+// 给等值体结果建一份【自己的】帧列表: 关键帧数量与源数据相同, 但类型用
+// SingleFieldAttributes —— 框架的 UpdateAnimation 在这种类型下只换属性、不动几何,
+// 不会把该帧的原始网格塞进结果里(否则播放时画面会变成原始数据)。
+// 数据槽里放源数据第一帧的真实文件路径, 保证框架去读时读得到(读到的内容会被丢弃)。
+static void IsoBuildResultTimeFrames(iGame::DataObject::Pointer src, iGame::DataObject::Pointer dst) {
+    if (!src || !dst) { return; }
+    auto dstDraw = iGame::DynamicCast<iGame::DrawObject>(dst);
+    auto srcFrames = src->GetTimeFrames();
+    if (!dstDraw || !srcFrames) { return; }
+
+    auto resFrames = iGame::StreamingData::New();
+    for (auto& one: srcFrames->GetArrays()) {
+        auto files = iGame::StringArray::New();
+        auto meta = one.GetMetaData();
+        (void) meta;  // 类型 NONE 下框架不会读这些路径
+        resFrames->AddTimeStep(one.GetTimeValue(), files, StreamingType::NONE);
+    }
+    if (resFrames->GetTimeNum() > 0) { dstDraw->SetTimeFrames(resFrames); }
+}
+
+// 属性面板刷新的节流时间戳(播放时每 200ms 刷一次, 避免跟不上帧率)
+static qint64 sIsoPanelRefreshMs = 0;
+
+// 把 src 当前用于着色的属性按【名字】套到 dst 上: 两边的属性集布局可能不同
+// (容器子对象 vs 提取结果), 直接沿用索引会越界取值, 所以一律按名字重新定位并校验。
+static void IsoApplyColorByName(iGame::DataObject::Pointer src, iGame::DataObject::Pointer dst,
+                                iGame::Scene* scene) {
+    if (!src || !dst || !scene) { return; }
+    auto dstDraw = iGame::DynamicCast<iGame::DrawObject>(dst);
+    if (!dstDraw) { return; }
+
+    iGame::AttributeSet::Pointer srcSet = src->GetAttributeSet();
+    int idx = src->GetAttributeIndex();
+    int dim = src->GetAttributeDimension();
+    if (idx < 0) {  // 容器本体没设过着色, 退回第一个子对象
+        for (auto it = src->SubDataObjectIteratorBegin(); it != src->SubDataObjectIteratorEnd(); ++it) {
+            if (it->second && it->second->GetAttributeIndex() >= 0) {
+                idx = it->second->GetAttributeIndex();
+                dim = it->second->GetAttributeDimension();
+                srcSet = it->second->GetAttributeSet();
+                break;
+            }
+        }
+    }
+    if (idx < 0 || !srcSet || static_cast<int>(srcSet->GetNumberOfAttributes()) <= idx) { return; }
+
+    auto& srcAttr = srcSet->GetAttribute(idx);
+    if (!srcAttr.pointer) { return; }
+    std::string colorName = srcAttr.pointer->GetName();
+    if (colorName.empty()) { return; }
+
+    auto dstSet = dst->GetAttributeSet();
+    if (!dstSet) { return; }
+    for (int i = 0; i < static_cast<int>(dstSet->GetNumberOfAttributes()); ++i) {
+        auto& a = dstSet->GetAttribute(i);
+        if (a.pointer && a.pointer->GetName() == colorName) {
+            dstDraw->ViewCloudPicture(scene, i, dim);
+            return;
+        }
+    }
+}
+
+// 让无边框小面板可以通过拖动标题栏移动
+class PanelDragFilter : public QObject {
+public:
+    PanelDragFilter(QWidget* target, QObject* parent) : QObject(parent), m_target(target) {}
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override {
+        if (m_target) {
+            if (ev->type() == QEvent::MouseButtonPress) {
+                auto* me = static_cast<QMouseEvent*>(ev);
+                if (me->button() == Qt::LeftButton) {
+                    m_offset = me->globalPos() - m_target->frameGeometry().topLeft();
+                    return true;
+                }
+            } else if (ev->type() == QEvent::MouseMove) {
+                auto* me = static_cast<QMouseEvent*>(ev);
+                if (me->buttons() & Qt::LeftButton) {
+                    m_target->move(me->globalPos() - m_offset);
+                    return true;
+                }
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+
+private:
+    QWidget* m_target{nullptr};
+    QPoint m_offset;
+};
+
 struct ToolbarSpacingMetrics {
     int btnGap;
     int edgeMargin;
@@ -363,8 +474,8 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
     UpdateIcons();
     initAllComponents();
     initAllFilters();
-    // ===== IsoVolume 等值面体提取（算法处理下的一级菜单）=====
-    connect(ui->menu_filters->addAction(QStringLiteral("等值面体提取 (IsoVolume)")), &QAction::triggered, this,
+    // ===== IsoVolume 等值体提取（算法处理下的一级菜单）=====
+    connect(ui->menu_filters->addAction(QStringLiteral("等值体提取 (IsoVolume)")), &QAction::triggered, this,
             [&](bool checked) {
                 if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) {
                     showDarkFramelessMessage(QStringLiteral("提示"), QStringLiteral("请先加载一个模型"));
@@ -375,11 +486,11 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
                 auto attrs = obj->GetAttributeSet()->GetAllPointAttributes();
                 if (!attrs || attrs->GetNumberOfElements() == 0) {
                     showDarkFramelessMessage(QStringLiteral("提示"),
-                                             QStringLiteral("当前模型没有点标量数据，无法进行等值面体提取"));
+                                             QStringLiteral("当前模型没有点标量数据，无法进行等值体提取"));
                     return;
                 }
                 igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
-                dialog->setFilterTitle(QStringLiteral("等值面体提取 (IsoVolume)"));
+                dialog->setFilterTitle(QStringLiteral("等值体提取 (IsoVolume)"));
                 dialog->setFilterDescription(QStringLiteral("提取标量值落在 [lower, upper] 区间内的体数据"));
 
                 // 点属性数组选择框（列出所有点属性）
@@ -396,10 +507,10 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
                 int compId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("标量分量"),
                                                   comps0);
 
-                int lowerId =
-                        dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("lower"), "0");
-                int upperId =
-                        dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("upper"), "0");
+                int lowerId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                   QStringLiteral("lower"), "0");
+                int upperId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                   QStringLiteral("upper"), "0");
 
                 // 根据 (数组, 分量) 更新分量列表与 lower/upper 默认值
                 auto updateRange = [=](int arrayIdx, int compIdx) {
@@ -475,29 +586,226 @@ igQtMainWindow::igQtMainWindow(QWidget* parent) : QMainWindow(parent), ui(new Ui
                     }
                     auto& at = attrs->GetElement(arrIdx);
                     auto array = at.pointer;
+
                     auto filter = IsoVolumeFilter::New();
                     filter->SetInput(obj);
+                    auto progressObserver = iGame::ProgressObserver::Instance();
+                    progressObserver->UpdateText("等值体提取中");
+                    progressObserver->UpdateProgress(0.0);
+                    // 只对"本次等值体提取"生效: 进度节点上强制刷一次界面, 让中间值真的画出来。
+                    // 共享的进度条控件本身一行不改; ExcludeUserInputEvents 保证不处理点击 -> 不重入。
+                    filter->SetProgressNotify([](double) {
+                        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                    });
+                    // 让进度条先真正画出来一次: 否则 0% 和 100% 在同一个事件循环回合里, Qt 没机会重绘。
+                    QCoreApplication::processEvents();
                     filter->SetIsoScalarData(array, lower, upper, comp);
                     if (!filter->Execute()) {
                         showDarkFramelessMessage(QStringLiteral("警告"),
-                                                 QStringLiteral("等值面体提取执行失败，请检查数据与区间"));
+                                                 QStringLiteral("等值体提取执行失败，请检查数据与区间"));
                         return;
                     }
                     auto out = filter->GetOutput();
                     if (!out) return;
+                    progressObserver->UpdateText("");
+                    progressObserver->UpdateProgress(1.0);
                     out->SetName(obj->GetName() + "_isovolume");
                     auto outMesh = DynamicCast<UnstructuredMesh>(out);
                     if (outMesh) {
-                        showDarkFramelessMessage(QStringLiteral("等值面体提取结果"),
+                        showDarkFramelessMessage(QStringLiteral("等值体提取结果"),
                                                  QStringLiteral("输出 %1 点 / %2 单元\n(区间 [%3, %4]，含点合并)")
                                                          .arg(outMesh->GetNumberOfPoints())
                                                          .arg(outMesh->GetNumberOfCells())
                                                          .arg(lower)
                                                          .arg(upper));
                     }
+                    // 记住 .pvd 容器及其树节点: 下面 addDataObjectToModelTree 会把"当前模型"
+                    // 抢到结果上, 而框架动画面板只看当前模型 —— 结果没有时序帧, 会让面板
+                    // 失去帧信息(滑块失效)。此刻的"当前模型"就是容器, 由它反查树节点更可靠。
+                    auto* captureScene = iGame::SceneManager::Instance()->GetCurrentScene();
+                    auto* containerModel = captureScene ? captureScene->GetCurrentModel().get() : nullptr;
+                    auto* containerItem = containerModel
+                            ? modelTreeWidget->getItemFromObject(containerModel->GetDataObject())
+                            : nullptr;
+
                     modelTreeWidget->addDataObjectToModelTree(out, Algorithm);
+                    if (IsoCfg() & 4) { IsoApplyColorByName(obj, out, rendererWidget ? rendererWidget->GetScene() : nullptr); }
                     rendererWidget->update();
                     dialog->close();
+                    // [统一绑定] 不再把"当前模型"恢复成容器 —— 结果自带 60 帧,
+                    // 场景当前模型、动画面板、左边属性栏都留在结果上。
+
+                    // ===== 时序数据(.pvd 等多帧) =====
+                    // 不提供自有播放 UI: 帧切换交给框架的「可视化 -> 动画输出可视化」面板。
+                    // 该面板切帧时会调用容器的 UpdateAnimation, 把容器的子对象换成该帧的网格;
+                    // IsoVolume 默认取容器【当前已加载】的帧, 因此这里只需在帧变化时按当前参数
+                    // 重跑一次滤镜, 并把结果替换到模型树中。
+                    {
+                        auto timeFrames = obj->PeekTimeFrames();
+                        if ((IsoCfg() & 1) && timeFrames && timeFrames->GetTimeNum() > 1) {
+                            // 时序会话: 隐藏源数据。框架动画面板只驱动时间轴、不管理可见性, 而场景会
+                            // 同时渲染所有模型 —— 不隐藏的话屏幕上既有原始数据又有等值体, 看起来就像
+                            // "播放的还是原模型"。
+                            if ((IsoCfg() & 2) && containerItem) { containerItem->changeVisibility(false); }
+                            rendererWidget->update();
+                            m_IsoAnimContainerObj = obj;   // 记住源容器, 供打开动画面板时切回
+                            m_IsoAnimResultObj = out;      // 会话的"当前结果"(此刻是第一帧)
+                            // 让结果自己带上和源数据一样的时序帧(共享同一份时间轴):
+                            // 这样在模型树里选中 1_isovolume, 动画面板同样是 60 帧、可以播放。
+                            // 第一帧此刻已算好, 其余帧在播放时按帧号现算。
+                            IsoBuildResultTimeFrames(obj, out);
+                            m_IsoAnimShowResult = true;
+                            // 「选中谁就播谁」: 框架动画面板只认场景的"当前模型", 而结果节点是
+                            // 静态网格(没有时序帧) —— 它一旦成为当前模型, 面板就退化成 1 帧、播不动。
+                            // 所以: 选中结果 -> 场景当前模型仍指回容器(动画照常驱动), 树选中与
+                            // 属性面板留在结果上; 选中源容器 -> 播原始数据, 结果暂时隐藏。
+                            disconnect(m_IsoAnimSelectConn);
+                            m_IsoAnimSelectConn = connect(
+                                    modelTreeWidget, &igQtModelDialogWidget::CurrendModelChanged, this, [this]() {
+                                        if (m_IsoAnimSelecting) { return; }
+                                        if (!(IsoCfg() & 8)) { return; }
+                                        auto* selScene = iGame::SceneManager::Instance()->GetCurrentScene();
+                                        auto selModel = selScene ? selScene->GetCurrentModel() : nullptr;
+                                        if (!selScene || !selModel || !m_IsoAnimContainerObj || !m_IsoAnimResultObj) {
+                                            return;
+                                        }
+                                        auto* resItem = modelTreeWidget->getItemFromObject(m_IsoAnimResultObj);
+                                        auto* srcItem = modelTreeWidget->getItemFromObject(m_IsoAnimContainerObj);
+                                        auto* srcModel = srcItem ? srcItem->getModel() : nullptr;
+                                        if (!srcModel) { return; }
+                                        m_IsoAnimSelecting = true;
+                                        if (selModel->GetDataObject() == m_IsoAnimResultObj) {
+                                            m_IsoAnimShowResult = true;
+                                            // 结果自带时序帧, 当前模型就留在结果上即可
+                                            modelTreeWidget->updateCurrentModelProperty(selModel.get());
+                                            if (srcItem) { srcItem->changeVisibility(false); }
+                                            if (resItem) { resItem->changeVisibility(true); }
+                                        } else if (selModel.get() == srcModel) {
+                                            m_IsoAnimShowResult = false;
+                                            if (resItem) { resItem->changeVisibility(false); }
+                                        }
+                                        // 关键: CurrendModelChanged 上"面板初始化"的连接比本处理早,
+                                        // 它已经拿着静态结果把面板初始化成 1 帧了 —— 这里必须重来一次,
+                                        // 面板才会按容器重新拿到 60 帧(否则表现就是"只有 1 帧、播不动")。
+                                        if (ui->widget_Animation) {
+                                            ui->widget_Animation->initAnimationComponents();  // 面板初始化
+                                        }
+                                        m_IsoAnimSelecting = false;
+                                        rendererWidget->update();
+                                    });
+                            // 立刻把选中放到首帧结果上, 这样属性面板显示的就是等值体的属性
+                            if ((IsoCfg() & 8)) {
+                                if (auto* firstResItem = modelTreeWidget->getItemFromObject(out)) {
+                                    modelTreeWidget->setCurrentItem(firstResItem);
+                                    if (auto* firstResModel = firstResItem->getModel()) {
+                                        // 崩溃修复2: 这里正处在模型树的选择回调里, 直接切"当前模型"
+                                        // 会踩到框架半更新的状态 —— 同样延到事件循环下一轮。
+                                        QTimer::singleShot(0, this, [this, firstResModel]() {
+                                            auto* scFirst = iGame::SceneManager::Instance()->GetCurrentScene();
+                                            if (scFirst) { scFirst->SetCurrentModel(firstResModel); }
+                                            modelTreeWidget->updateCurrentModelProperty(firstResModel);
+                                            modelTreeWidget->updateCurrentModelInfo();
+                                            // 结果刚拿到自己的帧列表, 必须让动画面板重新初始化一次:
+                                            // 否则它的播放控制器(帧总数)还停在"1 帧", 按播放毫无反应。
+                                            if (ui->widget_Animation) {
+                                                ui->widget_Animation->initAnimationComponents();
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                            disconnect(m_IsoAnimFrameConn);
+                            auto lastResult = std::make_shared<DataObject::Pointer>(out);  // 登记提取时那个结果, 免得换帧时删不掉
+                            m_IsoAnimFrameConn = connect(
+                                    ui->widget_Animation, &igQtAnimationWidget::AnimationFrameChanged, this, [=]() {
+                                        // 选中源容器时只播原始数据, 不必重跑滤镜
+                                        if (!m_IsoAnimShowResult) { return; }
+                                        // 崩溃修复: 本回调是在框架"切帧 + 渲染"的中间被调用的,
+                                        // 在这里增删模型/切当前模型会让渲染器遍历到半更新的模型池。
+                                        // 延到事件循环下一轮再动模型树。
+                                        QTimer::singleShot(0, this, [=]() {
+                                        // 当前是第几帧: 直接问动画面板(它由框架维护),
+                                        // 不再依赖"容器当前载入的帧"。
+                                        int animIdx = -1;
+                                        if (ui->widget_Animation) {
+                                            if (auto* idxCombo = ui->widget_Animation->findChild<QComboBox*>(
+                                                        QStringLiteral("comboBoxCurrentAnimation"))) {
+                                                animIdx = idxCombo->currentIndex();
+                                            }
+                                        }
+                                        auto f = IsoVolumeFilter::New();
+                                        f->SetInput(obj);
+                                        auto po2 = iGame::ProgressObserver::Instance();
+                                        po2->UpdateText("等值体逐帧计算中");
+                                        po2->UpdateProgress(0.0);
+                                        f->SetIsoScalarData(array, lower, upper, comp);
+                                        if (animIdx >= 0) { f->SetTimeStep(animIdx); }
+if (!f->Execute()) { return; }
+                                        auto res = f->GetOutput();
+                                        if (!res) { return; }
+                                        po2->UpdateText("");
+                                        po2->UpdateProgress(1.0);
+                                        res->SetName(obj->GetName() + "_isovolume");
+                                        IsoBuildResultTimeFrames(obj, res);
+                                        // [原地更新] 保持同一个结果节点, 只换它里面的网格数据:
+                                        // 不增删模型、不动"当前模型" -> 不触发 CurrendModelChanged
+                                        // -> 动画面板不会被重新初始化(那会把当前帧重置回第 1 帧)。
+                                        {
+                                            auto* oldItem = m_IsoAnimResultObj
+                                                    ? modelTreeWidget->getItemFromObject(m_IsoAnimResultObj)
+                                                    : nullptr;
+                                            auto* oldModel = oldItem ? oldItem->getModel() : nullptr;
+                                            if (oldModel) {
+                                                oldModel->SetDataObject(res);
+                                            } else {
+                                                modelTreeWidget->addDataObjectToModelTree(res, Algorithm);
+                                            }
+                                        }
+                                        *lastResult = res;
+                                        // (b) 播放中实时刷新属性栏: 用定向接口 updateAllAttriubute ——
+                                        // 只刷这个对象的属性列表, 不走"当前模型变更"那条路, 所以不会重置播放帧。
+                                        // 延迟派发是为了避开框架的渲染过程。
+                                        QTimer::singleShot(0, this, [this, res]() {
+                                            // 刷新左边属性栏: 只调 updateCurrentModelProperty —
+                                            // 它内部【不会】发 CurrendModelChanged;
+                                            // 千万别调 updateCurrentModelInfo(), 它内部 Q_EMIT
+                                            // CurrendModelChanged(), 框架会重新初始化动画面板,
+                                            // 把当前帧重置回 1(17:27 那次就是这么坏掉的)。
+                                            // 左边那栏(点数/单元数/属性范围)是 updateCurrentModelInfo() 填的,
+                                        // 但它内部 Q_EMIT CurrendModelChanged() -> 框架会重新初始化
+                                        // 动画面板、把当前帧重置回 1。所以: 临时屏蔽该 widget 的信号再调它,
+                                        // 面板照常刷新, 却不会重置播放帧。
+                                            if (auto* it = modelTreeWidget->getItemFromObject(res)) {
+                                                if (auto* mdl = it->getModel()) {
+                                                    modelTreeWidget->updateCurrentModelProperty(mdl);
+                                                }
+                                            }
+                                            {
+                                                // 属性面板刷新很重(要重建属性项), 逐帧刷会跟不上播放;
+                                                // 限制到每 200ms 一次 —— 画面与帧号仍然逐帧更新。
+                                                const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+                                                if (nowMs - sIsoPanelRefreshMs >= 200) {
+                                                    sIsoPanelRefreshMs = nowMs;
+                                                    const bool blocked = modelTreeWidget->signalsBlocked();
+                                                    modelTreeWidget->blockSignals(true);
+                                                    modelTreeWidget->updateCurrentModelInfo();
+                                                    modelTreeWidget->blockSignals(blocked);
+                                                    modelTreeWidget->updateAllAttriubute(res);
+                                                }
+                                            }
+                                        });
+                                        if (IsoCfg() & 4) { IsoApplyColorByName(obj, res, rendererWidget ? rendererWidget->GetScene() : nullptr); }
+                                        m_IsoAnimResultObj = res;
+                                        rendererWidget->update();
+                                        // 树选中留在"刚生成的结果"上(属性面板跟着它); 场景的
+                                        // "当前模型"必须指回容器 —— 动画面板只认当前模型, 若停在
+                                        // 静态结果上就只剩 1 帧, 播一帧就停。
+                                        // [原地更新] 不切树选中, 避免面板被重新初始化
+                                        // 结果自带时序帧, 场景当前模型就留在新结果上(框架继续驱动它)
+                                        });  // QTimer::singleShot
+                                    });
+                        }
+                    }
                 });
             });
     initAllSources();
@@ -6838,6 +7146,23 @@ void igQtMainWindow::initAllMySignalConnections() {
             &igQtAnimationWidget::initAnimationComponents);
 
     // Update animation controls when model changes
+    // 打开动画面板时: 若存在 IsoVolume 时序会话, 先把"当前模型"切回源容器,
+    // 否则面板会停在静态结果上(只有 1 帧, 拖不动也播不了); 然后强制刷新一次。
+    connect(ui->dockWidget_Animation, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (!visible) {
+            // 关闭动画面板 = 退出时序等值体会话: 恢复源数据可见性(等值体结果仍留在模型树里)
+            if (m_IsoAnimContainerObj) {
+                if (auto* srcItem = modelTreeWidget->getItemFromObject(m_IsoAnimContainerObj)) {
+                    srcItem->changeVisibility(true);
+                }
+                rendererWidget->update();
+            }
+            return;
+        }
+        if (!ui->widget_Animation) { return; }
+        // [统一绑定] 结果自带时序帧, 打开面板时不需要再切"当前模型"。
+        ui->widget_Animation->initAnimationComponents();
+    });
     connect(this->modelTreeWidget, &igQtModelDialogWidget::CurrendModelChanged, ui->widget_Animation,
             &igQtAnimationWidget::initAnimationComponents);
     // Update Deformation Info when model changes
@@ -7208,6 +7533,10 @@ void igQtMainWindow::initAllInteractor() {
     });
     //######### View Cloud Change ST #########
     connect(this->modelTreeWidget, &igQtModelDialogWidget::CloudPictureChanged, this, [&]() {
+        // IsoVolume 时序会话: 源数据被隐藏, 等值体结果是独立模型 —— 用户切换属性着色时,
+        // 按属性名把同一套着色同步到当前这一帧的等值体上。
+        IsoApplyColorByName(m_IsoAnimContainerObj, m_IsoAnimResultObj,
+                            rendererWidget ? rendererWidget->GetScene() : nullptr);
         auto model = rendererWidget->GetScene()->GetCurrentModel();
         if (model == nullptr) return;
         auto dataObj = model->GetDataObject();
