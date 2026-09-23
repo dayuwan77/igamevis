@@ -1,4 +1,4 @@
-﻿#include <ResampleToLine/iGameResampleToLine.h>
+#include <ResampleToLine/iGameResampleToLine.h>
 #include <Core/iGameScene.h>
 #include <VectorView/iGameVectorBase.h>
 #include <iGameFileIO.h>
@@ -28,7 +28,7 @@ int main() {
     std::cout << std::filesystem::current_path() << std::endl;
     /* 创建场景*/
     auto scene = iGame::Scene::New();
-    const std::string fileName = "../../../Examples/Models/ResampletolineTest_Plane_UnstructuredGrid.vtk";
+    const std::string fileName = "../../../Examples/Models/Resampletoline_test.vtk";
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
     iGame::UnstructuredMesh::Pointer mesh = DynamicCast<iGame::UnstructuredMesh>(obj);
     if (obj == nullptr) {
@@ -42,8 +42,8 @@ int main() {
     filter->SetInput(mesh);
     //执行
     filter->Execute();
-    //返回结果
-    auto res = filter->GetOutput(0);
+    //返回结果：输出 1 为折线数据（SurfaceMesh，点 + 边）
+    auto res = filter->GetOutput(1);
     if (res == nullptr) {
         std::cout << "OutPut EERROR!" << std::endl;
         return 0;
@@ -61,7 +61,7 @@ int main() {
     //(DynamicCast<iGame::DrawObject>(res))->SetViewStyle(IG_SURFACE);
     //auto output = iGame::DynamicCast<iGame::DrawObject>(res);
     auto output = iGame::DynamicCast<iGame::SurfaceMesh>(res);
-
+     
     
     if (res != nullptr) { scene->AddModel(output); }
     DrawLine(output, scene->GetModelById(1)->GetPainter3D());

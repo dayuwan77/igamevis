@@ -35,6 +35,7 @@ class igQtSliceWidget;
 class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
+class igQtResampleToLine;
 class igQtDeformationWidget;
 class igQtAiChatWidget;
 class igQtCommandManager;
@@ -66,6 +67,7 @@ public:
         Selection,
         VariableDensity,
         DataChange,
+        ResampleToLine,
         MergeVectorComponents,
         ExtractCellsByType,
         GenerateProcessIds,
@@ -100,6 +102,8 @@ public:
     igQtColorManagerWidget* ColorManagerWidget;
     igQtFilterDialogDockWidget* filterDialogDockWidget;
     QDockWidget* SliceDockWidget;
+    QDockWidget* ResampleToLineDockWidget{nullptr};
+    igQtResampleToLine* ResampleToLineWidget{nullptr};
     QDockWidget* ContourDockWidget;
     igQtModelClipWidget* SliceWidget;
     QDockWidget* DeformationDockWidget;
@@ -136,6 +140,7 @@ public:
     // 点与单元 ID 参数面板
     QDockWidget* PointAndCellIdsDockWidget{nullptr};
     igQtPointAndCellIdsWidget* PointAndCellIdsWidget{nullptr};
+    int m_pointAndCellIdsCount{0};
 
 private slots:
     void updateRecentFilePaths();

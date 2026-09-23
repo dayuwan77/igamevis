@@ -240,6 +240,50 @@ bool TestRealModel() {
     return true;
 }
 
+bool TestMixedCellSizesWithCopyInput() {
+    using namespace iGame;
+
+    auto input = UnstructuredMesh::New();
+    input->AddPoint(Point(0.0f, 0.0f, 0.0f));
+    input->AddPoint(Point(1.0f, 0.0f, 0.0f));
+    input->AddPoint(Point(1.0f, 1.0f, 0.0f));
+    input->AddPoint(Point(0.0f, 1.0f, 0.0f));
+    input->AddPoint(Point(2.0f, 0.0f, 0.0f));
+
+    igIndex quad[4]{0, 1, 2, 3};
+    input->AddCell(quad, 4, IG_QUAD);
+    igIndex triangle[3]{1, 4, 2};
+    input->AddCell(triangle, 3, IG_TRIANGLE);
+
+    auto filter = AxisAlignedReflectionFilter::New();
+    filter->SetInput(input);
+    filter->SetPlane(AxisAlignedReflectionFilter::Plane::XMax);
+
+    if (!Check(filter->Execute(), "mixed cell sizes execute")) return false;
+
+    auto output = DynamicCast<UnstructuredMesh>(filter->GetOutput());
+    if (!Check(output != nullptr, "mixed cell sizes output exists")) return false;
+    if (!Check(output->GetNumberOfPoints() == 10, "mixed cell sizes double points")) return false;
+    if (!Check(output->GetNumberOfCells() == 4, "mixed cell sizes double cells")) return false;
+
+    const igIndex* ids = nullptr;
+    output->GetCells()->GetCellIds(0, ids);
+    if (!Check(ids[0] == 0 && ids[1] == 1 && ids[2] == 2 && ids[3] == 3,
+               "mixed original quad is preserved")) return false;
+
+    output->GetCells()->GetCellIds(1, ids);
+    if (!Check(ids[0] == 1 && ids[1] == 4 && ids[2] == 2,
+               "mixed original triangle is preserved")) return false;
+
+    output->GetCells()->GetCellIds(2, ids);
+    if (!Check(ids[0] == 5 && ids[1] == 8 && ids[2] == 7 && ids[3] == 6,
+               "mixed reflected quad is correct")) return false;
+
+    output->GetCells()->GetCellIds(3, ids);
+    return Check(ids[0] == 6 && ids[1] == 7 && ids[2] == 9,
+                 "mixed reflected triangle is correct");
+}
+
 } // namespace
 
 int main() {
@@ -247,6 +291,7 @@ int main() {
         TestCopyInputAndConnectivity() &&
         TestFlipAllInputArrays() &&
         TestCopyInputOff() &&
+        TestMixedCellSizesWithCopyInput() &&
         TestRealModel();
 
     if (!passed) return 1;

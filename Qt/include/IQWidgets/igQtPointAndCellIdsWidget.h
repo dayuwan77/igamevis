@@ -1,5 +1,7 @@
 #pragma once
 
+#include "iGameDataObject.h"
+
 #include <QWidget>
 
 class QDockWidget;
@@ -28,7 +30,7 @@ public:
 
 signals:
     void cancelRequested();
-    void idsGenerated();
+    void idsGenerated(iGame::DataObject::Pointer output);
 
 private slots:
     void apply();

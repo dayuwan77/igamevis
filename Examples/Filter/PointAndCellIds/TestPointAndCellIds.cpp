@@ -90,66 +90,93 @@ bool TestInvalidInput() {
 }
 
 bool TestDefaultGeneration() {
-    auto mesh = CreateMesh();
-    auto cells = mesh->GetCells();
+    auto input = CreateMesh();
+    auto inputCells = input->GetCells();
 
     auto filter = iGame::PointAndCellIdsFilter::New();
-    filter->SetInput(mesh);
+    filter->SetInput(input);
 
-    if (!Check(filter->Execute(), "default generation must succeed") ||
-        !Check(filter->GetOutput().get() == mesh.get(), "output must preserve input object") ||
-        !Check(mesh->GetCells().get() == cells.get(), "mesh topology must remain unchanged")) {
+    if (!Check(filter->Execute(), "default generation must succeed")) {
         return false;
     }
 
-    auto pointIds = FindIds(mesh, "vtkPointIds", IG_POINT);
-    auto cellIds = FindIds(mesh, "vtkCellIds", IG_CELL);
+    auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+    if (!Check(output != nullptr, "output must exist") ||
+        !Check(output.get() != input.get(), "output must be an independent object") ||
+        !Check(input->GetCells().get() == inputCells.get(), "input topology must remain unchanged")) {
+        return false;
+    }
 
-    return CheckIds(pointIds, mesh->GetNumberOfPoints()) &&
-           CheckIds(cellIds, mesh->GetNumberOfCells());
+    // 输入模型不能被追加 ID 属性
+    if (!Check(FindIds(input, "vtkPointIds", IG_POINT) == nullptr,
+               "input point IDs must not be created") ||
+        !Check(FindIds(input, "vtkCellIds", IG_CELL) == nullptr,
+               "input cell IDs must not be created")) {
+        return false;
+    }
+
+    auto pointIds = FindIds(output, "vtkPointIds", IG_POINT);
+    auto cellIds = FindIds(output, "vtkCellIds", IG_CELL);
+
+    return CheckIds(pointIds, output->GetNumberOfPoints()) &&
+           CheckIds(cellIds, output->GetNumberOfCells());
 }
 
 bool TestGenerationOptions() {
     {
-        auto mesh = CreateMesh();
+        auto input = CreateMesh();
 
         auto filter = iGame::PointAndCellIdsFilter::New();
-        filter->SetInput(mesh);
+        filter->SetInput(input);
         filter->SetGenerateCellIds(false);
 
         if (!Check(filter->Execute(), "point-only generation must succeed")) {
             return false;
         }
 
-        if (!Check(FindIds(mesh, "vtkPointIds", IG_POINT) != nullptr,
-                   "point IDs must exist")) {
+        auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        if (!Check(output != nullptr, "point-only output must exist")) {
             return false;
         }
 
-        if (!Check(FindIds(mesh, "vtkCellIds", IG_CELL) == nullptr,
+        if (!Check(FindIds(output, "vtkPointIds", IG_POINT) != nullptr,
+                   "point IDs must exist") ||
+            !Check(FindIds(output, "vtkCellIds", IG_CELL) == nullptr,
                    "cell IDs must not exist")) {
+            return false;
+        }
+
+        if (!Check(FindIds(input, "vtkPointIds", IG_POINT) == nullptr,
+                   "input point IDs must not be created")) {
             return false;
         }
     }
 
     {
-        auto mesh = CreateMesh();
+        auto input = CreateMesh();
 
         auto filter = iGame::PointAndCellIdsFilter::New();
-        filter->SetInput(mesh);
+        filter->SetInput(input);
         filter->SetGeneratePointIds(false);
 
         if (!Check(filter->Execute(), "cell-only generation must succeed")) {
             return false;
         }
 
-        if (!Check(FindIds(mesh, "vtkPointIds", IG_POINT) == nullptr,
-                   "point IDs must not exist")) {
+        auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+        if (!Check(output != nullptr, "cell-only output must exist")) {
             return false;
         }
 
-        if (!Check(FindIds(mesh, "vtkCellIds", IG_CELL) != nullptr,
+        if (!Check(FindIds(output, "vtkPointIds", IG_POINT) == nullptr,
+                   "point IDs must not exist") ||
+            !Check(FindIds(output, "vtkCellIds", IG_CELL) != nullptr,
                    "cell IDs must exist")) {
+            return false;
+        }
+
+        if (!Check(FindIds(input, "vtkCellIds", IG_CELL) == nullptr,
+                   "input cell IDs must not be created")) {
             return false;
         }
     }
@@ -158,10 +185,10 @@ bool TestGenerationOptions() {
 }
 
 bool TestCustomNames() {
-    auto mesh = CreateMesh();
+    auto input = CreateMesh();
 
     auto filter = iGame::PointAndCellIdsFilter::New();
-    filter->SetInput(mesh);
+    filter->SetInput(input);
     filter->SetPointIdsArrayName("PointIds");
     filter->SetCellIdsArrayName("CellIds");
 
@@ -169,42 +196,61 @@ bool TestCustomNames() {
         return false;
     }
 
-    return CheckIds(FindIds(mesh, "PointIds", IG_POINT), mesh->GetNumberOfPoints()) &&
-           CheckIds(FindIds(mesh, "CellIds", IG_CELL), mesh->GetNumberOfCells());
+    auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+    if (!Check(output != nullptr, "custom-name output must exist")) {
+        return false;
+    }
+
+    return CheckIds(FindIds(output, "PointIds", IG_POINT), output->GetNumberOfPoints()) &&
+           CheckIds(FindIds(output, "CellIds", IG_CELL), output->GetNumberOfCells()) &&
+           Check(FindIds(input, "PointIds", IG_POINT) == nullptr, "input custom point IDs must not be created");
 }
 
 bool TestRepeatedExecution() {
-    auto mesh = CreateMesh();
+    auto input = CreateMesh();
 
     auto filter = iGame::PointAndCellIdsFilter::New();
-    filter->SetInput(mesh);
+    filter->SetInput(input);
 
     if (!Check(filter->Execute(), "first execution must succeed")) {
         return false;
     }
 
-    const auto attributeCount = mesh->GetAttributeSet()->GetNumberOfAttributes();
+    auto firstOutput = filter->GetOutput();
+    if (!Check(firstOutput != nullptr, "first output must exist")) {
+        return false;
+    }
+    const auto attributeCount = firstOutput->GetAttributeSet()->GetNumberOfAttributes();
 
     if (!Check(filter->Execute(), "second execution must succeed")) {
         return false;
     }
 
-    return Check(mesh->GetAttributeSet()->GetNumberOfAttributes() == attributeCount,
-                 "repeated execution must not create duplicate attributes");
+    auto secondOutput = filter->GetOutput();
+    if (!Check(secondOutput != nullptr, "second output must exist") ||
+        !Check(secondOutput.get() != firstOutput.get(), "each execution must create a new output object") ||
+        !Check(secondOutput->GetAttributeSet()->GetNumberOfAttributes() == attributeCount,
+               "repeated execution must not create duplicate attributes")) {
+        return false;
+    }
+
+    // 重复执行不能修改输入模型
+    return Check(FindIds(input, "vtkPointIds", IG_POINT) == nullptr,
+                 "repeated execution must not modify input");
 }
 
 bool TestNameCollision() {
-    auto mesh = CreateMesh();
+    auto input = CreateMesh();
 
     auto array = iGame::FloatArray::New();
     array->SetName("vtkPointIds");
     array->SetDimension(1);
-    array->Resize(mesh->GetNumberOfPoints());
+    array->Resize(input->GetNumberOfPoints());
 
-    mesh->GetAttributeSet()->AddScalar(IG_POINT, array);
+    input->GetAttributeSet()->AddScalar(IG_POINT, array);
 
     auto filter = iGame::PointAndCellIdsFilter::New();
-    filter->SetInput(mesh);
+    filter->SetInput(input);
 
     return Check(!filter->Execute(),
                  "conflicting attribute type must be rejected");
@@ -227,23 +273,31 @@ bool TestRealModel() {
     auto object = iGame::FileIO::ReadFile(
             "Models/ClipTest_Plane_UnstructuredGrid.vtk");
 
-    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(object);
-    if (!Check(mesh != nullptr, "real test model must load")) {
+    auto input = iGame::DynamicCast<iGame::UnstructuredMesh>(object);
+    if (!Check(input != nullptr, "real test model must load")) {
         return false;
     }
 
     auto filter = iGame::PointAndCellIdsFilter::New();
-    filter->SetInput(mesh);
+    filter->SetInput(input);
 
     if (!Check(filter->Execute(), "real model generation must succeed")) {
         return false;
     }
 
-    auto pointIds = FindIds(mesh, "vtkPointIds", IG_POINT);
-    auto cellIds = FindIds(mesh, "vtkCellIds", IG_CELL);
+    auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+    if (!Check(output != nullptr, "real model output must exist") ||
+        !Check(output.get() != input.get(), "real model output must be independent")) {
+        return false;
+    }
 
-    return CheckIds(pointIds, mesh->GetNumberOfPoints()) &&
-           CheckIds(cellIds, mesh->GetNumberOfCells());
+    auto pointIds = FindIds(output, "vtkPointIds", IG_POINT);
+    auto cellIds = FindIds(output, "vtkCellIds", IG_CELL);
+
+    return CheckIds(pointIds, output->GetNumberOfPoints()) &&
+           CheckIds(cellIds, output->GetNumberOfCells()) &&
+           Check(FindIds(input, "vtkPointIds", IG_POINT) == nullptr,
+                 "real model input must remain unchanged");
 }
 
 }
