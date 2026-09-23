@@ -1,6 +1,9 @@
 #include <AxisAlignedReflection/iGameAxisAlignedReflectionFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameFileIO.h>
+#include <iGameInteractor.h>
+#include <iGameRenderWindow.h>
+#include <iGameScene.h>
 #include <iGameUnstructuredMesh.h>
 
 #include <cmath>
@@ -284,6 +287,52 @@ bool TestMixedCellSizesWithCopyInput() {
                  "mixed reflected triangle is correct");
 }
 
+// 运行测试后打开渲染窗口，显示反射结果
+bool ShowReflectedResult() {
+    using namespace iGame;
+
+    auto object = FileIO::ReadFile("./Models/Quad_Bicycle.vtk");
+    auto input = DynamicCast<UnstructuredMesh>(object);
+    if (!input) {
+        std::cerr << "Failed to load ./Models/Quad_Bicycle.vtk for rendering.\n";
+        return false;
+    }
+
+    auto filter = AxisAlignedReflectionFilter::New();
+    filter->SetInput(input);
+    // 使用 x=1 镜面，并保留原始模型，便于观察反射结果
+    filter->SetPlane(AxisAlignedReflectionFilter::Plane::X);
+    filter->SetCenter(1.0);
+    filter->SetCopyInput(true);
+
+    if (!filter->Execute()) {
+        std::cerr << "AxisAlignedReflectionFilter execute failed for rendering.\n";
+        return false;
+    }
+
+    auto output = DynamicCast<DrawObject>(filter->GetOutput());
+    if (!output) {
+        std::cerr << "Reflection output is not drawable.\n";
+        return false;
+    }
+    output->SetViewStyle(IG_SURFACE);
+
+    auto scene = Scene::New();
+    scene->AddModel(output);
+
+    RenderWindow::Pointer window = RenderWindow::New();
+    window->SetSize(1280, 720);
+    window->SetScene(scene);
+
+    auto interactor = Interactor::New();
+    interactor->Initialize(scene);
+    interactor->CreateDefaultStyle();
+    window->SetInteractor(interactor);
+
+    window->Show();
+    return true;
+}
+
 } // namespace
 
 int main() {
@@ -297,5 +346,10 @@ int main() {
     if (!passed) return 1;
 
     std::cout << "AxisAlignedReflection backend tests passed.\n";
+
+    if (!ShowReflectedResult()) {
+        return 1;
+    }
+
     return 0;
 }
