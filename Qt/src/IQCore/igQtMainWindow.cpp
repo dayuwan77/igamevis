@@ -6172,6 +6172,29 @@ void igQtMainWindow::initAllDockWidgetConnectWithAction() {
         if (!dataObject) return;
         ui->widget_MergeVectorComponents->SetOriginDataObject(dataObject);
     });
+    // 合并完成: 独立输出节点加入模型树, 并自动选中合并向量供模长/分量着色
+    connect(ui->widget_MergeVectorComponents, &igQtMergeVectorComponentsWidget::MergeCompleted, this,
+            [this](iGame::DataObject::Pointer output, const std::string& vectorName) {
+                if (!output) return;
+                modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+                // 新节点首次生成可绘制数据(与模型加载同路径), 否则点击属性子项不渲染
+                if (auto draw = DynamicCast<iGame::DrawObject>(output)) {
+                    draw->ConvertToDrawableData();
+                }
+                auto attrSet = output->GetAttributeSet();
+                const int index = attrSet ? attrSet->GetAttributeIndex(vectorName) : -1;
+                auto item = modelTreeWidget->getItemFromObject(output);
+                if (item && index >= 0 && index < item->childCount()) {
+                    item->setExpanded(true);
+                    auto child = item->child(index);
+                    item->setCurrentChild(child);
+                    item->setSelected(false);
+                    item->viewAttribute(index, -1);
+                    child->setSelected(true);
+                    modelTreeWidget->setCurrentItem(child);
+                }
+                rendererWidget->update();
+            });
     connect(ui->action_GenerateChart, &QAction::triggered, this, [&](bool checked) {
         auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
         if (!scene) return;
