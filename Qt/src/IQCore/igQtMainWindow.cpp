@@ -4757,23 +4757,26 @@ void igQtMainWindow::initAllFilters() {
             featureEdgeFilter->SetManifoldEdges(false);
 
             DataObject::Pointer featureEdgeOutput;
-            UnstructuredMesh::Pointer featureEdgeMesh;
+            UnstructuredMesh::Pointer featureEdgeMesh = UnstructuredMesh::New();
             if (featureEdgeFilter->Execute()) {
                 featureEdgeOutput = featureEdgeFilter->GetOutput();
                 if (featureEdgeOutput != nullptr) {
                     featureEdgeMesh = DynamicCast<UnstructuredMesh>(featureEdgeOutput);
                 }
             }
-            if (featureEdgeMesh == nullptr) featureEdgeMesh = UnstructuredMesh::New();
+            else {
+                showDarkFramelessMessage(QStringLiteral("执行失败"), QStringLiteral("提取特征边失败"));
+                return;
+            }
             auto filter = FeatureEdgeRegionFilter::New();
             filter->SetInput(0, surfaceMesh);
             filter->SetInput(1, featureEdgeMesh);
-
             if (!filter->Execute()) {
                 showDarkFramelessMessage(QStringLiteral("执行失败"), QStringLiteral("生成区域id失败"));
                 return;
             }
-            modelTreeWidget->updateAllAttriubute(surfaceMesh);
+            auto output = filter->GetOutput();
+            modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
             rendererWidget->update();
             dialog->close();
         });
@@ -4816,6 +4819,11 @@ void igQtMainWindow::initAllFilters() {
 
                 dialog->setApplyFunctor([=, this]() {
                     bool ok = false;
+                    int SimplificationMethod = dialog->getComboIndex(SimplificationMethodId, ok);
+                    if (!ok || (SimplificationMethod != 0 && SimplificationMethod != 1)) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"), QStringLiteral("请选择有效的简化方法。"));
+                        return;
+                    }
                     float TargetReduction = dialog->getDouble(TargetReductionId, ok);
                     if (!ok) {
                         showDarkFramelessMessage(QStringLiteral("参数错误"),
@@ -4843,9 +4851,8 @@ void igQtMainWindow::initAllFilters() {
 
                     auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
                     if (!obj) return;
-                    if (SimplificationMethodId == 0) { //选择四面体塌缩
+                    if (SimplificationMethod == 0) { //选择四面体塌缩
                         auto filter = TetraSimplification::New();
-                        filter->SetInput(tetInput);
                         filter->SetTargetReduction(TargetReduction);
                         filter->SetTargetTetraCount(TargetTetraCount);
                         filter->SetPreserveBoundary(PreserveBoundary);
@@ -4867,13 +4874,12 @@ void igQtMainWindow::initAllFilters() {
                         dialog->close();
                     } else { //选择边塌缩
                         auto filter = TetraEdgeSimplification::New();
-                        filter->SetInput(obj);
                         filter->SetTargetReduction(TargetReduction);
                         filter->SetTargetTetraCount(TargetTetraCount);
                         filter->SetPreserveBoundary(PreserveBoundary);
                         filter->SetUseAllPointAttributes(UseAllPointAttributes);
 
-                        filter->SetInput(obj);
+                        filter->SetInput(tetInput);
                         if (!filter->Execute()) {
                             showDarkFramelessMessage(QStringLiteral("执行失败"),
                                                      QStringLiteral("当前数据不支持该算法。"));
@@ -4899,7 +4905,8 @@ void igQtMainWindow::initAllFilters() {
                 auto filter = MeshTetrahedralize::New();
                 filter->SetInput(obj);
                 if (!filter->Execute()) {
-                    showDarkFramelessMessage(QStringLiteral("执行失败"), QStringLiteral("当前数据不支持四面体化。"));
+                    std::string reason = filter->m_failReason;
+                    showDarkFramelessMessage(QStringLiteral("执行失败"), QStringLiteral("当前数据不支持四面体化。") +QString::fromStdString(reason));
                     return;
                 }
                 auto output = filter->GetOutput();
