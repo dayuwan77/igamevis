@@ -4552,6 +4552,26 @@ void igQtMainWindow::initAllFilters() {
 
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("边界网格质量评估"));
+        // 深色主题：主窗口样式会渗入子对话框，需显式接管配色
+        dialog.setAttribute(Qt::WA_StyledBackground, true);
+        dialog.setStyleSheet(QStringLiteral("QDialog { background-color: #1E1E1E; }"
+                                            "QLabel { color: #D8D8D8; font-size: 10pt; }"
+                                            "QComboBox { background-color: #252526; color: #D4D4D4;"
+                                            " border: 1px solid #3C3C3C; border-radius: 4px;"
+                                            " padding: 4px 24px 4px 8px; selection-background-color: #094771; }"
+                                            "QComboBox:hover { border-color: #5A5A5A; }"
+                                            "QComboBox::drop-down { subcontrol-origin: padding;"
+                                            " subcontrol-position: top right; width: 20px;"
+                                            " border-left: 1px solid #3C3C3C; }"
+                                            "QComboBox QAbstractItemView { background-color: #252526;"
+                                            " color: #D4D4D4; selection-background-color: #094771;"
+                                            " selection-color: #FFFFFF; border: 1px solid #3C3C3C;"
+                                            " outline: 0; }"
+                                            "QPushButton { background-color: #2A2A2A; color: #EAEAEA;"
+                                            " border: 1px solid #3A3A3A; padding: 6px 16px;"
+                                            " border-radius: 4px; }"
+                                            "QPushButton:hover { background-color: #3A3A3A; }"
+                                            "QPushButton:pressed { background-color: #252526; }"));
         QFormLayout form(&dialog);
         QComboBox metricBox(&dialog);
         metricBox.addItem(QStringLiteral("体单元中心 -> 面中心距离 (DistanceFromCellCenterToFaceCenter)"),
@@ -4576,26 +4596,21 @@ void igQtMainWindow::initAllFilters() {
         filter->SetInput(data);
 
         if (filter->Execute()) {
-            int attrIndex = data->GetAttributeSet()->GetNumberOfAttributes() - 1;
-            if (attrIndex < 0) attrIndex = 0;
-            modelTreeWidget->updateAllAttriubute(data);
-            auto drawObject = DynamicCast<DrawObject>(data);
-            if (drawObject) {
-                drawObject->ConvertToDrawableData();
-                auto item = modelTreeWidget->getItemFromObject(data);
-                if (item && item->childCount() > 0) {
-                    item->setExpanded(true);
-                    auto child = item->child(attrIndex);
-                    if (child) {
-                        item->setCurrentChild(child);
-                        item->setSelected(false);
-                        item->viewAttribute(attrIndex, -1);
-                        child->setSelected(true);
-                        modelTreeWidget->setCurrentItem(child);
-                    }
-                }
+            // 获取 filter 输出的独立 SurfaceMesh
+            auto output = DynamicCast<SurfaceMesh>(filter->GetOutput());
+            if (output) {
+                // 设置输出名称
+                output->SetName(data->GetName() + "_BoundaryQuality");
+                // 添加到模型树
+                modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+                // 刷新渲染
+                rendererWidget->update();
+                showDarkFramelessMessage(QStringLiteral("边界网格质量评估完成"),
+                                         QStringLiteral("已创建边界网格质量结果，可在模型树中查看"));
+            } else {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("边界网格质量评估未产生有效输出"));
             }
-            rendererWidget->update();
         } else {
             std::string message = filter->GetMessage();
             showDarkFramelessMessage(QStringLiteral("Warning"), QString::fromStdString(message));
