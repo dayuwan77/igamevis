@@ -4288,35 +4288,21 @@ void igQtMainWindow::initAllFilters() {
         filter->SetInput(data);
         // CellSizeFilter is pure geometry: no input attribute required
         if (filter->Execute()) {
-            modelTreeWidget->updateAllAttriubute(data);
-            auto drawObject = DynamicCast<DrawObject>(data);
-            if (drawObject) {
-                // 三个属性 Length/Area/Volume 都会输出, 优先显示有意义的维度
-                auto attrSet = data->GetAttributeSet();
-                int attrIndex = -1;
-                for (const char* name: {"Volume", "Area", "Length"}) {
-                    attrIndex = attrSet->GetAttributeIndex(name);
-                    if (attrIndex >= 0) break;
-                }
-                auto item = modelTreeWidget->getItemFromObject(data);
-                if (item && attrIndex >= 0 && attrIndex < item->childCount()) {
-                    item->setExpanded(true);
-                    auto child = item->child(attrIndex);
-                    if (child) {
-                        item->setCurrentChild(child);
-                        item->setSelected(false);
-                        item->viewAttribute(attrIndex, -1);
-                        child->setSelected(true);
-                        modelTreeWidget->setCurrentItem(child);
-                    }
+            // Independent output node (deep copy): the input model stays untouched
+            auto outModel = filter->GetOutput();
+            if (outModel) {
+                modelTreeWidget->addDataObjectToModelTree(outModel, Algorithm);
+                // Expand the new node so its attribute children are visible immediately
+                if (auto outItem = modelTreeWidget->getItemFromObject(outModel)) {
+                    outItem->setExpanded(true);
                 }
             }
-            // refresh "查找数据" panel so CellSize is queryable immediately
-            if (ui->dockWidget_SearchInfo && ui->dockWidget_SearchInfo->isVisible()) {
-                ui->widget_SearchInfo->setCurrentModel(model);
-            }
-            showDarkFramelessMessage(QStringLiteral("Success"), QStringLiteral("Cell size computation complete."),
-                                     true);
+            rendererWidget->update();
+            showDarkFramelessMessage(
+                    QStringLiteral("Success"),
+                    QStringLiteral("Cell size computation complete: %1 cells computed.")
+                            .arg(filter->GetComputedCellCount()),
+                    true);
         } else {
             std::string message = filter->GetMessage();
             if (message.empty()) message = "CellSizeFilter execute failed";

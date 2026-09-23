@@ -1,8 +1,13 @@
 #include "iGameCellSizeFilter.h"
 #include "iGameStructuredMesh.h"
 #include <cmath>
+#include <limits>
 
 IGAME_NAMESPACE_BEGIN
+
+namespace {
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+}
 
 bool CellSizeFilter::Execute() {
     if (m_Inputs->GetNumberOfElements() == 0) {
@@ -19,8 +24,10 @@ bool CellSizeFilter::Execute() {
     m_Cells = nullptr;
     m_Points = nullptr;
     m_Message.clear();
+    m_ComputedCellCount = 0;
     UnstructuredMesh::Pointer unstructuredMesh = nullptr;
     int meshDim = -1; // -1: determine dimension from cell type (UnstructuredMesh only)
+    DataObject::Pointer outputModel = nullptr;
 
     switch (input->GetDataObjectType()) {
         case IG_SURFACE_MESH: {
@@ -29,6 +36,15 @@ bool CellSizeFilter::Execute() {
             m_Cells = sm->GetFaces();
             m_Points = sm->GetPoints();
             meshDim = 2;
+            // Deep-copy geometry & topology into an independent output node
+            auto out = SurfaceMesh::New();
+            auto pts = Points::New();
+            pts->DeepCopy(sm->GetPoints());
+            auto faces = CellArray::New();
+            faces->DeepCopy(sm->GetFaces());
+            out->SetPoints(pts);
+            out->SetFaces(faces);
+            outputModel = out;
             break;
         }
         case IG_VOLUME_MESH: {
@@ -37,15 +53,33 @@ bool CellSizeFilter::Execute() {
             m_Cells = vm->GetCells();
             m_Points = vm->GetPoints();
             meshDim = 3;
+            auto out = VolumeMesh::New();
+            auto pts = Points::New();
+            pts->DeepCopy(vm->GetPoints());
+            auto vols = CellArray::New();
+            vols->DeepCopy(vm->GetCells());
+            out->SetPoints(pts);
+            out->SetVolumes(vols);
+            outputModel = out;
             break;
         }
-        case IG_UNSTRUCTURED_MESH:
+        case IG_UNSTRUCTURED_MESH: {
             unstructuredMesh = DynamicCast<UnstructuredMesh>(input);
             if (!unstructuredMesh) { m_Message = "UnstructuredMesh cast failed."; igError("CellSizeFilter: UnstructuredMesh cast failed"); return false; }
             m_Cells = unstructuredMesh->GetCells();
             m_Points = unstructuredMesh->GetPoints();
             meshDim = -1;
+            auto out = UnstructuredMesh::New();
+            auto pts = Points::New();
+            pts->DeepCopy(unstructuredMesh->GetPoints());
+            auto cells = CellArray::New();
+            cells->DeepCopy(unstructuredMesh->GetCells());
+            auto types = UnsignedIntArray::New();
+            types->DeepCopy(unstructuredMesh->GetCellTypes());
+            out->SetCells(cells, types);
+            outputModel = out;
             break;
+        }
         case IG_STRUCTURED_MESH: {
             auto sm = DynamicCast<StructuredMesh>(input);
             if (!sm) { m_Message = "StructuredMesh cast failed."; igError("CellSizeFilter: StructuredMesh cast failed"); return false; }
@@ -53,12 +87,23 @@ bool CellSizeFilter::Execute() {
             m_Cells = sm->GetCells();
             m_Points = sm->GetPoints();
             meshDim = (int)sm->GetDimension();
+            auto out = StructuredMesh::New();
+            auto pts = Points::New();
+            pts->DeepCopy(sm->GetPoints());
+            out->SetPoints(pts);
+            out->SetDimensionSize(sm->GetDimensionSize());
+            out->GenStructuredCellConnectivities();
+            outputModel = out;
             break;
         }
         default:
             m_Message = "Unsupported data type, only SurfaceMesh / VolumeMesh / UnstructuredMesh / StructuredMesh are supported.";
             igError("CellSizeFilter: unsupported data type {}", (int)input->GetDataObjectType());
             return false;
+    }
+    if (!outputModel) {
+        m_Message = "Failed to create the output model.";
+        return false;
     }
     if (!m_Cells) {
         m_Message = "No cells in the mesh, cannot compute cell size.";
@@ -80,7 +125,8 @@ bool CellSizeFilter::Execute() {
     igIndex cellNum = m_Cells->GetNumberOfCells();
 
     // Output three attributes for any mesh: Length / Area / Volume
-    // Each cell fills only the attribute matching its dimension, others are 0
+    // Each cell fills only the attribute matching its dimension; non-matching
+    // dimensions are NaN so "not applicable" is distinguishable from a real 0
     DoubleArray::Pointer lengthArray = DoubleArray::New();
     DoubleArray::Pointer areaArray = DoubleArray::New();
     DoubleArray::Pointer volumeArray = DoubleArray::New();
@@ -108,21 +154,31 @@ bool CellSizeFilter::Execute() {
             points.push_back(m_Points->GetPoint(vhs[j]));
         }
         double size = ComputeCellSize(cellType, dim, points);
-        lengthArray->AddValue(dim == 1 ? size : 0.0);
-        areaArray->AddValue(dim == 2 ? size : 0.0);
-        volumeArray->AddValue(dim == 3 ? size : 0.0);
+        lengthArray->AddValue(dim == 1 ? size : kNaN);
+        areaArray->AddValue(dim == 2 ? size : kNaN);
+        volumeArray->AddValue(dim == 3 ? size : kNaN);
     }
 
-    input->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_CELL, lengthArray);
-    input->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_CELL, areaArray);
-    input->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_CELL, volumeArray);
-    this->SetOutput(input);
+    m_ComputedCellCount = static_cast<int>(cellNum);
+
+    // Write results into the independent output node (deep copy), input stays untouched
+    auto outAttrSet = outputModel->GetAttributeSet();
+    // Clone the input attribute set too, so the output node keeps the original attributes
+    if (input->GetAttributeSet()) {
+        outAttrSet->DeepCopy(input->GetAttributeSet());
+    }
+    outAttrSet->AddAttribute(IG_SCALAR, IG_CELL, lengthArray);
+    outAttrSet->AddAttribute(IG_SCALAR, IG_CELL, areaArray);
+    outAttrSet->AddAttribute(IG_SCALAR, IG_CELL, volumeArray);
+    outputModel->SetName(input->GetName() + "_CellSize");
+    this->SetOutput(outputModel);
+    m_Message = "Computed cell size for " + std::to_string(cellNum) + " cells.";
     return true;
 }
 
 double CellSizeFilter::ComputeCellSize(IGenum cellType, int dim, const std::vector<Point>& points) {
     int vNum = (int)points.size();
-    // Dispatch by cellType to avoid misusing formulas on variable-length cells (IG_POLYHEDRON etc.)
+    // All "cannot compute" paths return NaN: not applicable, distinguishable from a real 0
     if (cellType != IG_EMPTY_CELL) {
         switch (cellType) {
             case IG_LINE:       return ComputeLineLength(points);
@@ -133,22 +189,22 @@ double CellSizeFilter::ComputeCellSize(IGenum cellType, int dim, const std::vect
             case IG_HEXAHEDRON: return ComputeHexVolume(points);
             case IG_PYRAMID:    return ComputePyramidVolume(points);
             case IG_PRISM:      return ComputePrismVolume(points);
-            default:            return 0.0; 
+            default:            return kNaN;  // variable-length/quadratic/Lagrange cells
         }
     }
     // Without cellType (SurfaceMesh/VolumeMesh) dispatch by dim+vNum, these meshes contain no variable-length cells
     switch (dim) {
-        case 1: if (vNum >= 2) { return ComputeLineLength(points); } return 0.0;
+        case 1: if (vNum >= 2) { return ComputeLineLength(points); } return kNaN;
         case 2: if (vNum == 3) { return ComputeTriangleArea(points); }
                 if (vNum == 4) { return ComputeQuadArea(points); }
                 if (vNum > 4)  { return ComputePolygonArea(points); }
-                return 0.0;
+                return kNaN;
         case 3: if (vNum == 4) { return ComputeTetVolume(points); }
                 if (vNum == 5) { return ComputePyramidVolume(points); }
                 if (vNum == 6) { return ComputePrismVolume(points); }
                 if (vNum == 8) { return ComputeHexVolume(points); }
-                return 0.0;
-        default: return 0.0;
+                return kNaN;
+        default: return kNaN;
     }
 }
 

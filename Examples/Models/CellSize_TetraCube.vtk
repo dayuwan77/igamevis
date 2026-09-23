@@ -1,0 +1,27 @@
+# vtk DataFile Version 3.0
+CellSize test model: unit cube split into 6 tetrahedra (each volume = 1/6, total = 1.0)
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+0 0 0
+1 0 0
+1 1 0
+0 1 0
+0 0 1
+1 0 1
+1 1 1
+0 1 1
+CELLS 6 30
+4 0 1 2 6
+4 0 2 3 6
+4 0 3 7 6
+4 0 7 4 6
+4 0 4 5 6
+4 0 5 1 6
+CELL_TYPES 6
+10
+10
+10
+10
+10
+10
