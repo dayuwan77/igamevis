@@ -41,6 +41,8 @@ class igQtAiChatWidget;
 class igQtCommandManager;
 class igQtChromeFramelessDialog;
 class igQtPartFocusWidget;
+class igQtResampleToImageWidget;
+class igQtPointSetToOctreeWidget;
 class igQtGlobalIdWidget;
 class igQtTriangleStripWidget;
 class igQtExtractCellsByTypeWidget;
@@ -125,6 +127,12 @@ public:
     igQtChromeFramelessDialog* partFocusDialog{nullptr};
     igQtPartFocusWidget* partFocusWidget{nullptr};
 
+    // 重采样到图像参数面板
+    QDockWidget* ResampleToImageDockWidget{nullptr};
+    igQtResampleToImageWidget* ResampleToImageWidget{nullptr};
+    // 点集转八叉树参数面板
+    QDockWidget* PointSetToOctreeDockWidget{nullptr};
+    igQtPointSetToOctreeWidget* PointSetToOctreeWidget{nullptr};
     // 全局 ID 生成与 Local/Global 对照结果
     QDockWidget* GlobalIdDockWidget{nullptr};
     igQtGlobalIdWidget* GlobalIdWidget{nullptr};

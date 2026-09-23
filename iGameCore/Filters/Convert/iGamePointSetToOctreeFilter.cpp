@@ -365,6 +365,24 @@ bool PointSetToOctreeFilter::Execute() {
         }
     }
 
+    // ---- 诊断信息（供界面提示）----
+    {
+        std::string info;
+        info += "输出图像维度 " + std::to_string(dimensions[0]) + "×" + std::to_string(dimensions[1]) +
+                "×" + std::to_string(dimensions[2]) + "（" +
+                std::to_string(static_cast<long long>(numberOfCells)) + " 个体素）；";
+        info += "输入 " + std::to_string(static_cast<long long>(numberOfPoints)) +
+                " 个点，每体素平均点数参数 " +
+                std::to_string(static_cast<long long>(m_NumberOfPointsPerCell)) + "。";
+        if (inFieldArr && !functions.empty()) {
+            info += " 已对点属性 \"" + inFieldArr->GetName() + "\" 统计 " +
+                    std::to_string(static_cast<int>(functions.size())) + " 个分量。";
+        } else {
+            info += " 未处理点属性数组（仅输出 octree 占用位编码）。";
+        }
+        m_Message = info;
+    }
+
     return true;
 }
 
