@@ -207,6 +207,7 @@ private:
                                   bool centerFlowField);
     QWidget* wrapContentInScrollArea(QWidget* content, QWidget* parent, bool centerFlowField);
     QDockWidget* shellDockForLeftPanel(LeftToolPanelId id) const;
+    void ensureResampleToLinePanel();
     void onLeftToolTabCloseRequested(int index);
     /** 工具面板与 Properties 垂直比例（需在工具 Dock 已 show 后调用） */
     void applyLeftToolStackVerticalSplit();
