@@ -6,7 +6,6 @@
 #include "iGameUnstructuredMesh.h"
 
 #include <QWheelEvent>
-#include <QTimer>
 #include <set>
 
 igQtExtractComponentWidget::igQtExtractComponentWidget(QWidget* parent)
@@ -109,15 +108,6 @@ void igQtExtractComponentWidget::UpdateComponentOptions() {
 
 void igQtExtractComponentWidget::Apply() {
     if (m_OriginDataObject == nullptr) return;
-
-    // Apply 按钮点击反馈：变暗一秒再恢复
-    const QString normalStyle = ui->btnApply->styleSheet();
-    ui->btnApply->setEnabled(false);
-    ui->btnApply->setStyleSheet(QStringLiteral("QPushButton { background-color: #3A3A3D; color: #808080; }"));
-    QTimer::singleShot(1000, this, [this, normalStyle]() {
-        ui->btnApply->setEnabled(true);
-        ui->btnApply->setStyleSheet(normalStyle);
-    });
 
     if (!ui->comboBox_Component->isEnabled() || ui->comboBox_Component->count() == 0) {
         Q_EMIT ApplyFailed(QStringLiteral("当前输入数组维度不足，无可提取的分量"));
