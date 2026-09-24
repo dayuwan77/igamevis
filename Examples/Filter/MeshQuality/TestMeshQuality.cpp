@@ -6,7 +6,7 @@
 
 int main() {
 
-    const std::string fileName = "./Models/Convert_Quad_Bicycle.vtk";
+    const std::string fileName = "./Models/MeshQuality_Complex.vtk";
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
 
     if (obj == nullptr) {
