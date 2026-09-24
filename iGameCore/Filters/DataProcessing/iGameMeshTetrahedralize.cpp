@@ -149,7 +149,7 @@ bool isConvexPolyhedron(Volume::Pointer input,std::string& reason) {
             return false;
         }
         normal /= length;
-        const double eps = 1e-8;
+        const double eps = 1e-6;
         bool flag_p0;
         bool firstPoint = true;
         auto p0 = face->GetPoint(0);

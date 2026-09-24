@@ -302,6 +302,7 @@ igame_add_example(testTransform Filter/TestTransform.cpp)
 igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
 #Data Processing
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
+igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 
 if (ENABLE_CGNS_MODULE)
     igame_add_example(testCGNS IO/CGNSReader.cpp)
