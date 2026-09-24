@@ -13,6 +13,15 @@
  *   4. Threshold:单元关联标量筛选
  *   5. Threshold:边界模式(Closed / Open)语义对比
  */
+// Windows 控制台默认使用 GBK 代码页,直接输出 UTF-8 文本会显示为乱码,
+// 这里在包含其它头文件之前设置好代码页(并禁用 min/max 宏,避免影响标准库)。
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "Threshold/iGameThresholdFilter.h"
 #include "GenerateIds/iGameGenerateIdsFilter.h"
 #include "iGameFileIO.h"
@@ -363,6 +372,10 @@ void CheckBoundaryModes(const char* modelPath, const std::string& scalarName) {
 } // namespace
 
 int main() {
+#ifdef _WIN32
+    // 让控制台按 UTF-8 解释输出,避免中文日志在 GBK 代码页下显示为乱码
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     std::cout << "=== iGameVis 滤波器自动测试:GenerateIds / Threshold ===\n";
     std::cout << "测试模型:Examples/Models 内置数据,直接运行即可,无需手动输入\n";
 
