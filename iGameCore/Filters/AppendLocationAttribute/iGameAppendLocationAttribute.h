@@ -40,12 +40,17 @@ public:
 
     /** 执行后：输出网格的点坐标（便于外部复用 / 校验） */
     std::vector<Point> AttributePoint;
+    std::vector<Point> AttributeCenter;
 
 private:
     /** 把坐标属性附加到输出网格（输出网格的属性集必须可写） */
     bool AppendLocationToOutput(DataObject::Pointer mesh);
+
+    bool AppendCellCenterToOutput(DataObject::Pointer mesh);
     /** 输出网格名：输入名 + "AddLocation" */
     static std::string MakeOutputName(const std::string& inputName);
+
+    Point GetCellCenter(std::vector<Point> cell);
 
 protected:
     AppendLocationAttribute() {

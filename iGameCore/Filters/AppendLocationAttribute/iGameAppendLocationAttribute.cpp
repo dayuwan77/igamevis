@@ -11,6 +11,7 @@ IGAME_NAMESPACE_BEGIN
 
 namespace {
 constexpr const char* kLocationAttributeName = "LocationAttribute";
+constexpr const char* kCellCenterAttributeName = "CellCenter";
 
 /** 按源数组类型创建同类型数组（保留数据类型：float/double/int/uchar ...） */
 ArrayObject::Pointer NewArrayLike(ArrayObject* src) {
@@ -180,6 +181,7 @@ bool AppendLocationAttribute::Execute() {
 
     // 把点坐标作为属性附加到「输出网格」上（输入对象保持不变）
     if (!AppendLocationToOutput(output)) { return false; }
+    if (!AppendCellCenterToOutput(output)) { return false; }
 
     SetOutput(output);
     m_Message = "OK";
@@ -256,4 +258,96 @@ bool AppendLocationAttribute::AppendLocationToOutput(DataObject::Pointer mesh) {
     return true;
 }
 
+bool AppendLocationAttribute::AppendCellCenterToOutput(DataObject::Pointer mesh) {
+    if (mesh == nullptr) {
+        m_Message = "输出网格为空";
+        return false;
+    }
+    auto cells = mesh->GetCellArray();
+    if (cells == nullptr) {
+        m_Message = "Cells为空";
+        return false;
+    }
+
+
+    // 获取单元数与点数组
+    auto cellNum = cells->GetNumberOfCells();
+    auto points = mesh->GetPoints();
+
+    //定义验证数组
+    AttributeCenter.clear();
+    AttributeCenter.reserve(static_cast<size_t>(cellNum));
+
+    //定义属性数组
+    auto location = FloatArray::New();
+    location->SetDimension(3);
+    location->SetName(kCellCenterAttributeName);
+    location->Resize(cellNum);
+
+    auto pic = IdArray::New();
+    const IGsize blockNum = std::max<IGsize>(1, cellNum / 100);
+    IGsize progress = 1;
+    for (IGsize i = 0; i < cellNum; ++i) {
+        //point in cell
+        pic->Reset();
+        cells->GetCellIds(i, pic);
+        std::vector<Point> candidates;
+        candidates.reserve(pic->GetNumberOfIds());
+        for (IGsize j = 0; j < pic->GetNumberOfIds(); j++) {
+            auto id = pic->GetId(j);
+            auto point = points->GetPoint(id);
+            candidates.emplace_back(point);
+        }
+        auto cellcenter = GetCellCenter(candidates);
+        std::vector<float> value = {cellcenter[0], cellcenter[1], cellcenter[2]};
+        location->SetElement(i, value);
+        AttributeCenter.emplace_back(cellcenter);
+
+        if (i >= blockNum * progress && progress < 100) {
+            UpdateProgress(static_cast<double>(progress) * 0.01);
+            ++progress;
+        }
+    }
+    ResetProgress();
+
+    //附加到输出的属性集
+    auto attrSet = mesh->GetAttributeSet();
+    if (attrSet == nullptr) {
+        auto newSet = AttributeSet::New();
+        mesh->SetAttributeSet(newSet);
+        attrSet = mesh->GetAttributeSet();
+    }
+    if (attrSet == nullptr) {
+        m_Message = "输出网格属性为空";
+        return false;
+    }
+
+    const int existing = attrSet->GetAttributeIndex(kCellCenterAttributeName);
+    if (existing >= 0) {
+        auto& attr = attrSet->GetAttribute(static_cast<IGsize>(existing));
+        attr.SetPointer(location);
+        attr.SetType(IG_VECTOR);
+        attr.SetAttachmentType(IG_CELL);
+    }else {
+        attrSet->AddVector(IG_CELL, location);
+    }
+    attributeSet = attrSet;
+    return true;
+}
+
+Point AppendLocationAttribute::GetCellCenter(std::vector<Point> cell) {
+    float sum_x = 0;
+    float sum_y = 0;
+    float sum_z = 0;
+    for (auto & i : cell) {
+        sum_x += i[0];
+        sum_y += i[1];
+        sum_z += i[2];
+    }
+    Point center;
+    center[0] = sum_x / static_cast<float>(cell.size());
+    center[1] = sum_y / static_cast<float>(cell.size());
+    center[2] = sum_z / static_cast<float>(cell.size());
+    return center;
+}
 IGAME_NAMESPACE_END
