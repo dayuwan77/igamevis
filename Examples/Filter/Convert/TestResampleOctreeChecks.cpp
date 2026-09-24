@@ -689,7 +689,11 @@ static void TestOctreeParity() {
         f2->SetProcessInputPointArray(false);
         f2->Execute();
         auto o2 = DynamicCast<StructuredMesh>(f2->GetOutput(0));
-        Check(FindArray(o2, "v") == nullptr, "关闭“处理点属性”时不输出统计数组");
+        // 关闭「处理点属性」时不再输出多分量统计数组；此时若仍存在同名数组，只能是继承来的
+        // 显示属性（1 个分量），用于让输出模型保持与输入一致的着色。
+        auto v2 = FindArray(o2, "v");
+        Check(v2 == nullptr || v2->GetDimension() == 1,
+              "关闭“处理点属性”时不输出统计数组（同名数组只能是继承的显示属性）");
         Check(FindArray(o2, "octree") != nullptr, "关闭“处理点属性”时仍输出 octree 编码数组");
     }
 
