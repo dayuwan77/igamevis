@@ -4,6 +4,7 @@
 #include "iGameScene.h"
 
 #include <algorithm>
+#include <cmath>
 
 IGAME_NAMESPACE_BEGIN
 
@@ -16,11 +17,40 @@ SingleDragStyle::SingleDragStyle() {
     m_LastMousePosition = igm::vec2{};
     m_DragDepthDirection = igm::vec3{0.0f, 0.0f, 1.0f};
     m_ConstraintAxis = ConstraintAxis::FreePlane;
+    m_AxisDragStartPoint = Point{};
+    m_AxisDragStartParameter = 0.0f;
+    m_AxisDragReady = false;
 }
 SingleDragStyle::~SingleDragStyle() {}
 
+bool SingleDragStyle::GetAxisDragParameter(const igm::vec2& mousePosition,
+                                           const Point& axisOrigin,
+                                           int component,
+                                           float& parameter) {
+    const igm::vec3 rayStart = GetNearWorldCoord(mousePosition, m_InvertedMVP);
+    const igm::vec3 rayEnd = GetFarWorldCoord(mousePosition, m_InvertedMVP);
+    const igm::vec3 rayDirection = (rayEnd - rayStart).normalized();
+
+    igm::vec3 axisDirection{};
+    axisDirection[component] = 1.0f;
+    const igm::vec3 origin(axisOrigin[0], axisOrigin[1], axisOrigin[2]);
+    const igm::vec3 offset = rayStart - origin;
+
+    const float a = rayDirection.dot(rayDirection);
+    const float b = rayDirection.dot(axisDirection);
+    const float c = axisDirection.dot(axisDirection);
+    const float d = rayDirection.dot(offset);
+    const float e = axisDirection.dot(offset);
+    const float denominator = a * c - b * b;
+    if (std::abs(denominator) <= 1.0e-7f) return false;
+
+    parameter = (a * e - b * d) / denominator;
+    return std::isfinite(parameter);
+}
+
 void SingleDragStyle::MousePressEvent(IEvent event) {
     SelectionStyle::MousePressEvent(event);
+    m_AxisDragReady = false;
     m_LastMousePosition = event.pos;
     m_MVP = m_Interactor->GetMVP();
     m_InvertedMVP = m_MVP.invert();
@@ -53,6 +83,14 @@ void SingleDragStyle::MousePressEvent(IEvent event) {
         igm::vec4 p{tp[0], tp[1], tp[2], 1.f};
         p = m_MVP * p;
         m_SelectedNDCZ = p.z / p.w;
+
+        if (m_ConstraintAxis != ConstraintAxis::FreePlane) {
+            const int component = static_cast<int>(m_ConstraintAxis) - 1;
+            m_AxisDragStartPoint = tp;
+            m_AxisDragReady = GetAxisDragParameter(
+                    pos, m_AxisDragStartPoint, component,
+                    m_AxisDragStartParameter);
+        }
 
         // 不绘制额外的红色选择点：可拖动 PointSet 本身就是唯一的查询点。
     }
@@ -98,18 +136,15 @@ void SingleDragStyle::MouseMoveEvent(IEvent event) {
                 epos[1] += m_DragDepthDirection.y * displacement;
                 epos[2] += m_DragDepthDirection.z * displacement;
             } else {
-                const igm::vec2 delta = pos - m_LastMousePosition;
-                const float pixels = std::abs(delta.x) >= std::abs(delta.y)
-                                             ? delta.x
-                                             : -delta.y;
-                float sceneRadius = 1.0f;
-                if (auto* scene = m_Interactor->GetScene())
-                    sceneRadius = std::max(1.0e-6f, scene->GetRotationBoundingSphere().w);
-                const float viewportSize = std::max(
-                        1.0f, std::max(m_Interactor->GetWidth(), m_Interactor->GetHeight()));
-                const float displacement = pixels * (2.0f * sceneRadius / viewportSize);
                 const int component = static_cast<int>(m_ConstraintAxis) - 1;
-                epos[component] += displacement;
+                float currentParameter = 0.0f;
+                if (m_AxisDragReady &&
+                    GetAxisDragParameter(pos, m_AxisDragStartPoint, component,
+                                         currentParameter)) {
+                    epos = m_AxisDragStartPoint;
+                    epos[component] +=
+                            currentParameter - m_AxisDragStartParameter;
+                }
             }
             // 必须先写入坐标，再通知观察者；否则 Qt 端读到的是旧位置。
             m_Points->SetPoint(m_SelectedPointId, epos);

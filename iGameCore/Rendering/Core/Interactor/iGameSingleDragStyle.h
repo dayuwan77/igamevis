@@ -20,6 +20,11 @@ protected:
     SingleDragStyle();
     ~SingleDragStyle() override;
 
+    bool GetAxisDragParameter(const igm::vec2& mousePosition,
+                              const Point& axisOrigin,
+                              int component,
+                              float& parameter);
+
     igIndex m_SelectedPointId;
 
     float m_SelectedNDCZ;
@@ -28,6 +33,9 @@ protected:
     igm::vec2 m_LastMousePosition;
     igm::vec3 m_DragDepthDirection;
     ConstraintAxis m_ConstraintAxis;
+    Point m_AxisDragStartPoint;
+    float m_AxisDragStartParameter;
+    bool m_AxisDragReady;
 };
 IGAME_NAMESPACE_END
 #endif
