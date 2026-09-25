@@ -1,0 +1,19 @@
+# vtk DataFile Version 3.0
+Overlapping Cells Detector validation: face contact is not a volume overlap
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+0 0 0
+1 0 0
+0 1 0
+0 0 -1
+CELLS 2 10
+4 0 1 2 3
+4 4 5 6 7
+CELL_TYPES 2
+10
+10
