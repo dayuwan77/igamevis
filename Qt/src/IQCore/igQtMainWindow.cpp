@@ -6466,6 +6466,8 @@ void igQtMainWindow::initAllDockWidgetConnectWithAction() {
         this->addDockWidget(Qt::RightDockWidgetArea, probeDock);
         probeDock->hide();
 
+        // 关联渲染视图：事件过滤器（拖球交互）在面板显示时自动挂载、隐藏时卸载。
+        probeWidget->setRenderWidget(rendererWidget);
         probeWidget->setContext([this]() { return rendererWidget->GetScene(); }, modelTreeWidget,
                                 [this]() { rendererWidget->update(); });
 
