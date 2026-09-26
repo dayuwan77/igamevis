@@ -1933,6 +1933,8 @@ void igQtMainWindow::initAllFilters() {
                         child->setSelected(true);
                         modelTreeWidget->setCurrentItem(child);
                     }
+                }
+            }
                     rendererWidget->update();
                     dialog->close();
                 });
