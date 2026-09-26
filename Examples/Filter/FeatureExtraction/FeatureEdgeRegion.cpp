@@ -1,5 +1,4 @@
 #include <FeatureExtraction/iGameFeatureEdgeRegionFilter.h>
-#include <FeatureExtraction/iGameFeatureEdgesFilter.h>
 #include <Convert/iGameConvertToSurfaceMeshFilter.h>
 #include <iGameDrawObject.h>
 #include <iGameFileIO.h>
@@ -60,37 +59,10 @@ int main() {
  //       return 1;
  //   }
 
-    //use FeatureEdgesFilter
-    auto featureEdgeFilter = iGame::FeatureEdgesFilter::New();
-
-    featureEdgeFilter->SetInput(surfaceMesh);
-    featureEdgeFilter->SetFeatureAngle(30.0);
-    featureEdgeFilter->SetBoundaryEdges(true);
-    featureEdgeFilter->SetFeatureEdges(true);
-    featureEdgeFilter->SetNonManifoldEdges(true);
-    featureEdgeFilter->SetManifoldEdges(false);
-
-    if (!featureEdgeFilter->Execute()) {
-        std::cerr << "FeatureEdgesFilter execution failed." << std::endl;
-        return 1;
-    }
-    auto featureEdgeOutput = featureEdgeFilter->GetOutput();
-
-    if (featureEdgeOutput == nullptr) {
-        std::cerr << "FeatureEdgesFilter output is null." << std::endl;
-        return 1;
-    }
-
-    auto FeatureEdgeOutputMesh = DynamicCast<iGame::UnstructuredMesh>(featureEdgeOutput);
-    if (FeatureEdgeOutputMesh == nullptr) {
-        std::cerr << "FeatureEdgesFilter output is invalid." << std::endl;
-        return 1;
-    }
-
     //use regionId filter
     auto filter = iGame::FeatureEdgeRegionFilter ::New();
     filter->SetInput(0, surfaceMesh);
-    filter->SetInput(1,FeatureEdgeOutputMesh);
+    filter->SetFeatureAngle(30);
 
     if (!filter->Execute()) {
         std::cerr << "FeatureEdgeRegionFilter execution failed" << std::endl;
@@ -109,20 +81,8 @@ int main() {
         return 1;
     }
     scene->AddModel(output);
-    scene->AddModel(featureEdgeOutput);
-
-    auto edgeDrawObject = DynamicCast<iGame::DrawObject>(featureEdgeOutput);
     auto outputDrawObject = DynamicCast<iGame::DrawObject>(output);
 
-    if (edgeDrawObject == nullptr || outputDrawObject == nullptr) {
-        std::cerr << "Input or output is not drawable." << std::endl;
-        return 1;
-    }
-
-    edgeDrawObject->SetViewStyle(IG_WIREFRAME);
-    edgeDrawObject->SetLineWidth(3.0f);
-    //edgeDrawObject->SetAlwaysOnTop(true);
-    edgeDrawObject->ViewCloudPicture(scene, 0, 0);
 
     outputDrawObject->SetViewStyle(IG_SURFACE);
     outputDrawObject->ViewCloudPicture(scene, outputDrawObject->GetAttributeSet()->GetAttributeIndex("Region Id"), 0);

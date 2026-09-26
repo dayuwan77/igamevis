@@ -5091,34 +5091,14 @@ void igQtMainWindow::initAllFilters() {
         }
         dialog->setFilterTitle(QStringLiteral("特征区域id"));
         int angleId =
-                dialog->addParameter(igQtFilterDialogDockWidget ::QT_LINE_EDIT, QStringLiteral("特征角度"), "30.0");
+                dialog->addParameter(igQtFilterDialogDockWidget ::QT_LINE_EDIT, QStringLiteral("Maximum Angle"), "30.0");
         dialog->show();
         dialog->setApplyFunctor([=, this]() {
             bool ok;
             double angle = dialog->getDouble(angleId, ok);
-            FeatureEdgesFilter::Pointer featureEdgeFilter = FeatureEdgesFilter::New();
-            featureEdgeFilter->SetInput(surfaceMesh);
-            featureEdgeFilter->SetFeatureAngle(angle);
-            featureEdgeFilter->SetBoundaryEdges(true);
-            featureEdgeFilter->SetFeatureEdges(true);
-            featureEdgeFilter->SetNonManifoldEdges(true);
-            featureEdgeFilter->SetManifoldEdges(false);
-
-            DataObject::Pointer featureEdgeOutput;
-            UnstructuredMesh::Pointer featureEdgeMesh = UnstructuredMesh::New();
-            if (featureEdgeFilter->Execute()) {
-                featureEdgeOutput = featureEdgeFilter->GetOutput();
-                if (featureEdgeOutput != nullptr) {
-                    featureEdgeMesh = DynamicCast<UnstructuredMesh>(featureEdgeOutput);
-                }
-            }
-            else {
-                showDarkFramelessMessage(QStringLiteral("执行失败"), QStringLiteral("提取特征边失败"));
-                return;
-            }
             auto filter = FeatureEdgeRegionFilter::New();
             filter->SetInput(0, surfaceMesh);
-            filter->SetInput(1, featureEdgeMesh);
+            filter->SetFeatureAngle(angle);
             if (!filter->Execute()) {
                 showDarkFramelessMessage(QStringLiteral("执行失败"), QStringLiteral("生成区域id失败"));
                 return;
