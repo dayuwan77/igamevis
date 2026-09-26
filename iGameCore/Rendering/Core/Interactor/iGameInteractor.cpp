@@ -1,4 +1,4 @@
-﻿#include "iGameInteractor.h"
+#include "iGameInteractor.h"
 #include "iGameBasicStyle.h"
 #include "iGameScene.h"
 #include "iGameSingleDragStyle.h"
@@ -74,6 +74,13 @@ void Interactor::RequestDragPointStyle(SmartPointer<Selection> s) {
     act->Initialize(this, s);
     m_Internal = act;
     is_Base = false;
+}
+
+void Interactor::SetDragPointConstraintAxis(int axis) {
+    auto style = DynamicCast<SingleDragStyle>(m_Internal);
+    if (!style) return;
+    if (axis < 0 || axis > 3) axis = 0;
+    style->SetConstraintAxis(static_cast<SingleDragStyle::ConstraintAxis>(axis));
 }
 
 void Interactor::RequestPointSelectionStyle(SmartPointer<Selection> s) {
@@ -153,6 +160,15 @@ void Interactor::RequestStreamLineStyle(SmartPointer<Selection> s) {
     if (!s) return;
     //InitModel();
     auto act = StreamLineStyle::New();
+    act->Initialize(this, s);
+    m_Internal = act;
+    is_Base = false;
+}
+
+void Interactor::RequestResampleToLineStyle(SmartPointer<Selection> s) {
+    if (!s) return;
+    //InitModel();
+    auto act = ResampleToLineStyle::New();
     act->Initialize(this, s);
     m_Internal = act;
     is_Base = false;

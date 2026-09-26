@@ -1,0 +1,1242 @@
+{
+	"globsDependent" : 
+	[
+		{
+			"expression" : "C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/*",
+			"followSymlinks" : true,
+			"paths" : 
+			[
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-arrow.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-busy.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-closedhand.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-cross.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-forbidden.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-hand.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-hsplit.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-ibeam.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-openhand.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-sizeall.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-sizeb.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-sizef.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-sizeh.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-sizev.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-uparrow.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-vsplit.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-wait.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/images/cursor-whatsthis.png",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtbuttonpropertybrowser.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtbuttonpropertybrowser.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qteditorfactory.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qteditorfactory.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtgroupboxpropertybrowser.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtgroupboxpropertybrowser.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowser.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowser.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowser.pri",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowser.qrc",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowserutils.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowserutils.pri",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertybrowserutils_p.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertymanager.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtpropertymanager.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qttreepropertybrowser.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qttreepropertybrowser.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtvariantproperty.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/Plugin/qtpropertybrowser/qtvariantproperty.h"
+			],
+			"recurse" : true
+		},
+		{
+			"expression" : "C:/profile_part/DeskTop/igame/igamevis/Qt/include/*.h",
+			"followSymlinks" : true,
+			"paths" : 
+			[
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtBasicListOptionDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtBoxSettingDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtChangeBackGroundDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtChromeFramelessDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtDarkFramelessMessage.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtFramelessDialogBase.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtMeshCodecDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtMessageDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtParallelCoordinatesSortVariableDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtScreenShotOptionDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtSplineOptionDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/Dialog/igQtVideoOptionDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtAnimationTreeWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtAnimationTreeWidget_interpolate.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtAnimationTreeWidget_snap.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtComponents.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtDataRangeSlider.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtFilterDialogDockWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtModelDialogWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtModelListView.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtModelTreeWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtParallelCoordinatesObjectFilter.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtPrintInfo.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtProgressBarWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQComponents/igQtPropertyTreeWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/iGameFileDialog.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtAnimationVcrController.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtExportModule.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtFileLoader.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtFileType.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtFramelessWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtGlobalVariable.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtMainWindow.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQCore/igQtOpenGLWidgetManager.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtBasicColorAreaWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtBasicColorItem.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtColorManagerWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtColorRangeSlider.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtCustomColorAreaWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtHColorAreaWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtPreviewColorAreaWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/ColorManager/igQtSVColorAreaWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtAiChat/igQtAiChatWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtAiChat/igQtChatManager.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtAiChat/igQtCommandExecutor.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtAiChat/igQtCommandManager.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtAnimationWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtCharts.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtColorBarWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtContextPreservingShowWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtContourExtractWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtDataChangeWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtDeformationWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtEditModeWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtModelClipWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtModelDrawWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtModelInformationWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtParallelCoordinatesWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtPartFocusWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtQualityDetectionWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtRenderWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtResampleToLineWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtScalarViewWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtSearchInfoWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtSelectionWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtStreamTracerWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtTensorWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtVariableCorrelationWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtVariableDensityWidget.h",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/include/IQWidgets/igQtVectorWidget.h"
+			],
+			"recurse" : true
+		},
+		{
+			"expression" : "C:/profile_part/DeskTop/igame/igamevis/Qt/src/*.cpp",
+			"followSymlinks" : true,
+			"paths" : 
+			[
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtBasicListOptionDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtBoxSettingDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtChangeBackGroundDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtChromeFramelessDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtDarkFramelessMessage.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtFramelessDialogBase.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtMeshCodecDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtMessageDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtParallelCoordinatesSortVariableDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtScreenShotOptionDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtSplineOptionDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/Dialog/igQtVideoOptionDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtAnimationTreeWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtAnimationTreeWidget_interpolate.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtAnimationTreeWidget_snap.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtComponents.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtDataRangeSlider.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtFilterDialogDockWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtModelDialogWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtModelListView.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtModelTreeWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtParallelCoordinatesObjectFilter.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtPrintInfo.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtProgressBarWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQComponents/igQtPropertyTreeWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQCore/iGameFileDialog.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQCore/igQtAnimationVcrController.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQCore/igQtFileLoader.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQCore/igQtFramelessWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQCore/igQtMainWindow.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQCore/igQtOpenGLWidgetManager.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtBasicColorAreaWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtBasicColorItem.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtColorManagerWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtColorRangeSlider.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtCustomColorAreaWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtHColorAreaWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtPreviewColorAreaWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/ColorManager/igQtSVColorAreaWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtAiChat/igQtAiChatWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtAiChat/igQtChatManager.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtAiChat/igQtCommandExecutor.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtAiChat/igQtCommandManager.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtAnimationWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtCharts.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtColorBarWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtContextPreservingShowWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtContourExtractWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtDataChangeWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtDeformationWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtEditModeWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtModelClipWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtModelDrawWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtModelInformationWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtParallelCoordinatesWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtPartFocusWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtQualityDectionWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtRenderWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtResampleToLineWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtScalarViewWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtSearchInfoWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtSelectionWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtStreamTracerWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtTensorWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtVariableCorrelationWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtVariableDensityWidget.cpp",
+				"C:/profile_part/DeskTop/igame/igamevis/Qt/src/IQWidgets/igQtVectorWidget.cpp"
+			],
+			"recurse" : true
+		}
+	],
+	"inputs" : 
+	[
+		{
+			"path" : "CMakeLists.txt"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/.qtcreator/cmake-helper/qtcreator-project.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/.qtcreator/cmake-helper/package-manager.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineSystem.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeSystem.cmake.in"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/CMakeFiles/3.30.5/CMakeSystem.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeJOMFindMake.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/.qtcreator/cmake-helper/maintenance_tool_provider.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-Initialize.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCompilerIdDetection.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ADSP-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ARMCC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ARMClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/AppleClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompilerInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Borland-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Bruce-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompilerInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Compaq-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Cray-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/CrayClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Embarcadero-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Fujitsu-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GHS-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GNU-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/HP-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IAR-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMClang-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Intel-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/LCC-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/NVHPC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/NVIDIA-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/OrangeC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/PGI-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/PathScale-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SCO-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SDCC-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SunPro-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TI-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TIClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Tasking-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TinyCC-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/VisualAge-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-C-DetermineVersionInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Watcom-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/XL-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-C-DetermineVersionInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/XLClang-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/zOS-C-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-C-DetermineVersionInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindBinUtils.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCCompiler.cmake.in"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/CMakeFiles/3.30.5/CMakeCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCXXCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-Determine-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCompilerIdDetection.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ADSP-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ARMCC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/ARMClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/AppleClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompilerInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Borland-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Clang-DetermineCompilerInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Cray-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/CrayClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Embarcadero-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Fujitsu-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GHS-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/HP-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IAR-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Intel-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/NVHPC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/NVIDIA-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/OrangeC-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/PGI-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/PathScale-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SCO-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TI-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/TIClang-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Tasking-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/Watcom-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/XL-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeFindBinUtils.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompiler.cmake.in"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/CMakeFiles/3.30.5/CMakeCXXCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeGenericSystem.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/WindowsPaths.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-MSVC-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineRCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeRCCompiler.cmake.in"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/CMakeFiles/3.30.5/CMakeRCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeRCInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestRCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCompilerCommon.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/CMakeDetermineLinkerId.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseImplicitIncludeInfo.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseImplicitLinkInfo.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseLibraryArchitecture.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCompilerCommon.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCCompilerABI.c"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerSupport.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/FeatureTesting.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCCompiler.cmake.in"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/CMakeFiles/3.30.5/CMakeCCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-MSVC-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Platform/Windows-MSVC.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCompilerCommon.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/CMakeDetermineLinkerId.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseImplicitIncludeInfo.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseImplicitLinkInfo.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseLibraryArchitecture.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeTestCompilerCommon.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompilerABI.cpp"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeDetermineCompilerSupport.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/Internal/FeatureTesting.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeCXXCompiler.cmake.in"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug/CMakeFiles/3.30.5/CMakeCXXCompiler.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreConfigExtras.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreConfigExtrasMkspecDir.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseArguments.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5GuiConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5GuiConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QGifPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QICNSPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QICOPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QJpegPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QMinimalIntegrationPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QOffscreenIntegrationPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QSvgIconPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QSvgPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QTgaPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QTiffPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QTuioTouchPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QWbmpPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QWebpPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QWindowsDirect2DIntegrationPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QWindowsIntegrationPlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5Gui_QXdgDesktopPortalThemePlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5GuiConfigExtras.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5WidgetsConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5WidgetsConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5Widgets_QWindowsVistaStylePlugin.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5WidgetsConfigExtras.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5WidgetsMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Qt/Tools/CMake_64/share/cmake-3.30/Modules/CMakeParseArguments.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5OpenGL/Qt5OpenGLConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5OpenGL/Qt5OpenGLConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Charts/Qt5ChartsConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Charts/Qt5ChartsConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Svg/Qt5SvgConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Svg/Qt5SvgConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5/Qt5ConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5/Qt5Config.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5/Qt5ModuleLocation.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Core/Qt5CoreConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5GuiConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Gui/Qt5GuiConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5WidgetsConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Widgets/Qt5WidgetsConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5OpenGL/Qt5OpenGLConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5OpenGL/Qt5OpenGLConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Charts/Qt5ChartsConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Charts/Qt5ChartsConfig.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Svg/Qt5SvgConfigVersion.cmake"
+		},
+		{
+			"isExternal" : true,
+			"path" : "C:/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5Svg/Qt5SvgConfig.cmake"
+		},
+		{
+			"path" : "Resources/iGameQtMainWindow.qrc"
+		},
+		{
+			"path" : "Plugin/qtpropertybrowser/qtpropertybrowser.qrc"
+		}
+	],
+	"kind" : "cmakeFiles",
+	"paths" : 
+	{
+		"build" : "C:/profile_part/DeskTop/igame/igamevis/Qt/build/Desktop_Qt_5_15_2_MSVC2019_64bit_Debug",
+		"source" : "C:/profile_part/DeskTop/igame/igamevis/Qt"
+	},
+	"version" : 
+	{
+		"major" : 1,
+		"minor" : 1
+	}
+}

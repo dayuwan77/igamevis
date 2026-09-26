@@ -22,7 +22,7 @@ file(GLOB_RECURSE IGAME_CORE_FILE CONFIGURE_DEPENDS ./*.h ./*.cpp)
 if (IGAME_BUILD_SHARED AND UNIX AND NOT APPLE)
     add_library(${MODULE_NAME} SHARED ${IGAME_CORE_FILE})
 else ()
-    add_library(${MODULE_NAME} STATIC ${IGAME_CORE_FILE} "IO/Fluent/iGameCASReader.h" "Filters/StreamView/iGameStreamlineSimplifier.h" "Filters/StreamView/iGameStreamlineSimplifier.cpp")
+    add_library(${MODULE_NAME} STATIC ${IGAME_CORE_FILE} "IO/Fluent/iGameCASReader.h" "Filters/StreamView/iGameStreamlineSimplifier.h" "Filters/StreamView/iGameStreamlineSimplifier.cpp" "Filters/TriangleStrip/iGameTriangleStripFilter.cpp" "Filters/TriangleStrip/iGameTriangleStripFilter.h")
 endif ()
 
 if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)

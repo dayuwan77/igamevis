@@ -19,12 +19,12 @@
      <item>
       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="1,2">
        <property name="sizeConstraint">
-        <enum>QLayout::SetDefaultConstraint</enum>
+        <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
        </property>
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_10">
          <property name="sizeConstraint">
-          <enum>QLayout::SetMinimumSize</enum>
+          <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
          </property>
          <item>
           <widget class="QRadioButton" name="radioButton_Clip">

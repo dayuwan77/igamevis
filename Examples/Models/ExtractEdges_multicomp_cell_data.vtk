@@ -1,0 +1,39 @@
+# vtk DataFile Version 3.0
+ExtractEdges multicomponent point/cell data test (2 shared-face tetrahedra)
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 float
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+0 0 -1
+CELLS 2 10
+4 0 1 2 3
+4 0 2 1 4
+CELL_TYPES 2
+10
+10
+POINT_DATA 5
+SCALARS p_scalar float 1
+LOOKUP_TABLE default
+0 1 2 3 4
+VECTORS p_vec float
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+1 1 1
+SCALARS shared_tag float 1
+LOOKUP_TABLE default
+100 101 102 103 104
+CELL_DATA 2
+SCALARS c_scalar float 1
+LOOKUP_TABLE default
+10 20
+VECTORS c_vec float
+10 11 12
+20 21 22
+SCALARS shared_tag float 1
+LOOKUP_TABLE default
+1000 2000

@@ -18,6 +18,7 @@
 #include <iostream>
 
 class QDockWidget;
+class QSizeGrip;
 
 class IG_QT_MODULE_EXPORT igQtModelDialogWidget : public QObject {
     Q_OBJECT
@@ -48,6 +49,11 @@ public slots:
         if (modelTreeWidget) modelTreeWidget->setCurrentItem(item);
     }
     void positionTreeDockToRendererCorner(QWidget* rendererWidget);
+
+protected:
+    /** 悬浮无边框窗口：让右下角尺寸手柄跟随窗口大小（可自由缩放） */
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 signals:
     void CurrendModelChanged();
     void CloudPictureChanged();
@@ -72,5 +78,6 @@ private:
     Ui::LayerDialog* ui;
     QDockWidget* m_treeDock = nullptr;       // 上半
     QDockWidget* m_propertiesDock = nullptr; // 下半
+    QSizeGrip* m_treeSizeGrip = nullptr;     // 悬浮时的右下角尺寸手柄
     static bool m_AutoAccelerate;
 };

@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "iGameFileIO.h"
+#include "VTK/iGameGhostVTKReader.h"
 //#include "CSTest.h"
 //#include "iGameMeshCodec/iGameMeshEncoder.h"
 //#include "iGameMeshCodec/iGameMeshDecoder.h"
@@ -34,6 +35,28 @@
 #include <qaction.h>
 #include <qdebug.h>
 #include <qsettings.h>
+
+namespace
+{
+
+iGame::DataObject::Pointer ReadFileWithGhostSupport(const std::string& filePath) {
+    std::string suffix;
+
+    const auto dotPos = filePath.find_last_of('.');
+
+    if (dotPos != std::string::npos) {
+        suffix = filePath.substr(dotPos + 1);
+
+        std::transform(suffix.begin(), suffix.end(), suffix.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    }
+
+    if (suffix == "vtk") { return iGame::GhostVTKReader::ReadFile(filePath); }
+
+    return iGame::FileIO::ReadFile(filePath);
+}
+
+} // namespace
 
 igQtFileLoader::igQtFileLoader(QObject* parent) : QObject(parent) {
     InitRecentFilePaths();
@@ -144,23 +167,22 @@ void igQtFileLoader::LoadFile() {
 //static DataObject::Pointer _obj;
 void igQtFileLoader::OpenFile(const std::string& filePath) {
     using namespace iGame;
+
     if (filePath.empty() || strrchr(filePath.data(), '.') == nullptr) return;
 
-    auto obj = iGame::FileIO::ReadFile(filePath);
-    //_obj = obj;
+    auto obj = ReadFileWithGhostSupport(filePath);
+
     if (obj == nullptr) {
         igDebug("This file read error.");
         return;
     }
+
     auto filename = filePath.substr(filePath.find_last_of('/') + 1);
     obj->SetName(filename.substr(0, filename.find_last_of('.')).c_str());
     obj->GetProperties()->AddProperty(Variant::String, "FilePath")->SetValue(filePath);
-    //Q_EMIT AddFileToModelList(QString(filePath.substr(filePath.find_last_of('/') + 1).c_str()));
 
     this->SaveCurrentFileToRecentFile(QString::fromStdString(filePath));
 
-
-    //return;
     emit NewModel(obj, ItemSource::File);
     emit FinishReading();
 }
@@ -199,7 +221,8 @@ void igQtFileLoader::OpenFiles(const QStringList& filePaths) {
         }
     }
 
-    auto obj = iGame::FileIO::ReadFile(first_file_path);
+    //auto obj = iGame::FileIO::ReadFile(first_file_path);
+    auto obj = ReadFileWithGhostSupport(first_file_path);
     //_obj = obj;
     if (obj == nullptr) {
         igDebug("This file read error.");
