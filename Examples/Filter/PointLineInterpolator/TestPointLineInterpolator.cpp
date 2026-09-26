@@ -173,9 +173,8 @@ bool TestNullPointStrategiesAndInvalidParameters() {
 
 void VisualizeResult() {
     std::cout << "\n=== Visualization ===" << std::endl;
-    const char* manualModelPath = "./Models/point-line-interpolator-manual.vtk";
-    std::cout << "Loading model: " << manualModelPath << std::endl;
-    auto dataObject = iGame::FileIO::ReadFile(manualModelPath);
+    std::cout << "Loading model: " << PointLineInterpolatorModelPath << std::endl;
+    auto dataObject = iGame::FileIO::ReadFile(PointLineInterpolatorModelPath);
     auto source = iGame::DynamicCast<iGame::PointSet>(dataObject);
     if (!source) { std::cerr << "Failed to load model.\n"; return; }
 

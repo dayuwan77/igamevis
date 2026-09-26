@@ -71,10 +71,16 @@ bool TestCube() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
-	IGsize points = ps->GetPoints()->GetNumberOfPoints();
+	auto output = filter->GetOutput();
+	auto outputPoints = iGame::DynamicCast<iGame::PointSet>(output);
+	if (!Check(!outputPoints.IsNull(), "output is a point set")) return false;
+	if (!Check(output != obj && outputPoints->GetPoints() != ps->GetPoints(),
+	           "output is independent of input")) return false;
+	if (!Check(ps->GetPoints()->GetNumberOfPoints() == 8, "input cube retains 8 points")) return false;
+	IGsize points = outputPoints->GetPoints()->GetNumberOfPoints();
 	if (!Check(points == 36, "each triangle got its own vertices (8 -> 36 points)")) return false;
 
-	auto mesh = iGame::DynamicCast<iGame::SurfaceMesh>(obj);
+	auto mesh = iGame::DynamicCast<iGame::SurfaceMesh>(output);
 	if (!Check(!mesh.IsNull() && mesh->GetNumberOfFaces() == 12, "face count unchanged (12)")) return false;
 	return true;
 }
@@ -109,11 +115,21 @@ bool TestTwoTets() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
-	IGsize points = ps->GetPoints()->GetNumberOfPoints();
+	auto output = filter->GetOutput();
+	auto outputPoints = iGame::DynamicCast<iGame::PointSet>(output);
+	if (!Check(!outputPoints.IsNull(), "output is a point set")) return false;
+	if (!Check(output != obj && outputPoints->GetPoints() != ps->GetPoints(),
+	           "output is independent of input")) return false;
+	if (!Check(ps->GetPoints()->GetNumberOfPoints() == 5, "input tetrahedra retain 5 points")) return false;
+	auto inputAttrs = obj->GetAttributeSet();
+	int inputIdx = inputAttrs->GetAttributeIndex("Pressure");
+	if (!Check(inputIdx >= 0 && inputAttrs->GetAttribute(inputIdx).pointer->GetNumberOfElements() == 5,
+	           "input Pressure retains 5 elements")) return false;
+	IGsize points = outputPoints->GetPoints()->GetNumberOfPoints();
 	if (!Check(points == 8, "each tetra got its own vertices (5 -> 8 points)")) return false;
 
 	// 点标量 Pressure 应随顶点复制，元素数从 5 变为 8
-	auto attrs = obj->GetAttributeSet();
+	auto attrs = output->GetAttributeSet();
 	int idx = attrs->GetAttributeIndex("Pressure");
 	if (!Check(idx >= 0, "Pressure array exists")) return false;
 	auto arr = iGame::DynamicCast<iGame::FloatArray>(attrs->GetAttribute(idx).pointer);
