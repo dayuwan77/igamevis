@@ -2809,33 +2809,84 @@ void igQtMainWindow::initAllFilters() {
     });
 
 
-    QAction* ghostCellAction = ui->menu_filters->addAction(QStringLiteral("Ghost 单元标记 (Ghost Cells)"));
+    QAction* ghostCellAction = ui->menu_filters->addAction(QStringLiteral("Ghost 单元标记 (Ghost Cell Mask)"));
     connect(ghostCellAction, &QAction::triggered, this, [this](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
-        iGame::GhostCellFilter::Pointer filter = iGame::GhostCellFilter::New();
-        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
-        filter->SetInput(data);
-        if (filter->Execute()) {
-            modelTreeWidget->updateAllAttriubute(data);
-            int index = data->GetAttributeSet()->GetAttributeIndex("GhostCells");
-            auto drawObject = iGame::DynamicCast<iGame::DrawObject>(data);
-            if (drawObject && index >= 0) {
-                auto item = modelTreeWidget->getItemFromObject(data);
-                if (item && item->childCount() > 0) {
-                    item->setExpanded(true);
-                    auto child = item->child(index);
-                    if (child) {
-                        item->setCurrentChild(child);
-                        item->setSelected(false);
-                        item->viewAttribute(index, -1);
-                        child->setSelected(true);
-                        modelTreeWidget->setCurrentItem(child);
-                    }
-                }
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        auto data = model->GetDataObject();
+
+        // 收集候选：Cell Data 上的单分量数组
+        std::vector<QString> candidates;
+        auto attrs = data->GetAttributeSet();
+        if (attrs) {
+            for (IGsize i = 0; i < attrs->GetNumberOfAttributes(); i++) {
+                auto& a = attrs->GetAttribute(i);
+                if (a.isDeleted || a.pointer.IsNull()) continue;
+                if (a.attachmentType != IG_CELL || a.pointer->GetDimension() != 1) continue;
+                candidates.push_back(QString::fromStdString(a.pointer->GetName()));
             }
-        } else {
-            showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("GhostCellFilter 执行失败"));
         }
+        if (candidates.empty()) {
+            showDarkFramelessMessage(
+                    QStringLiteral("Warning"),
+                    QStringLiteral(
+                            "当前模型没有可用的单元标记数组：Cell Data 中需要存在单分量数组（例如 vtkGhostType）"));
+            return;
+        }
+        // 让 vtkGhostType 排在第一个，作为默认选择
+        for (size_t i = 0; i < candidates.size(); i++) {
+            if (candidates[i].compare(QStringLiteral("vtkGhostType"), Qt::CaseInsensitive) == 0) {
+                std::swap(candidates[0], candidates[i]);
+                break;
+            }
+        }
+
+        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("Ghost 单元标记 (Ghost Cell Mask)"));
+        int arrayId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("单元标记数组"),
+                                           candidates);
+        int anyId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("任意 ghost 标记"),
+                                         "true");
+        int dupId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                         QStringLiteral("重复单元 DUPLICATECELL"), "false");
+        int hidId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                         QStringLiteral("隐藏单元 HIDDENCELL"), "false");
+        dialog->setApplyFunctor([=, this]() {
+            bool ok = false;
+            int comboIndex = dialog->getComboIndex(arrayId, ok);
+            if (!ok || comboIndex < 0 || comboIndex >= static_cast<int>(candidates.size())) {
+                showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("请选择单元标记数组"));
+                return;
+            }
+            bool okAny = false, okDup = false, okHid = false;
+            bool wantAny = dialog->getChecked(anyId, okAny);
+            bool wantDup = dialog->getChecked(dupId, okDup);
+            bool wantHid = dialog->getChecked(hidId, okHid);
+            if (!wantAny && !wantDup && !wantHid) {
+                showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("请至少选择一种 ghost 类型"));
+                return;
+            }
+
+            auto filter = iGame::GhostCellFilter::New();
+            filter->SetGhostArrayName(candidates[comboIndex].toStdString());
+            filter->SetCheckAny(wantAny);
+            filter->SetCheckDuplicateCell(wantDup);
+            filter->SetCheckHiddenCell(wantHid);
+            filter->SetInput(0, data);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("Ghost 单元标记执行失败：请检查选择的单元标记数组"));
+                return;
+            }
+            auto outObj = filter->GetOutput(); // 独立输出，原模型不变
+            if (auto drawObject = iGame::DynamicCast<iGame::DrawObject>(outObj)) {
+                drawObject->ForceReConvertToDrawableData();
+            }
+            modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
+            rendererWidget->update();
+            dialog->close();
+        });
+        dialog->show();
     });
 
     connect(ui->menu_filters->addAction(QStringLiteral("点抽样（Mask Points）")), &QAction::triggered, this,
