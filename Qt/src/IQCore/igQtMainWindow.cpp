@@ -3214,7 +3214,7 @@ void igQtMainWindow::initAllFilters() {
 
                 MeshTriangulationFilter::Pointer triangulation = MeshTriangulationFilter::New();
                 triangulation->SetInput(mesh);
-                if (!triangulation->Execute()) return false;
+                if (!triangulation->Execute()) return;
                 mesh = DynamicCast<SurfaceMesh>(triangulation->GetOutput());
 
                 igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this);
@@ -5745,46 +5745,329 @@ void igQtMainWindow::initAllFilters() {
                     return;
                 }
 
+                const auto bboxCenter = dataObject->GetBoundingBox().center();
+
                 igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
                 dialog->setFilterTitle(QStringLiteral("角度周期复制"));
-                int origin_x_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "origin_x", "0");
-                int origin_y_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "origin_y", "0");
-                int origin_z_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "origin_z", "0");
-                int axis_x_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "axis_x", "0");
-                int axis_y_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "axis_y", "0");
-                int axis_z_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "axis_z", "1");
-                int copies_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "copies", "2");
-                int angle_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "angle(deg)", "360");
+                dialog->setFilterDescription(QStringLiteral(
+                        "ParaView 语义：第 i 份旋转 i×周期角度；向量/张量属性随几何同步旋转。"));
+
+                int axisPresetId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("轴向预设"),
+                        {QStringLiteral("X 轴"), QStringLiteral("Y 轴"), QStringLiteral("Z 轴"),
+                         QStringLiteral("自定义")});
+                int originPresetId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("原点预设"),
+                        {QStringLiteral("世界原点"), QStringLiteral("模型中心"),
+                         QStringLiteral("自定义")});
+
+                dialog->setParameterColumnStretch(0, 1);
+                dialog->setMinimumWidth(420);
+
+                int originVec_id = dialog->addVectorParameter(QStringLiteral("旋转中心"), "0", "0", "0");
+                int axisVec_id = dialog->addVectorParameter(QStringLiteral("旋转轴方向"), "0", "0", "1");
+                int copies_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "周期数量", "4");
+                int angle_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, "周期角度 (°)", "90");
+                int iterMode_id = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("份数模式"),
+                        {QStringLiteral("指定份数"), QStringLiteral("自动填满一周")});
+                int requireFull_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                                          QStringLiteral("要求整周闭合"), "false");
+                int showAxis_id = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                                       QStringLiteral("显示旋转轴"), "true");
+
+                auto* axisCombo = dynamic_cast<QComboBox*>(dialog->getWidget(axisPresetId));
+                auto* originCombo = dynamic_cast<QComboBox*>(dialog->getWidget(originPresetId));
+                auto* iterModeCombo = dynamic_cast<QComboBox*>(dialog->getWidget(iterMode_id));
+                auto* copiesEdit = dynamic_cast<QLineEdit*>(dialog->getWidget(copies_id));
+                auto* angleEdit = dynamic_cast<QLineEdit*>(dialog->getWidget(angle_id));
+
+                // 默认轴为 Z 轴，保持下拉框与输入框一致
+                if (axisCombo) axisCombo->setCurrentIndex(2);
+
+                // 预设联动：选择 X/Y/Z 轴、世界原点/模型中心时回填到向量输入框
+                if (axisCombo) {
+                    connect(axisCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [=](int idx) {
+                        if (idx >= 0 && idx < 3) {
+                            dialog->setVectorComponent(axisVec_id, 0, QString::number(idx == 0 ? 1 : 0));
+                            dialog->setVectorComponent(axisVec_id, 1, QString::number(idx == 1 ? 1 : 0));
+                            dialog->setVectorComponent(axisVec_id, 2, QString::number(idx == 2 ? 1 : 0));
+                        }
+                        dialog->setVectorEnabled(axisVec_id, idx == 3);
+                    });
+                }
+                if (originCombo) {
+                    connect(originCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, [=](int idx) {
+                        if (idx == 0) {
+                            dialog->setVectorComponent(originVec_id, 0, "0");
+                            dialog->setVectorComponent(originVec_id, 1, "0");
+                            dialog->setVectorComponent(originVec_id, 2, "0");
+                        } else if (idx == 1) {
+                            dialog->setVectorComponent(originVec_id, 0, QString::number(static_cast<double>(bboxCenter[0])));
+                            dialog->setVectorComponent(originVec_id, 1, QString::number(static_cast<double>(bboxCenter[1])));
+                            dialog->setVectorComponent(originVec_id, 2, QString::number(static_cast<double>(bboxCenter[2])));
+                        }
+                        dialog->setVectorEnabled(originVec_id, idx == 2);
+                    });
+                }
+                // 默认由预设决定方向/原点，输入框置灰，仅“自定义”可编辑
+                dialog->setVectorEnabled(axisVec_id, false);
+                dialog->setVectorEnabled(originVec_id, false);
+
+                // 实时刷新：份数模式/角度/份数变化时更新预计覆盖情况
+                auto refreshCoverage = [=]() {
+                    bool ok = false;
+                    const double angle = angleEdit ? angleEdit->text().toDouble(&ok) : 90.0;
+                    if (!ok || angle <= 0.0) {
+                        dialog->setFilterDescription(QStringLiteral("周期角度需为正数。"));
+                        return;
+                    }
+                    const int mode = iterModeCombo ? iterModeCombo->currentIndex() : 0;
+                    int copies = 0;
+                    if (mode == 1) {
+                        copies = static_cast<int>(std::floor(360.0 / angle));
+                        if (copies < 1) copies = 1;
+                        if (copiesEdit) {
+                            copiesEdit->setText(QString::number(copies));
+                            copiesEdit->setEnabled(false);
+                        }
+                    } else {
+                        if (copiesEdit) copiesEdit->setEnabled(true);
+                        copies = copiesEdit ? copiesEdit->text().toInt(&ok) : 4;
+                        if (!ok || copies < 1) {
+                            dialog->setFilterDescription(QStringLiteral("周期数量需为正整数。"));
+                            return;
+                        }
+                    }
+                    const double total = copies * angle;
+                    QString cover;
+                    if (std::fabs(total - 360.0) < 1e-3) {
+                        cover = QStringLiteral("整周闭合");
+                    } else if (total < 360.0) {
+                        cover = QStringLiteral("缺口 %1°").arg(360.0 - total);
+                    } else {
+                        cover = QStringLiteral("重叠 %1°").arg(total - 360.0);
+                    }
+                    QString angles;
+                    for (int i = 0; i < copies; ++i) {
+                        if (i > 0) angles += QStringLiteral(", ");
+                        angles += QString::number(i * angle);
+                    }
+                    dialog->setFilterDescription(QStringLiteral("份数 %1（%2，覆盖 %3°）：%4")
+                                                         .arg(copies)
+                                                         .arg(cover)
+                                                         .arg(total)
+                                                         .arg(angles));
+                };
+
+                if (iterModeCombo) {
+                    connect(iterModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
+                            [refreshCoverage](int) { refreshCoverage(); });
+                }
+                if (angleEdit) {
+                    connect(angleEdit, &QLineEdit::textChanged, dialog,
+                            [refreshCoverage](const QString&) { refreshCoverage(); });
+                }
+                if (copiesEdit) {
+                    connect(copiesEdit, &QLineEdit::textChanged, dialog,
+                            [refreshCoverage](const QString&) { refreshCoverage(); });
+                }
+                refreshCoverage();
+
+                // ---- 旋转轴实时预览：打开对话框即显示，参数变化时更新，关闭时移除 ----
+                auto previewModelId = std::make_shared<IGuint>(0);
+                const auto sourceCurrentId = scene ? scene->GetCurrentModelID() : IGuint(0);
+                auto isPreviewModel = [](iGame::Model::Pointer m) {
+                    return m && m->GetDataObject() &&
+                           m->GetDataObject()->GetName() == "RotationAxisPreview";
+                };
+                auto refreshPreview = [=, this]() {
+                    if (*previewModelId != 0) {
+                        // 只移除预览模型本身，避免误删其它模型
+                        if (isPreviewModel(scene->GetModelById(*previewModelId))) {
+                            scene->RemoveModel(*previewModelId);
+                        }
+                        *previewModelId = 0;
+                    }
+                    bool ok = false;
+                    const int axPreset2 = dialog->getComboIndex(axisPresetId, ok);
+                    double pax = 0.0, pay = 0.0, paz = 1.0;
+                    if (axPreset2 == 0) {
+                        pax = 1.0;
+                    } else if (axPreset2 == 1) {
+                        pay = 1.0;
+                    } else if (axPreset2 == 2) {
+                        paz = 1.0;
+                    } else {
+                        pax = dialog->getVectorComponent(axisVec_id, 0, ok);
+                        pay = dialog->getVectorComponent(axisVec_id, 1, ok);
+                        paz = dialog->getVectorComponent(axisVec_id, 2, ok);
+                    }
+                    const int orPreset2 = dialog->getComboIndex(originPresetId, ok);
+                    double pox = 0.0, poy = 0.0, poz = 0.0;
+                    if (orPreset2 == 1) {
+                        pox = bboxCenter[0];
+                        poy = bboxCenter[1];
+                        poz = bboxCenter[2];
+                    } else if (orPreset2 == 2) {
+                        pox = dialog->getVectorComponent(originVec_id, 0, ok);
+                        poy = dialog->getVectorComponent(originVec_id, 1, ok);
+                        poz = dialog->getVectorComponent(originVec_id, 2, ok);
+                    }
+                    const bool show = dialog->getChecked(showAxis_id, ok);
+                    const double norm = std::sqrt(pax * pax + pay * pay + paz * paz);
+                    if (!show || norm < 1e-12) {
+                        rendererWidget->update();
+                        return;
+                    }
+                    const double ux = pax / norm, uy = pay / norm, uz = paz / norm;
+                    const double len = dataObject->GetBoundingBox().diag() * 0.75 + 1.0;
+                    auto line = iGame::UnstructuredMesh::New();
+                    line->AddPoint(iGame::Point(static_cast<float>(pox - ux * len),
+                                                static_cast<float>(poy - uy * len),
+                                                static_cast<float>(poz - uz * len)));
+                    line->AddPoint(iGame::Point(static_cast<float>(pox + ux * len),
+                                                static_cast<float>(poy + uy * len),
+                                                static_cast<float>(poz + uz * len)));
+                    igIndex lineIds[2] = {0, 1};
+                    line->AddCell(lineIds, 2, iGame::IG_LINE);
+                    line->SetViewStyle(IG_WIREFRAME);
+                    line->SetLineColor(igm::vec3(1.0f, 0.5f, 0.0f));
+                    line->SetLineWidth(2.0f);
+                    line->SetName("RotationAxisPreview");
+                    *previewModelId = scene->AddModel(line);
+                    // 预览不应“抢走”当前模型，否则会干扰模型树的选择状态
+                    if (sourceCurrentId != 0 && scene->GetModelById(sourceCurrentId)) {
+                        scene->SetCurrentModel(sourceCurrentId);
+                    }
+                    rendererWidget->update();
+                };
+
+                if (axisCombo) {
+                    connect(axisCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
+                            [refreshPreview](int) { refreshPreview(); });
+                }
+                if (originCombo) {
+                    connect(originCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
+                            [refreshPreview](int) { refreshPreview(); });
+                }
+                for (int comp = 0; comp < 3; ++comp) {
+                    if (auto* e = dialog->getVectorEdit(axisVec_id, comp)) {
+                        connect(e, &QLineEdit::textChanged, dialog,
+                                [refreshPreview](const QString&) { refreshPreview(); });
+                    }
+                    if (auto* e = dialog->getVectorEdit(originVec_id, comp)) {
+                        connect(e, &QLineEdit::textChanged, dialog,
+                                [refreshPreview](const QString&) { refreshPreview(); });
+                    }
+                }
+                if (auto* showAxisEdit = dynamic_cast<QCheckBox*>(dialog->getWidget(showAxis_id))) {
+                    connect(showAxisEdit, &QCheckBox::toggled, dialog,
+                            [refreshPreview](bool) { refreshPreview(); });
+                }
+                // 关闭对话框时移除预览轴
+                connect(dialog, &QDockWidget::visibilityChanged, dialog,
+                        [scene, previewModelId, sourceCurrentId, isPreviewModel](bool visible) {
+                            if (!visible && *previewModelId != 0) {
+                                if (isPreviewModel(scene->GetModelById(*previewModelId))) {
+                                    scene->RemoveModel(*previewModelId);
+                                }
+                                *previewModelId = 0;
+                                if (sourceCurrentId != 0 && scene->GetModelById(sourceCurrentId)) {
+                                    scene->SetCurrentModel(sourceCurrentId);
+                                }
+                            }
+                        });
+                refreshPreview();
+
                 dialog->show();
 
                 dialog->setApplyFunctor([=, this]() {
-                    bool ok;
-                    auto ox = static_cast<float>(dialog->getDouble(origin_x_id, ok));
-                    auto oy = static_cast<float>(dialog->getDouble(origin_y_id, ok));
-                    auto oz = static_cast<float>(dialog->getDouble(origin_z_id, ok));
-                    double ax = dialog->getDouble(axis_x_id, ok);
-                    double ay = dialog->getDouble(axis_y_id, ok);
-                    double az = dialog->getDouble(axis_z_id, ok);
+                    bool ok = false;
+
+                    // 旋转轴：预设 X/Y/Z，或自定义输入
+                    const int axisPreset = dialog->getComboIndex(axisPresetId, ok);
+                    double ax = 0.0, ay = 0.0, az = 1.0;
+                    if (axisPreset == 0) {
+                        ax = 1.0;
+                    } else if (axisPreset == 1) {
+                        ay = 1.0;
+                    } else if (axisPreset == 2) {
+                        az = 1.0;
+                    } else {
+                        ax = dialog->getVectorComponent(axisVec_id, 0, ok);
+                        ay = dialog->getVectorComponent(axisVec_id, 1, ok);
+                        az = dialog->getVectorComponent(axisVec_id, 2, ok);
+                    }
+
+                    // 旋转轴经过的点：世界原点 / 模型中心 / 自定义
+                    const int originPreset = dialog->getComboIndex(originPresetId, ok);
+                    float ox = 0.f, oy = 0.f, oz = 0.f;
+                    if (originPreset == 1) {
+                        ox = static_cast<float>(bboxCenter[0]);
+                        oy = static_cast<float>(bboxCenter[1]);
+                        oz = static_cast<float>(bboxCenter[2]);
+                    } else if (originPreset == 2) {
+                        ox = static_cast<float>(dialog->getVectorComponent(originVec_id, 0, ok));
+                        oy = static_cast<float>(dialog->getVectorComponent(originVec_id, 1, ok));
+                        oz = static_cast<float>(dialog->getVectorComponent(originVec_id, 2, ok));
+                    }
+
                     int copies = dialog->getInt(copies_id, ok);
                     float angle = static_cast<float>(dialog->getDouble(angle_id, ok));
+                    int iterMode = dialog->getComboIndex(iterMode_id, ok);
+                    bool requireFull = dialog->getChecked(requireFull_id, ok);
 
                     auto filter = iGame::AngularPeriodicFilter::New();
                     filter->SetInput(0, dataObject);
                     filter->SetRotationAxis(iGame::Point(ox, oy, oz), iGame::Vector3d(ax, ay, az));
                     filter->SetNumberOfCopies(copies);
                     filter->SetAngle(angle);
+                    filter->SetIterationMode(iterMode == 1 ? iGame::AngularPeriodicFilter::ITERATION_MODE_MAX
+                                                           : iGame::AngularPeriodicFilter::ITERATION_MODE_DIRECT_NB);
+                    filter->SetRequireFullPeriod(requireFull);
                     if (!filter->Execute()) {
                         showDarkFramelessMessage(
                                 QStringLiteral("角度周期复制"),
                                 QStringLiteral("执行失败：%1").arg(QString::fromStdString(filter->GetMessage())));
                         return;
                     }
+                    // 显示实际份数与覆盖信息（整周/缺口/重叠）
+                    dialog->setFilterDescription(QString::fromStdString(filter->GetCoverageInfo()));
                     auto output = filter->GetOutput(0);
                     if (output) {
                         output->SetName(dataObject->GetName() + "_Periodic");
+
+                        // 继承输入的可视化状态（参考 igQtModelClipWidget / 轮廓提取）：
+                        // 颜色映射表、视图样式，以及“当前着色的属性”（按名字匹配，避免下标错位）
+                        auto inputDraw = iGame::DynamicCast<iGame::DrawObject>(dataObject);
+                        auto outputDraw = iGame::DynamicCast<iGame::DrawObject>(output);
+                        if (inputDraw && outputDraw) {
+                            outputDraw->SetColorMapper(inputDraw->GetColorMapper());
+                            outputDraw->SetViewStyle(static_cast<IGenum>(inputDraw->GetViewStyle()));
+
+                            const int inIdx = inputDraw->GetAttributeIndex();
+                            if (inIdx >= 0 && dataObject->GetAttributeSet()) {
+                                auto& inAttr = dataObject->GetAttributeSet()->GetAttribute(inIdx);
+                                const std::string attrName =
+                                        inAttr.pointer ? inAttr.pointer->GetName() : std::string();
+                                const int outIdx =
+                                        (!attrName.empty() && output->GetAttributeSet())
+                                                ? output->GetAttributeSet()->GetAttributeIndex(attrName)
+                                                : -1;
+                                if (outIdx >= 0) {
+                                    outputDraw->ConvertToDrawableData();
+                                    outputDraw->ViewCloudPicture(
+                                            scene, outIdx, inputDraw->GetAttributeDimension());
+                                }
+                            }
+                        }
+
                         modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
-                        rendererWidget->update();
+                        // 让模型树/标量面板同步刷新到新模型的着色属性
+                        modelTreeWidget->updateCloudPicture();
                     }
+                    rendererWidget->update();
                 });
             });
 
