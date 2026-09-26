@@ -15,6 +15,8 @@
 
 #include "Meshleter/iGameMeshleter.h"
 
+#include <vector>
+
 IGAME_NAMESPACE_BEGIN
 class Scene;
 
@@ -66,6 +68,16 @@ public:
 
     FloatArray::Pointer GetRenderPoints();            // 获取当前渲染用的顶点数据
     void SetRenderPoints(FloatArray::Pointer points); // 直接设置顶点数据
+
+    /**
+     * @brief 点样式（IG_POINTS）能否按"逐点颜色"绘制。
+     *
+     * 活动属性挂在单元上时，颜色只存在于展开后的单元几何（m_CellColors）里；点样式绘制的是
+     * m_Positions，颜色只能取自 m_Colors。各网格类型的 SetAttributeWithCellData 会同时生成
+     * 与点数等长的逐点颜色（cell→point 取入射单元颜色的平均，见 CellToPointColorBuilder），
+     * 这里判断这份数据是否可用：不可用时渲染侧保持旧的纯白行为，避免读到不匹配的顶点色。
+     */
+    bool HasPointColors() const;
     // // 设置多边形偏移
     // void SetPolygonOffsetParameters(float factor, float units);
     // void GetPolygonOffsetParameters(float& factor, float& units);
@@ -113,6 +125,27 @@ public:
     igm::vec3 GetLineColor() const;
 
 protected:
+    /**
+     * @brief 单元颜色 -> 逐点颜色累加器（等价 VTK 的 cell→point 颜色转换）。
+     *
+     * 活动属性挂在单元上时，着色结果只存在于"展开后的单元几何"（m_CellPositions/m_CellColors），
+     * 而"点样式"（IG_POINTS）绘制的是 m_Positions，颜色只能取自 m_Colors；m_Colors 为空时
+     * 渲染侧过去只能把点画成纯白（Model::Draw 的点绘制分支 + Vertex.vert 的 useColor==0 回退）。
+     * 各网格类型的 SetAttributeWithCellData 在展开单元几何的同时用本累加器把单元颜色归约到点上，
+     * 使点样式也能按当前单元属性上色。
+     */
+    struct CellToPointColorBuilder {
+        IGsize numberOfPoints{0};
+        std::vector<float> sum;     // 3 * numberOfPoints，入射单元颜色之和
+        std::vector<igIndex> count; // numberOfPoints，入射单元个数
+
+        void Initialize(IGsize pointCount);
+        /* 把一个单元的颜色累加到它引用的各个点上（越界的点索引被忽略）。*/
+        void AddCell(const igIndex* pointIds, int idCount, const float rgb[3]);
+        /* 生成逐点颜色（维度 3，元素个数 = numberOfPoints）；没有入射单元的点使用 fallback。*/
+        FloatArray::Pointer Build(const igm::vec3& fallback) const;
+    };
+
     // OpenGL资源管理
     void CreateDrawBuffer();
     void SyncGpuBuffers();

@@ -45,6 +45,13 @@ public:
     // Generate the connectivity information for structured cells.
     void GenStructuredCellConnectivities();
 
+    // 按单元属性着色：结构化网格的单元几何直接由结构化连接关系展开（不需要为每个单元构造
+    // Hexahedron）：3D 为六面体（m_Volumes），2D（size[2]==1，例如面内点云生成的八叉树）
+    // 为四边形（m_Faces）。基类 VolumeMesh 的实现在 2D 情况下没有任何体单元可用，会得到空的
+    // 单元几何，导致渲染时画出空白，因此这里必须覆盖实现。
+    void SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray::Pointer attrRange,
+                                  igIndex dimension = -1) override;
+
     // Get the index of a point given its i, j, k coordinates.
     igIndex GetPointIndex(igIndex i, igIndex j, igIndex k);
 

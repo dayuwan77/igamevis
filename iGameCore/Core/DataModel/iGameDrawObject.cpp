@@ -325,6 +325,11 @@ void DrawObject::ViewCloudPicture(Scene* scene, int index, int dimension) {
         m_AttributeIndex = -1;
         m_AttributeDimension = -1;
         m_UseColor = false;
+        // 关闭着色时必须同时清掉按单元着色的标记：否则会留下 m_UseColor=false 而
+        // m_ColorWithCell=true 的组合，Model::Draw 会去画按单元展开的几何，而 BlinnPhong.frag
+        // 在 ubo.useColor==0 时使用 inputColor，该组合下 inputColor 没有被赋值，
+        // 于是落到着色器默认值 vec3(1,1,1)，整个模型渲染成纯白。
+        m_ColorWithCell = false;
     } else if (GetAttributeSet()->GetNumberOfAttributes() > index) {
         m_AttributeIndex = index;
         m_AttributeDimension = dimension;
@@ -332,6 +337,15 @@ void DrawObject::ViewCloudPicture(Scene* scene, int index, int dimension) {
 
         auto& curAttr = GetAttributeSet()->GetAttribute(index);
         if (curAttr.pointer) { m_ColorWithCell = (curAttr.attachmentType == IG_CELL); }
+        // 切到单元属性时先清掉逐点颜色：点样式绘制的是 m_Positions，其颜色只能取自 m_Colors，
+        // 而单元属性的逐点颜色要由各网格的 SetAttributeWithCellData 重新生成（cell→point 平均）。
+        // 先清空可以保证"没生成/生成失败/该类型未支持"时回退到旧的纯白行为，而不是显示上一个属性的颜色。
+        // 点属性路径不动，保持原有行为。
+        if (m_ColorWithCell) {
+            m_Colors = FloatArray::New();
+            m_Colors->SetDimension(3);
+            m_Colors->Modified();
+        }
     }
 
     m_AttributeChanged = true;
@@ -842,6 +856,56 @@ void DrawObject::SetTextureBufferToVAO(GLVertexArray::Pointer VAO, GLBuffer::Poi
 void DrawObject::ForceReConvertToDrawableData() {
     m_ReConvertToDrawableData = true;
     if (this->HasSubDataObject()) { ProcessSubDataObjects(&DrawObject::ForceReConvertToDrawableData); }
+}
+
+bool DrawObject::HasPointColors() const {
+    if (m_Colors == nullptr || m_Positions == nullptr) { return false; }
+    const IGsize colorCount = m_Colors->GetNumberOfElements();
+    return colorCount > 0 && colorCount == m_Positions->GetNumberOfElements();
+}
+
+void DrawObject::CellToPointColorBuilder::Initialize(IGsize pointCount) {
+    numberOfPoints = pointCount;
+    sum.assign(static_cast<size_t>(pointCount) * 3, 0.0f);
+    count.assign(static_cast<size_t>(pointCount), 0);
+}
+
+void DrawObject::CellToPointColorBuilder::AddCell(const igIndex* pointIds, int idCount, const float rgb[3]) {
+    if (pointIds == nullptr || idCount <= 0) { return; }
+    for (int i = 0; i < idCount; ++i) {
+        const igIndex id = pointIds[i];
+        if (id < 0 || static_cast<IGsize>(id) >= numberOfPoints) { continue; }
+        const size_t base = static_cast<size_t>(id) * 3;
+        sum[base + 0] += rgb[0];
+        sum[base + 1] += rgb[1];
+        sum[base + 2] += rgb[2];
+        ++count[static_cast<size_t>(id)];
+    }
+}
+
+FloatArray::Pointer DrawObject::CellToPointColorBuilder::Build(const igm::vec3& fallback) const {
+    FloatArray::Pointer colors = FloatArray::New();
+    colors->SetDimension(3);
+    colors->Resize(numberOfPoints);
+    if (numberOfPoints == 0) { return colors; }
+    float* data = colors->RawPointer();
+    for (IGsize i = 0; i < numberOfPoints; ++i) {
+        float* rgb = data + static_cast<size_t>(i) * 3;
+        const igIndex n = count[static_cast<size_t>(i)];
+        if (n > 0) {
+            const float scale = 1.0f / static_cast<float>(n);
+            const size_t base = static_cast<size_t>(i) * 3;
+            rgb[0] = sum[base + 0] * scale;
+            rgb[1] = sum[base + 1] * scale;
+            rgb[2] = sum[base + 2] * scale;
+        } else {
+            rgb[0] = fallback.x;
+            rgb[1] = fallback.y;
+            rgb[2] = fallback.z;
+        }
+    }
+    colors->Modified();
+    return colors;
 }
 
 IGAME_NAMESPACE_END
