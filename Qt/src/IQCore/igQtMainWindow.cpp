@@ -5206,32 +5206,49 @@ void igQtMainWindow::initAllFilters() {
     QAction* LocationAttribute =
             ui->menu_filters->addAction(QStringLiteral("附加点坐标到属性(AppendLocaitonAttribute)"));
     connect(LocationAttribute, &QAction::triggered, this, [this](bool checked) {
-        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        auto scene = rendererWidget->GetScene();
+        if (scene == nullptr || scene->GetCurrentModel() == nullptr) return;
+        auto data = scene->GetCurrentModel()->GetDataObject();
+        if (data == nullptr) return;
+
         AppendLocationAttribute::Pointer filter = AppendLocationAttribute::New();
-        auto data = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
         filter->SetInput(data);
-        filter->SetAttributeByIndex(data->GetAttributeIndex());
-        int index = data->GetAttributeIndex();
-        if (filter->Execute()) {
-            modelTreeWidget->updateAllAttriubute(data);
-            auto drawObject = DynamicCast<DrawObject>(data);
-            if (drawObject) {
-                auto item = modelTreeWidget->getItemFromObject(data);
-                if (item && item->childCount() > 0) {
-                    item->setExpanded(true);
-                    auto child = item->child(index);
-                    if (child) {
-                        item->setCurrentChild(child);
-                        item->setSelected(false);
-                        item->viewAttribute(index, -1);
-                        child->setSelected(true);
-                        modelTreeWidget->setCurrentItem(child);
-                    }
-                }
+        if (!filter->Execute()) {
+            showDarkFramelessMessage(QStringLiteral("Warning"), QString::fromStdString(filter->GetMessage()));
+            return;
+        }
+
+        // 输出是「输入网格的深拷贝 + LocationAttribute」：作为新模型加入模型树
+        DataObject::Pointer output = filter->GetOutput(0);
+        if (output == nullptr) return;
+        output->SetName(data->GetName() + "AddLocation");
+        modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+
+        // 可视化：转可绘制数据 + 刷新场景
+        if (auto drawObject = DynamicCast<DrawObject>(output)) {
+            drawObject->SetVisibility(true);
+            drawObject->ConvertToDrawableData();
+        }
+        scene->Update();
+
+        // 展开新模型并选中刚附加的坐标属性，便于直接按坐标配色查看
+        auto* item = modelTreeWidget->getItemFromObject(output);
+        if (item == nullptr) return;
+        item->setExpanded(true);
+        int locationIndex = -1;
+        if (output->GetAttributeSet() != nullptr) {
+            locationIndex = output->GetAttributeSet()->GetAttributeIndex(
+                    AppendLocationAttribute::GetLocationAttributeName());
+        }
+        if (locationIndex >= 0 && locationIndex < item->childCount()) {
+            auto child = item->child(locationIndex);
+            if (child != nullptr) {
+                item->setCurrentChild(child);
+                item->setSelected(false);
+                item->viewAttribute(locationIndex, -1);
+                child->setSelected(true);
+                modelTreeWidget->setCurrentItem(child);
             }
-        } else {
-            std::string message = filter->GetMessage();
-            showDarkFramelessMessage(QStringLiteral("Warning"), QString::fromStdString(message));
         }
     });
     QAction* passArrays = ui->menu_filters->addAction(QStringLiteral("传递过滤数据数组 (Pass Arrays)"));
