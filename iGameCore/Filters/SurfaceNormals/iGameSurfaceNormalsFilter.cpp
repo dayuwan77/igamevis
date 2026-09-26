@@ -1,340 +1,465 @@
 #include "iGameSurfaceNormalsFilter.h"
-
 #include "iGameAttributeSet.h"
-#include "iGameCell.h"
+#include "iGameCellArray.h"
 #include "iGameFlatArray.h"
-
+#include "iGameIdArray.h"
+#include <algorithm>
 #include <cmath>
-#include <cstring>
+#include <map>
 #include <queue>
-#include <unordered_map>
 #include <vector>
-
 IGAME_NAMESPACE_BEGIN
-
 namespace {
-
-// Newell 方法计算多边形面法向量（未单位化，模长 = 2 * 面积）
-Vector3f ComputeFaceNormalNewell(SurfaceMesh* mesh, const igIndex* ptIds, int npts) {
+constexpr double kPi = 3.14159265358979323846;
+struct EdgeKey {
+    igIndex a;
+    igIndex b;
+    EdgeKey(igIndex x, igIndex y) : a(std::min(x, y)), b(std::max(x, y)) {}
+    bool operator<(const EdgeKey& other) const {
+        if (a != other.a) return a < other.a;
+        return b < other.b;
+    }
+};
+struct EdgeUse {
+    int face;
+    igIndex u;
+    igIndex v;
+};
+std::vector<igIndex> ReadFacePointIds(SurfaceMesh* mesh, int faceId) {
+    IdArray::Pointer ids = IdArray::New();
+    mesh->GetFaces()->GetCellIds(faceId, ids);
+    std::vector<igIndex> result;
+    const int count = static_cast<int>(ids->GetNumberOfIds());
+    const int pointCount = mesh->GetNumberOfPoints();
+    result.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        const igIndex id = ids->GetId(i);
+        if (id < 0 || static_cast<IGsize>(id) >= pointCount) {
+            continue;
+        }
+        result.push_back(id);
+    }
+    return result;
+}
+std::vector<igIndex> CleanFacePointIds(const std::vector<igIndex>& raw) {
+    std::vector<igIndex> result;
+    result.reserve(raw.size());
+    for (igIndex id : raw) {
+        if (result.empty() || result.back() != id) {
+            result.push_back(id);
+        }
+    }
+    if (result.size() > 1 && result.front() == result.back()) {
+        result.pop_back();
+    }
+    return result;
+}
+// Newell 方法计算多边形面法向量，并归一化。退化面返回零向量。
+Vector3f ComputeFaceNormal(SurfaceMesh* mesh, const std::vector<igIndex>& ptIds,
+                           bool& degenerate) {
+    if (ptIds.size() < 3) {
+        degenerate = true;
+        return Vector3f(0.0f, 0.0f, 0.0f);
+    }
     double nx = 0.0, ny = 0.0, nz = 0.0;
+    const int npts = static_cast<int>(ptIds.size());
     for (int i = 0; i < npts; ++i) {
-        int j = (i + 1) % npts;
+        const int j = (i + 1) % npts;
         const Point& a = mesh->GetPoint(ptIds[i]);
         const Point& b = mesh->GetPoint(ptIds[j]);
         nx += static_cast<double>(a[1] - b[1]) * static_cast<double>(a[2] + b[2]);
         ny += static_cast<double>(a[2] - b[2]) * static_cast<double>(a[0] + b[0]);
         nz += static_cast<double>(a[0] - b[0]) * static_cast<double>(a[1] + b[1]);
     }
-    return Vector3f(static_cast<float>(nx), static_cast<float>(ny), static_cast<float>(nz));
+    Vector3f n(static_cast<float>(nx), static_cast<float>(ny), static_cast<float>(nz));
+    const float len = static_cast<float>(n.norm());
+    if (len <= 1e-30f) {
+        degenerate = true;
+        return Vector3f(0.0f, 0.0f, 0.0f);
+    }
+    const float invLen = 1.0f / len;
+    degenerate = false;
+    return Vector3f(n[0] * invLen, n[1] * invLen, n[2] * invLen);
 }
-
-// ============================================================
-// 复制输入网格的全部单元属性到输出（面数不变，直接逐元组拷贝）
-// 参考 iGameTensorFilter 的标准属性复制写法
-// ============================================================
+float Dot(const Vector3f& a, const Vector3f& b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+void ReverseFace(std::vector<igIndex>& ids) {
+    std::reverse(ids.begin(), ids.end());
+}
+// 复制输入网格的全部单元属性到输出。
 void CopyCellAttributes(AttributeSet* src, AttributeSet* dst, int nFaces) {
     if (src == nullptr || dst == nullptr) return;
     auto cellAttrs = src->GetAllCellAttributes();
     if (cellAttrs == nullptr) return;
-
     for (int i = 0; i < cellAttrs->GetNumberOfElements(); ++i) {
         AttributeSet::Attribute& inAttr = cellAttrs->GetElement(i);
         if (inAttr.IsDeleted()) continue;
-
         ArrayObject::Pointer inData = inAttr.GetPointer();
         if (inData == nullptr) continue;
-
         const std::string& name = inData->GetName();
-        // 跳过法向相关属性，本 filter 会重新计算
         if (name == "Normals" || name == "Normals_Magnitude") continue;
-
-        int dim = inData->GetDimension();
+        const int dim = std::max(1, inData->GetDimension());
         DoubleArray::Pointer newData = DoubleArray::New();
         newData->SetName(name);
         newData->SetDimension(dim);
         newData->Resize(nFaces);
-
-        double tmp[64];
+        std::vector<double> tmp(static_cast<size_t>(dim));
         for (int j = 0; j < nFaces; ++j) {
-            inData->GetElement(j, tmp);
-            newData->SetElement(j, tmp);
+            inData->GetElement(j, tmp.data());
+            newData->SetElement(j, tmp.data());
         }
-
         dst->AddAttribute(inAttr.GetType(), IG_CELL, newData, inAttr.GetDataRange());
     }
 }
-
-// ============================================================
-// 复制输入网格的全部点属性到输出
-// 顶点分裂后点数变为 newPtCount，每个新点对应 newPtOrigId[j] 号原始点
-// ============================================================
+// 复制输入网格的全部点属性到输出。【这里是4个参数，不要少】
 void CopyPointAttributes(AttributeSet* src, AttributeSet* dst,
                          const std::vector<int>& newPtOrigId, int newPtCount) {
     if (src == nullptr || dst == nullptr) return;
     auto pointAttrs = src->GetAllPointAttributes();
     if (pointAttrs == nullptr) return;
-
     for (int i = 0; i < pointAttrs->GetNumberOfElements(); ++i) {
         AttributeSet::Attribute& inAttr = pointAttrs->GetElement(i);
         if (inAttr.IsDeleted()) continue;
-
         ArrayObject::Pointer inData = inAttr.GetPointer();
         if (inData == nullptr) continue;
-
         const std::string& name = inData->GetName();
         if (name == "Normals" || name == "Normals_Magnitude") continue;
-
-        int dim = inData->GetDimension();
+        const int dim = std::max(1, inData->GetDimension());
         DoubleArray::Pointer newData = DoubleArray::New();
         newData->SetName(name);
         newData->SetDimension(dim);
         newData->Resize(newPtCount);
-
-        double tmp[64];
+        std::vector<double> tmp(static_cast<size_t>(dim));
         for (int j = 0; j < newPtCount; ++j) {
-            int orig = newPtOrigId[j];
-            inData->GetElement(orig, tmp);
-            newData->SetElement(j, tmp);
+            const int orig = newPtOrigId[static_cast<size_t>(j)];
+            inData->GetElement(orig, tmp.data());
+            newData->SetElement(j, tmp.data());
         }
-
         dst->AddAttribute(inAttr.GetType(), IG_POINT, newData, inAttr.GetDataRange());
     }
 }
-
-} // anonymous namespace
-
+}  // namespace
 SurfaceNormalsFilter::SurfaceNormalsFilter() {
     SetNumberOfInputs(1);
     SetNumberOfOutputs(1);
 }
-
 bool SurfaceNormalsFilter::Execute() {
     DataObject::Pointer input = GetInput(0);
     if (input == nullptr) return false;
-
     auto mesh = DynamicCast<SurfaceMesh>(input);
     if (mesh == nullptr) return false;
-
-    const int nFaces  = mesh->GetNumberOfFaces();
+    const int nFaces = mesh->GetNumberOfFaces();
     const int nPoints = mesh->GetNumberOfPoints();
     if (nFaces == 0 || nPoints == 0) return false;
-
-    // ParaView / VTK vtkPolyDataNormals 默认参数：
-    //   Splitting = ON, FeatureAngle = 30 度
-    // 当面片间法向量夹角 > 特征角时，共享顶点被分裂（复制），
-    // 每个平滑区域独立计算点法向。
-    const float featureAngleCos = 0.8660254f; // cos(30°)
-
-    // -------------------------------------------------------------------
-    // 1. 计算每个面的单位法向量（Newell 方法，与 VTK 一致）
-    // -------------------------------------------------------------------
-    std::vector<Vector3f> faceNormals(nFaces);
-    igIndex ptIds[IGAME_CELL_MAX_SIZE]{};
-
+    // ---------------------------------------------------------------
+    // 1. 读取每个面的原始点序，并生成去除重复点后的计算点序。
+    // ---------------------------------------------------------------
+    std::vector<std::vector<igIndex>> rawFaceIds(static_cast<size_t>(nFaces));
+    std::vector<std::vector<igIndex>> cleanFaceIds(static_cast<size_t>(nFaces));
+    std::vector<Vector3f> faceNormals(static_cast<size_t>(nFaces), Vector3f(0.0f, 0.0f, 0.0f));
+    std::vector<bool> degenerate(static_cast<size_t>(nFaces), false);
     for (int faceId = 0; faceId < nFaces; ++faceId) {
-        int npts = mesh->GetFacePointIds(faceId, ptIds);
-        Vector3f n = ComputeFaceNormalNewell(mesh, ptIds, npts);
-        float len = static_cast<float>(n.norm());
-        if (len > 1e-30f) {
-            float invLen = 1.0f / len;
-            faceNormals[faceId] = Vector3f(n[0] * invLen, n[1] * invLen, n[2] * invLen);
-        } else {
-            faceNormals[faceId] = Vector3f(0.0f, 0.0f, 0.0f);
+        rawFaceIds[static_cast<size_t>(faceId)] = ReadFacePointIds(mesh, faceId);
+        cleanFaceIds[static_cast<size_t>(faceId)] =
+                CleanFacePointIds(rawFaceIds[static_cast<size_t>(faceId)]);
+        bool isDegenerate = false;
+        faceNormals[static_cast<size_t>(faceId)] =
+                ComputeFaceNormal(mesh, cleanFaceIds[static_cast<size_t>(faceId)],
+                                  isDegenerate);
+        degenerate[static_cast<size_t>(faceId)] = isDegenerate;
+    }
+    // ---------------------------------------------------------------
+    // 2. 建立无向边到有向半边使用记录的映射。
+    // ---------------------------------------------------------------
+    std::map<EdgeKey, std::vector<EdgeUse>> edgeUses;
+    for (int faceId = 0; faceId < nFaces; ++faceId) {
+        if (degenerate[static_cast<size_t>(faceId)]) continue;
+        const auto& pts = cleanFaceIds[static_cast<size_t>(faceId)];
+        const int m = static_cast<int>(pts.size());
+        for (int i = 0; i < m; ++i) {
+            const igIndex u = pts[static_cast<size_t>(i)];
+            const igIndex v = pts[static_cast<size_t>((i + 1) % m)];
+            edgeUses[EdgeKey(u, v)].push_back(EdgeUse{faceId, u, v});
         }
     }
-
-    // -------------------------------------------------------------------
-    // 2. 构建边-面邻接，按特征角找面的连通分量（平滑区域）
-    //    两个面共享一条边且法向量夹角 <= 特征角 → 同一平滑区域
-    // -------------------------------------------------------------------
-    mesh->BuildEdges();
-    mesh->BuildFaceEdgeLinks();
-
-    std::vector<int> faceComponent(nFaces, -1);
-    int numComponents = 0;
-
-    for (int startFace = 0; startFace < nFaces; ++startFace) {
-        if (faceComponent[startFace] >= 0) continue;
-
-        std::queue<int> q;
-        q.push(startFace);
-        faceComponent[startFace] = numComponents;
-
-        while (!q.empty()) {
-            int curFace = q.front();
-            q.pop();
-
-            igIndex edgeIds[IGAME_CELL_MAX_SIZE]{};
-            int nEdges = mesh->GetFaceEdgeIds(curFace, edgeIds);
-
-            for (int e = 0; e < nEdges; ++e) {
-                igIndex neighborIds[2]{};
-                int nNeighbors = mesh->GetEdgeToNeighborFaces(edgeIds[e], neighborIds);
-                for (int k = 0; k < nNeighbors; ++k) {
-                    int neighbor = neighborIds[k];
-                    if (neighbor < 0 || neighbor == curFace) continue;
-                    if (faceComponent[neighbor] >= 0) continue;
-
-                    float dot = faceNormals[curFace][0] * faceNormals[neighbor][0]
-                              + faceNormals[curFace][1] * faceNormals[neighbor][1]
-                              + faceNormals[curFace][2] * faceNormals[neighbor][2];
-                    if (dot >= featureAngleCos) {
-                        faceComponent[neighbor] = numComponents;
+    // ---------------------------------------------------------------
+    // 3. Consistency：统一相邻面的环绕方向【修复版本】
+    // ---------------------------------------------------------------
+    if (m_Consistency) {
+        std::vector<char> oriented(static_cast<size_t>(nFaces), 0);
+        for (int seed = 0; seed < nFaces; ++seed) {
+            if (oriented[static_cast<size_t>(seed)] || degenerate[static_cast<size_t>(seed)]) {
+                continue;
+            }
+            std::queue<int> q;
+            q.push(seed);
+            oriented[static_cast<size_t>(seed)] = 1;
+            while (!q.empty()) {
+                const int curFace = q.front();
+                q.pop();
+                const auto& pts = cleanFaceIds[static_cast<size_t>(curFace)];
+                const int m = static_cast<int>(pts.size());
+                for (int i = 0; i < m; ++i) {
+                    const igIndex u = pts[static_cast<size_t>(i)];
+                    const igIndex v = pts[static_cast<size_t>((i + 1) % m)];
+                    const auto it = edgeUses.find(EdgeKey(u, v));
+                    if (it == edgeUses.end()) continue;
+                    for (const EdgeUse& use : it->second) {
+                        const int neighbor = use.face;
+                        if (neighbor == curFace || oriented[static_cast<size_t>(neighbor)])
+                        {
+                            continue;
+                        }
+                        // ========== 修复：区分同向/反向半边 ==========
+                        bool needFlip = false;
+                        if (use.u == u && use.v == v)
+                        {
+                            // 同向：邻面方向相反，需要翻转
+                            needFlip = true;
+                        }
+                        else if (use.u == v && use.v == u)
+                        {
+                            // 反向：方向天然一致，不需要翻转
+                            needFlip = false;
+                        }
+                        if (needFlip)
+                        {
+                            ReverseFace(cleanFaceIds[static_cast<size_t>(neighbor)]);
+                            ReverseFace(rawFaceIds[static_cast<size_t>(neighbor)]);
+                            bool neighborDegenerate = false;
+                            faceNormals[static_cast<size_t>(neighbor)] =
+                                ComputeFaceNormal(mesh,cleanFaceIds[static_cast<size_t>(neighbor)],neighborDegenerate);
+                            degenerate[static_cast<size_t>(neighbor)] = neighborDegenerate;
+                        }
+                        oriented[static_cast<size_t>(neighbor)] = 1;
                         q.push(neighbor);
                     }
                 }
             }
         }
-        ++numComponents;
     }
-
-    // -------------------------------------------------------------------
-    // 3. 特征边分裂：为每个 (连通分量, 原始顶点) 分配新的点 ID
-    //    不同平滑区域即使共享原始顶点，也获得独立的新点
-    // -------------------------------------------------------------------
-    std::vector<std::unordered_map<int, int>> compVertexMap(numComponents);
+    // ---------------------------------------------------------------
+    // 4. FlipNormals：按需翻转面环绕方向和面法向量。
+    // ---------------------------------------------------------------
+    if (m_FlipNormals) {
+        for (int faceId = 0; faceId < nFaces; ++faceId) {
+            ReverseFace(cleanFaceIds[static_cast<size_t>(faceId)]);
+            ReverseFace(rawFaceIds[static_cast<size_t>(faceId)]);
+            faceNormals[static_cast<size_t>(faceId)] =
+                    Vector3f(-faceNormals[static_cast<size_t>(faceId)][0],
+                             -faceNormals[static_cast<size_t>(faceId)][1],
+                             -faceNormals[static_cast<size_t>(faceId)][2]);
+        }
+    }
+    // ---------------------------------------------------------------
+    // 5. 生成输出点编号与输出面连接。
+    // ---------------------------------------------------------------
+    Points::Pointer newPoints = Points::New();
     std::vector<int> newPtOrigId;
-    newPtOrigId.reserve(nPoints);
-
-    std::vector<std::vector<igIndex>> faceNewPtIds(nFaces);
-
+    std::vector<std::vector<igIndex>> outputFaceIds(static_cast<size_t>(nFaces));
     int newPtCount = 0;
     for (int faceId = 0; faceId < nFaces; ++faceId) {
-        int npts = mesh->GetFacePointIds(faceId, ptIds);
-        int comp = faceComponent[faceId];
-        faceNewPtIds[faceId].resize(npts);
-        for (int i = 0; i < npts; ++i) {
-            int origPt = static_cast<int>(ptIds[i]);
-            auto it = compVertexMap[comp].find(origPt);
-            if (it == compVertexMap[comp].end()) {
-                compVertexMap[comp][origPt] = newPtCount;
-                faceNewPtIds[faceId][i] = newPtCount;
-                newPtOrigId.push_back(origPt);
-                ++newPtCount;
-            } else {
-                faceNewPtIds[faceId][i] = static_cast<igIndex>(it->second);
+        outputFaceIds[static_cast<size_t>(faceId)] =
+                degenerate[static_cast<size_t>(faceId)]
+                        ? rawFaceIds[static_cast<size_t>(faceId)]
+                        : cleanFaceIds[static_cast<size_t>(faceId)];
+    }
+    if (m_Splitting) {
+        const double clampedAngle = std::max(0.0, std::min(180.0, m_FeatureAngle));
+        const float featureAngleCos = static_cast<float>(
+                std::cos(clampedAngle * kPi / 180.0));
+        newPtOrigId.resize(static_cast<size_t>(nPoints));
+        for (int i = 0; i < nPoints; ++i) {
+            newPtOrigId[static_cast<size_t>(i)] = i;
+        }
+        // 与 ParaView / VTK 对齐：先完整保留输入点及其原始编号，
+        // 锐边分裂产生的新点按原始点编号升序、局部区域编号升序追加。
+        newPoints->Reserve(nPoints);
+        for (int i = 0; i < nPoints; ++i) {
+            newPoints->AddPoint(mesh->GetPoint(i));
+        }
+        newPtCount = nPoints;
+        std::vector<std::vector<int>> pointFaces(static_cast<size_t>(nPoints));
+        for (int faceId = 0; faceId < nFaces; ++faceId) {
+            if (degenerate[static_cast<size_t>(faceId)]) continue;
+            for (igIndex pt : cleanFaceIds[static_cast<size_t>(faceId)]) {
+                pointFaces[static_cast<size_t>(pt)].push_back(faceId);
             }
         }
+        for (int origPt = 0; origPt < nPoints; ++origPt) {
+            const auto& faces = pointFaces[static_cast<size_t>(origPt)];
+            if (faces.size() <= 1) continue;
+            // 以原始点为中心，按特征角把相邻面划分为局部区域。
+            // region 0 继续使用原始点；region r > 0 使用该点对应的分裂点。
+            std::map<int, int> faceRegion;
+            int numRegions = 0;
+            for (int seedFace : faces) {
+                if (faceRegion.find(seedFace) != faceRegion.end()) continue;
+                faceRegion[seedFace] = numRegions;
+                std::queue<int> q;
+                q.push(seedFace);
+                while (!q.empty()) {
+                    const int curFace = q.front();
+                    q.pop();
+                    const auto& pts = cleanFaceIds[static_cast<size_t>(curFace)];
+                    const int m = static_cast<int>(pts.size());
+                    for (int i = 0; i < m; ++i) {
+                        const igIndex u = pts[static_cast<size_t>(i)];
+                        const igIndex v = pts[static_cast<size_t>((i + 1) % m)];
+                        if (u != static_cast<igIndex>(origPt) &&
+                            v != static_cast<igIndex>(origPt)) {
+                            continue;
+                        }
+                        const igIndex neighborPt =
+                                (u == static_cast<igIndex>(origPt)) ? v : u;
+                        const auto it = edgeUses.find(EdgeKey(origPt, neighborPt));
+                        if (it == edgeUses.end()) continue;
+                        int neighborFace = -1;
+                        int neighborCount = 0;
+                        for (const EdgeUse& use : it->second) {
+                            if (use.face == curFace) continue;
+                            neighborFace = use.face;
+                            ++neighborCount;
+                        }
+                        // 仅沿流形边继续；边界边、非流形边或特征边在此处终止。
+                        if (neighborCount != 1) continue;
+                        if (faceRegion.find(neighborFace) != faceRegion.end()) continue;
+                        const float dot = Dot(faceNormals[static_cast<size_t>(curFace)],
+                                              faceNormals[static_cast<size_t>(neighborFace)]);
+                        if (dot > featureAngleCos) {
+                            faceRegion[neighborFace] = numRegions;
+                            q.push(neighborFace);
+                        }
+                    }
+                }
+                ++numRegions;
+            }
+            int maxRegion = 0;
+            for (const auto& entry : faceRegion) {
+                maxRegion = std::max(maxRegion, entry.second);
+            }
+            if (maxRegion <= 0) continue;
+            std::vector<int> regionNewId(static_cast<size_t>(maxRegion + 1));
+            for (int region = 1; region <= maxRegion; ++region) {
+                const int newId = newPtCount++;
+                regionNewId[static_cast<size_t>(region)] = newId;
+                newPtOrigId.push_back(origPt);
+                newPoints->AddPoint(mesh->GetPoint(origPt));
+            }
+            for (const auto& entry : faceRegion) {
+                const int region = entry.second;
+                if (region == 0) continue;
+                const int newId = regionNewId[static_cast<size_t>(region)];
+                auto& outIds = outputFaceIds[static_cast<size_t>(entry.first)];
+                for (igIndex& id : outIds) {
+                    if (id == static_cast<igIndex>(origPt)) {
+                        id = static_cast<igIndex>(newId);
+                    }
+                }
+            }
+        }
+    } else {
+        newPtCount = nPoints;
+        newPtOrigId.resize(static_cast<size_t>(nPoints));
+        for (int i = 0; i < nPoints; ++i) {
+            newPtOrigId[static_cast<size_t>(i)] = i;
+        }
+        newPoints->DeepCopy(mesh->GetPoints());
     }
-
-    // -------------------------------------------------------------------
-    // 4. 创建新网格的点坐标（复制原始坐标到分裂后的点）
-    // -------------------------------------------------------------------
-    Points::Pointer newPoints = Points::New();
-    newPoints->Reserve(newPtCount);
-    for (int i = 0; i < newPtCount; ++i) {
-        newPoints->AddPoint(mesh->GetPoint(newPtOrigId[i]));
-    }
-
-    // -------------------------------------------------------------------
-    // 5. 创建新网格的面连接（使用分裂后的点 ID）
-    // -------------------------------------------------------------------
-    CellArray::Pointer newFaces = CellArray::New();
+    // ---------------------------------------------------------------
+    // 6. 计算点法向量。
+    // ---------------------------------------------------------------
+    std::vector<Vector3f> pointNormals(static_cast<size_t>(newPtCount), Vector3f(0.0f, 0.0f, 0.0f));
     for (int faceId = 0; faceId < nFaces; ++faceId) {
-        newFaces->AddCellIds(faceNewPtIds[faceId].data(),
-                             static_cast<int>(faceNewPtIds[faceId].size()));
-    }
-
-    // -------------------------------------------------------------------
-    // 6. 计算点法向量：同一平滑区域内邻接面单位法向的平均，再归一化
-    // -------------------------------------------------------------------
-    std::vector<Vector3f> newPtNormals(newPtCount, Vector3f(0.0f, 0.0f, 0.0f));
-    for (int faceId = 0; faceId < nFaces; ++faceId) {
-        int npts = mesh->GetFacePointIds(faceId, ptIds);
-        int comp = faceComponent[faceId];
-        for (int i = 0; i < npts; ++i) {
-            int newPt = compVertexMap[comp][static_cast<int>(ptIds[i])];
-            newPtNormals[newPt] += faceNormals[faceId];
+        if (degenerate[static_cast<size_t>(faceId)]) continue;
+        const Vector3f& n = faceNormals[static_cast<size_t>(faceId)];
+        const auto& outIds = outputFaceIds[static_cast<size_t>(faceId)];
+        for (igIndex outId : outIds) {
+            pointNormals[static_cast<size_t>(outId)] += n;
         }
     }
-
-    // -------------------------------------------------------------------
-    // 7. 组装新 SurfaceMesh
-    // -------------------------------------------------------------------
+    // ---------------------------------------------------------------
+    // 8. 组装新 SurfaceMesh。
+    // ---------------------------------------------------------------
     SurfaceMesh::Pointer newMesh = SurfaceMesh::New();
     newMesh->SetName(mesh->GetName() + "_normals");
     newMesh->SetPoints(newPoints);
+    CellArray::Pointer newFaces = CellArray::New();
+    for (int faceId = 0; faceId < nFaces; ++faceId) {
+        auto& ids = outputFaceIds[static_cast<size_t>(faceId)];
+        if (ids.empty()) {
+            ids.push_back(0);
+        }
+        newFaces->AddCellIds(ids.data(), static_cast<int>(ids.size()));
+    }
     newMesh->SetFaces(newFaces);
-
     auto newAttrs = newMesh->GetAttributeSet();
     auto srcAttrs = mesh->GetAttributeSet();
-
-    // ============================================================
-    // ★ 修复：先复制输入网格的全部原始属性（PointData + CellData）
-    //    解决"输出未复制任何 AttributeSet，所有 PointData 和 CellData 丢失"
-    // ============================================================
-    // 单元属性：面数不变，直接逐元组拷贝
     CopyCellAttributes(srcAttrs, newAttrs, nFaces);
-    // 点属性：顶点分裂后按 newPtOrigId 映射，每个新点取对应原始点的属性值
+    // ====== 调用处：4个参数，和函数定义匹配 ======
     CopyPointAttributes(srcAttrs, newAttrs, newPtOrigId, newPtCount);
-
-    // 删除同名旧属性（兜底：如果输入本身带 Normals，上面复制时已跳过，这里清理残留）
     while (true) {
-        int idx = newAttrs->GetAttributeIndex("Normals");
+        const int idx = newAttrs->GetAttributeIndex("Normals");
         if (idx < 0) break;
         newAttrs->DeleteAttribute(idx);
     }
     while (true) {
-        int idx = newAttrs->GetAttributeIndex("Normals_Magnitude");
+        const int idx = newAttrs->GetAttributeIndex("Normals_Magnitude");
         if (idx < 0) break;
         newAttrs->DeleteAttribute(idx);
     }
-
-    // -------------------------------------------------------------------
-    // 8. 面法向量（三分量）+ 模长
-    // -------------------------------------------------------------------
-    FloatArray::Pointer cellNormals = FloatArray::New();
-    cellNormals->SetDimension(3);
-    cellNormals->Reserve(nFaces);
-    cellNormals->SetName("Normals");
-
-    FloatArray::Pointer cellMag = FloatArray::New();
-    cellMag->SetDimension(1);
-    cellMag->Reserve(nFaces);
-    cellMag->SetName("Normals_Magnitude");
-
-    for (int faceId = 0; faceId < nFaces; ++faceId) {
-        const Vector3f& n = faceNormals[faceId];
-        cellNormals->AddElement3(n[0], n[1], n[2]);
-        cellMag->AddValue(1.0f);
-    }
-    newAttrs->AddAttribute(IG_NORMAL, IG_CELL, cellNormals);
-    newAttrs->AddAttribute(IG_SCALAR, IG_CELL, cellMag);
-
-    // -------------------------------------------------------------------
-    // 9. 点法向量（三分量）+ 模长
-    // -------------------------------------------------------------------
-    FloatArray::Pointer pointNormalsArr = FloatArray::New();
-    pointNormalsArr->SetDimension(3);
-    pointNormalsArr->Reserve(newPtCount);
-    pointNormalsArr->SetName("Normals");
-
-    FloatArray::Pointer pointMag = FloatArray::New();
-    pointMag->SetDimension(1);
-    pointMag->Reserve(newPtCount);
-    pointMag->SetName("Normals_Magnitude");
-
-    for (int i = 0; i < newPtCount; ++i) {
-        Vector3f n = newPtNormals[i];
-        float len = static_cast<float>(n.norm());
-        if (len > 1e-30f) {
-            float invLen = 1.0f / len;
-            n = Vector3f(n[0] * invLen, n[1] * invLen, n[2] * invLen);
-        } else {
-            n = Vector3f(0.0f, 0.0f, 0.0f);
+    // ---------------------------------------------------------------
+    // 9. 添加面法向量属性。
+    // ---------------------------------------------------------------
+    if (m_ComputeCellNormals) {
+        FloatArray::Pointer cellNormals = FloatArray::New();
+        cellNormals->SetDimension(3);
+        cellNormals->Reserve(nFaces);
+        cellNormals->SetName("Normals");
+        FloatArray::Pointer cellMag = FloatArray::New();
+        cellMag->SetDimension(1);
+        cellMag->Reserve(nFaces);
+        cellMag->SetName("Normals_Magnitude");
+        for (int faceId = 0; faceId < nFaces; ++faceId) {
+            const Vector3f& n = faceNormals[static_cast<size_t>(faceId)];
+            cellNormals->AddElement3(n[0], n[1], n[2]);
+            cellMag->AddValue(degenerate[static_cast<size_t>(faceId)] ? 0.0f : 1.0f);
         }
-        pointNormalsArr->AddElement3(n[0], n[1], n[2]);
-        pointMag->AddValue(1.0f);
+        newAttrs->AddAttribute(IG_NORMAL, IG_CELL, cellNormals);
+        newAttrs->AddAttribute(IG_SCALAR, IG_CELL, cellMag);
     }
-    newAttrs->AddAttribute(IG_NORMAL, IG_POINT, pointNormalsArr);
-    newAttrs->AddAttribute(IG_SCALAR, IG_POINT, pointMag);
-
+    // ---------------------------------------------------------------
+    // 10. 添加点法向量属性。
+    // ---------------------------------------------------------------
+    if (m_ComputePointNormals) {
+        FloatArray::Pointer pointNormalsArr = FloatArray::New();
+        pointNormalsArr->SetDimension(3);
+        pointNormalsArr->Reserve(newPtCount);
+        pointNormalsArr->SetName("Normals");
+        FloatArray::Pointer pointMag = FloatArray::New();
+        pointMag->SetDimension(1);
+        pointMag->Reserve(newPtCount);
+        pointMag->SetName("Normals_Magnitude");
+        for (int i = 0; i < newPtCount; ++i) {
+            Vector3f n = pointNormals[static_cast<size_t>(i)];
+            const float len = static_cast<float>(n.norm());
+            if (len > 1e-30f) {
+                const float invLen = 1.0f / len;
+                n = Vector3f(n[0] * invLen, n[1] * invLen, n[2] * invLen);
+            } else {
+                n = Vector3f(0.0f, 0.0f, 0.0f);
+            }
+            pointNormalsArr->AddElement3(n[0], n[1], n[2]);
+            pointMag->AddValue(len > 1e-30f ? 1.0f : 0.0f);
+        }
+        newAttrs->AddAttribute(IG_NORMAL, IG_POINT, pointNormalsArr);
+        newAttrs->AddAttribute(IG_SCALAR, IG_POINT, pointMag);
+    }
     newAttrs->ForceReConvertToDrawableData();
     newAttrs->Modified();
     newMesh->Modified();
-
     SetOutput(0, newMesh);
     return true;
 }
-
 IGAME_NAMESPACE_END

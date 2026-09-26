@@ -1,6 +1,7 @@
 #include "iGameTriangleStripFilter.h"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 IGAME_NAMESPACE_BEGIN
@@ -60,6 +61,81 @@ TriangleStripFilter::TriangleStripFilter() {
 void TriangleStripFilter::SetMaximumLength(int length) { m_MaximumLength = std::max(1, length); }
 IGsize TriangleStripFilter::GetNumberOfStrips() const noexcept { return m_Strips ? m_Strips->GetNumberOfCells() : 0; }
 
+IGsize TriangleStripFilter::GetNumberOfOutputCells() const noexcept {
+    const IGsize stripCount = m_Strips ? m_Strips->GetNumberOfCells() : 0;
+    const IGsize polygonCount = m_PassThroughPolys
+            ? m_PassThroughPolys->GetNumberOfCells()
+            : 0;
+    const IGsize lineCount = m_PolyLines ? m_PolyLines->GetNumberOfCells() : 0;
+    return stripCount + polygonCount + lineCount;
+}
+
+bool TriangleStripFilter::ReadOutputStrips(
+        DataObject::Pointer output, CellArray::Pointer& strips,
+        CellArray::Pointer& stripSourceFaceIds) {
+    strips = nullptr;
+    stripSourceFaceIds = nullptr;
+    if (!output || !output->GetMetadata()) return false;
+
+    auto* metadata = output->GetMetadata();
+    const auto& entries = metadata->entries();
+    auto findIntArray = [&entries](const char* name) -> IntArray::Pointer {
+        const auto it = entries.find(name);
+        if (it == entries.end()) return nullptr;
+        const auto* value = std::get_if<IntArray::Pointer>(&it->second);
+        return value ? *value : nullptr;
+    };
+
+    auto stripOffsets = findIntArray(StripOffsetsMetadataName);
+    auto stripPointIds = findIntArray(StripPointIdsMetadataName);
+    auto sourceOffsets = findIntArray(StripSourceFaceOffsetsMetadataName);
+    auto sourceFaceIds = findIntArray(StripSourceFaceIdsMetadataName);
+    if (!stripOffsets || !stripPointIds || !sourceOffsets || !sourceFaceIds ||
+        stripOffsets->GetNumberOfValues() == 0 ||
+        stripOffsets->GetNumberOfValues() != sourceOffsets->GetNumberOfValues()) {
+        return false;
+    }
+
+    const auto* pointOffsetValues = stripOffsets->RawPointer();
+    const auto* sourceOffsetValues = sourceOffsets->RawPointer();
+    const auto* pointIdValues = stripPointIds->RawPointer();
+    const auto* sourceFaceIdValues = sourceFaceIds->RawPointer();
+    const IGsize offsetCount = stripOffsets->GetNumberOfValues();
+    if (stripPointIds->GetNumberOfValues() >
+                static_cast<IGsize>(std::numeric_limits<int>::max()) ||
+        sourceFaceIds->GetNumberOfValues() >
+                static_cast<IGsize>(std::numeric_limits<int>::max()) ||
+        pointOffsetValues[0] != 0 || sourceOffsetValues[0] != 0 ||
+        pointOffsetValues[offsetCount - 1] !=
+                static_cast<int>(stripPointIds->GetNumberOfValues()) ||
+        sourceOffsetValues[offsetCount - 1] !=
+                static_cast<int>(sourceFaceIds->GetNumberOfValues())) {
+        return false;
+    }
+
+    auto restoredStrips = CellArray::New();
+    auto restoredSourceFaceIds = CellArray::New();
+    for (IGsize stripId = 0; stripId + 1 < offsetCount; ++stripId) {
+        const int pointBegin = pointOffsetValues[stripId];
+        const int pointEnd = pointOffsetValues[stripId + 1];
+        const int sourceBegin = sourceOffsetValues[stripId];
+        const int sourceEnd = sourceOffsetValues[stripId + 1];
+        if (pointBegin < 0 || pointEnd < pointBegin || sourceBegin < 0 ||
+            sourceEnd < sourceBegin || pointEnd - pointBegin < 3 ||
+            sourceEnd - sourceBegin != pointEnd - pointBegin - 2) {
+            return false;
+        }
+        restoredStrips->AddCellIds(pointIdValues + pointBegin,
+                                   pointEnd - pointBegin);
+        restoredSourceFaceIds->AddCellIds(sourceFaceIdValues + sourceBegin,
+                                          sourceEnd - sourceBegin);
+    }
+
+    strips = restoredStrips;
+    stripSourceFaceIds = restoredSourceFaceIds;
+    return true;
+}
+
 bool TriangleStripFilter::Execute() {
     ResetWorkingState();
     if (!PrepareInput()) return false;
@@ -94,16 +170,100 @@ bool TriangleStripFilter::PrepareInput() {
         case IG_SURFACE_MESH:
             m_InputMesh = DynamicCast<SurfaceMesh>(m_SourceInput);
             break;
-        case IG_UNSTRUCTURED_MESH:
+        case IG_UNSTRUCTURED_MESH: {
             m_UnstructuredInput = DynamicCast<UnstructuredMesh>(m_SourceInput);
-            m_InputMesh = m_UnstructuredInput->TransferToSurfaceMesh();
-            if (!m_InputMesh) {
-                igError("TriangleStripFilter requires surface cells. ");
+            if (!m_UnstructuredInput || !m_UnstructuredInput->GetCells()) {
+                igError("TriangleStripFilter received an invalid UnstructuredMesh. ");
                 return false;
             }
+
+            bool hasExplicitLines = false;
+            for (igIndex cellId = 0;
+                 cellId < m_UnstructuredInput->GetNumberOfCells(); ++cellId) {
+                const IGenum cellType = m_UnstructuredInput->GetCellType(cellId);
+                if (cellType == IG_LINE || cellType == IG_POLY_LINE) {
+                    hasExplicitLines = true;
+                } else if (Cell::GetCellDimension(cellType) != 2) {
+                    igError("TriangleStripFilter only accepts surface cells and explicit lines. ");
+                    return false;
+                }
+            }
+
+            // Preserve the original surface-only path and its AttributeSet
+            // behavior. Additional extraction/remapping is only required for
+            // mixed surface/line inputs, which SurfaceMesh cannot represent.
+            if (!hasExplicitLines) {
+                m_InputMesh = m_UnstructuredInput->TransferToSurfaceMesh();
+                if (!m_InputMesh) {
+                    igError("TriangleStripFilter requires surface cells. ");
+                    return false;
+                }
+                break;
+            }
+
+            auto faces = CellArray::New();
+            std::vector<igIndex> sourceFaceIds;
+            for (igIndex cellId = 0;
+                 cellId < m_UnstructuredInput->GetNumberOfCells(); ++cellId) {
+                const IGenum cellType = m_UnstructuredInput->GetCellType(cellId);
+                const int dimension = Cell::GetCellDimension(cellType);
+                if (dimension == 2) {
+                    const igIndex* pointIds = nullptr;
+                    const int pointCount = m_UnstructuredInput->GetCells()->GetCellIds(
+                            cellId, pointIds);
+                    if (!pointIds || pointCount < 3) {
+                        igError("TriangleStripFilter found an invalid surface cell. ");
+                        return false;
+                    }
+                    faces->AddCellIds(pointIds, pointCount);
+                    sourceFaceIds.push_back(cellId);
+                } else if (cellType != IG_LINE && cellType != IG_POLY_LINE) {
+                    igError("TriangleStripFilter only accepts surface cells and explicit lines. ");
+                    return false;
+                }
+            }
+            if (faces->GetNumberOfCells() == 0) {
+                igError("TriangleStripFilter requires at least one surface cell. ");
+                return false;
+            }
+
+            m_InputMesh = SurfaceMesh::New();
+            m_InputMesh->SetName(m_UnstructuredInput->GetName());
+            m_InputMesh->SetPoints(m_UnstructuredInput->GetPoints());
+            m_InputMesh->SetFaces(faces);
+
+            // A mixed unstructured input may interleave lines and faces. Build
+            // face-only CellData so local face IDs remain valid for strip
+            // generation and output attribute remapping.
+            auto surfaceAttributes = AttributeSet::New();
+            if (auto* inputAttributes = m_UnstructuredInput->GetAttributeSet()) {
+                for (IGsize attributeId = 0;
+                     attributeId < inputAttributes->GetNumberOfAttributes();
+                     ++attributeId) {
+                    auto& attribute = inputAttributes->GetAttribute(attributeId);
+                    if (attribute.isDeleted || !attribute.pointer) continue;
+                    if (attribute.attachmentType == IG_POINT) {
+                        surfaceAttributes->AddAttribute(
+                                attribute.type, IG_POINT, attribute.pointer,
+                                attribute.GetDataRange());
+                    } else if (attribute.attachmentType == IG_CELL) {
+                        auto faceArray = CopyArrayTuplesByType(
+                                attribute.pointer, sourceFaceIds);
+                        if (!faceArray) {
+                            igError("TriangleStripFilter could not extract face CellData. ");
+                            return false;
+                        }
+                        surfaceAttributes->AddAttribute(
+                                attribute.type, IG_CELL, faceArray,
+                                attribute.GetDataRange());
+                    }
+                }
+            }
+            m_InputMesh->SetAttributeSet(surfaceAttributes);
             break;
+        }
         default:
-            igError("TriangleStripFilter only supports SurfaceMesh or surface-only UnstructuredMesh. ");
+            igError("TriangleStripFilter only supports SurfaceMesh or surface/line UnstructuredMesh. ");
             return false;
     }
     return m_InputMesh != nullptr;
@@ -135,13 +295,20 @@ bool TriangleStripFilter::BuildTriangleStrips() {
 }
 
 TriangleStripFilter::StripCandidate TriangleStripFilter::FindBestStrip(igIndex seedFaceId) {
-    StripCandidate best;
+    StripCandidate singleTriangle;
     for (int localEdge = 0; localEdge < 3; ++localEdge) {
         OrientedEdge start{seedFaceId, localEdge};
         StripCandidate candidate = TraceStrip(start);
-        if (candidate.GetTriangleCount() > best.GetTriangleCount()) { best = std::move(candidate); }
+        if (candidate.GetTriangleCount() > 1) {
+            // vtkStripper accepts the first edge, in face point order, that
+            // reaches an unvisited triangle.  Choosing the longest of all
+            // three trials changes later seed availability and therefore the
+            // final output-cell count on larger meshes.
+            return candidate;
+        }
+        if (localEdge == 0) { singleTriangle = std::move(candidate); }
     }
-    return best;
+    return singleTriangle;
 }
 
 TriangleStripFilter::StripCandidate TriangleStripFilter::TraceStrip(const OrientedEdge& startEdge) {
@@ -265,17 +432,19 @@ igIndex TriangleStripFilter::FindAvailableNeighbor(igIndex edgeId, igIndex curre
     const igIndex* faceIds = nullptr;
     int faceCount = 0;
     m_InputMesh->GetEdgeToNeighborFaces(edgeId, faceIds, faceCount);
-    igIndex result = -1;
-
     for (int i = 0; i < faceCount; ++i) {
         const igIndex candidate = faceIds[i];
         if (candidate == currentFaceId) continue;
-        if (!IsTriangleFace(candidate)) continue;
-        if (m_FaceMarks[candidate] != FaceMark::Free) { continue; }
-        if (result >= 0) return -1;
-        result = candidate;
+        // vtkStripper consults the first edge neighbor returned by the mesh.
+        // It does not select another neighbor when that first one is already
+        // visited or is not a triangle (relevant on non-manifold edges).
+        if (!IsTriangleFace(candidate) ||
+            m_FaceMarks[candidate] != FaceMark::Free) {
+            return -1;
+        }
+        return candidate;
     }
-    return result;
+    return -1;
 }
 
 igIndex TriangleStripFilter::FindThirdPoint(igIndex faceId, igIndex edgePoint0, igIndex edgePoint1) const {
@@ -423,17 +592,27 @@ void TriangleStripFilter::JoinContiguousPolyLines() {
 }
 
 bool TriangleStripFilter::BuildPolyLines() {
-    if (!m_InputMesh || !m_PolyLines) return false;
-    const IGsize numEdges = m_InputMesh->GetNumberOfEdges();
-    for (igIndex edgeId = 0; edgeId < numEdges; ++edgeId) {
-        const igIndex* faceIds = nullptr;
-        int faceCount = 0;
-        m_InputMesh->GetEdgeToNeighborFaces(edgeId, faceIds, faceCount);
-        if (faceCount == 1) {
-            igIndex pointIds[2]{};
-            const int count = m_InputMesh->GetEdgePointIds(edgeId, pointIds);
-            if (count == 2) { m_PolyLines->AddCellIds(pointIds, 2); }
+    if (!m_PolyLines) return false;
+
+    // vtkStripper processes line cells already present in vtkPolyData; it does
+    // not turn open polygon boundaries into new lines. SurfaceMesh has no line
+    // cell container, so only an UnstructuredMesh input can contribute here.
+    if (!m_UnstructuredInput) return true;
+
+    auto inputCells = m_UnstructuredInput->GetCells();
+    if (!inputCells) return false;
+    for (igIndex cellId = 0;
+         cellId < m_UnstructuredInput->GetNumberOfCells(); ++cellId) {
+        const IGenum cellType = m_UnstructuredInput->GetCellType(cellId);
+        if (cellType != IG_LINE && cellType != IG_POLY_LINE) continue;
+
+        const igIndex* pointIds = nullptr;
+        const int pointCount = inputCells->GetCellIds(cellId, pointIds);
+        if (!pointIds || pointCount < 2) {
+            igError("TriangleStripFilter found an invalid input line cell. ");
+            return false;
         }
+        m_PolyLines->AddCellIds(pointIds, pointCount);
     }
     return true;
 }
@@ -441,12 +620,20 @@ bool TriangleStripFilter::BuildPolyLines() {
 bool TriangleStripFilter::BuildOutputDataObject() {
     auto output = SurfaceMesh::New();
     auto faces = CellArray::New();
+    auto stripOffsets = IntArray::New();
+    auto stripPointIds = IntArray::New();
+    auto stripSourceFaceOffsets = IntArray::New();
+    auto stripSourceFaceIds = IntArray::New();
     std::vector<igIndex> outputSourceFaceIds;
     outputSourceFaceIds.reserve(static_cast<std::size_t>(m_InputMesh->GetNumberOfFaces()));
 
+    stripOffsets->AddValue(0);
+    stripSourceFaceOffsets->AddValue(0);
+
     output->SetName(m_InputMesh->GetName());
     output->SetPoints(m_InputMesh->GetPoints());
-    // 将 strip 暂时还原为独立三角形。
+    // Faces remain expanded for the existing renderer and filters. Native
+    // strip topology is flattened into the output Metadata below.
     for (IGsize stripId = 0; stripId < m_Strips->GetNumberOfCells(); ++stripId) {
         const igIndex* ids = nullptr;
         const int count = m_Strips->GetCellIds(stripId, ids);
@@ -458,6 +645,21 @@ bool TriangleStripFilter::BuildOutputDataObject() {
             return false;
         }
         const auto& sourceFaceIds = m_StripSourceFaceIds[static_cast<std::size_t>(stripId)];
+        for (int i = 0; i < count; ++i) { stripPointIds->AddValue(ids[i]); }
+        for (const igIndex sourceFaceId: sourceFaceIds) {
+            stripSourceFaceIds->AddValue(sourceFaceId);
+        }
+        if (stripPointIds->GetNumberOfValues() >
+                    static_cast<IGsize>(std::numeric_limits<int>::max()) ||
+            stripSourceFaceIds->GetNumberOfValues() >
+                    static_cast<IGsize>(std::numeric_limits<int>::max())) {
+            igError("TriangleStripFilter metadata exceeds 32-bit offset storage. ");
+            return false;
+        }
+        stripOffsets->AddValue(
+                static_cast<int>(stripPointIds->GetNumberOfValues()));
+        stripSourceFaceOffsets->AddValue(
+                static_cast<int>(stripSourceFaceIds->GetNumberOfValues()));
         for (int i = 0; i + 2 < count; ++i) {
             igIndex tri[3] = {ids[i], ids[i + 1], ids[i + 2]};
             if (i % 2 == 1) { std::swap(tri[0], tri[1]); }
@@ -489,6 +691,12 @@ bool TriangleStripFilter::BuildOutputDataObject() {
 
     output->SetFaces(faces);
     output->SetAttributeSet(outputAttributes);
+    output->GetMetadata()->AddIntArray(StripOffsetsMetadataName, stripOffsets);
+    output->GetMetadata()->AddIntArray(StripPointIdsMetadataName, stripPointIds);
+    output->GetMetadata()->AddIntArray(
+            StripSourceFaceOffsetsMetadataName, stripSourceFaceOffsets);
+    output->GetMetadata()->AddIntArray(
+            StripSourceFaceIdsMetadataName, stripSourceFaceIds);
     SetOutput(output);
     return true;
 }

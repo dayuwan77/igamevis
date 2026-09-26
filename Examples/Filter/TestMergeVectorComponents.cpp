@@ -1,5 +1,13 @@
+// Automatic test for MergeVectorComponentsFilter (no manual input required).
+// Model: ./Models/MergeVectorComponents_Quad_Plane.vtk (hardcoded relative path; the CMake
+//        assets step copies Examples/Models next to the executable)
+// Checks (fully automatic):
+//   1) point merge {u1, v1, w1} -> independent output node, IG_VECTOR dim=3 (point data)
+//   2) cell merge {c_amp, c_amp, c_amp} -> independent output node, IG_VECTOR dim=3 (cell data)
+//   3) the original model stays untouched; output node named <vector>_<model>_merged
+// Return: 0 = all pass, 1 = any failure
+
 #include <cstddef>
-#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -12,24 +20,32 @@
 
 namespace {
 
+int g_passes = 0;
+int g_failures = 0;
+
+// 通过时静默计数, 失败时才打印, 避免输出冗余
+void Check(bool cond, const std::string& what) {
+    if (cond) { ++g_passes; return; }
+    ++g_failures;
+    std::cout << "  [FAIL] " << what << "\n" << std::flush;
+}
+
 void PrintScalarPreview(iGame::ArrayObject* arr, IGsize count) {
-    if (!arr) { std::cout << "    (null)\n"; return; }
+    if (!arr) { std::cout << "(null)\n"; return; }
     const IGsize n = arr->GetNumberOfElements();
     const IGsize m = count < n ? count : n;
-    std::cout << "    first " << m << " values: ";
     for (IGsize i = 0; i < m; ++i) {
         std::cout << arr->GetValue(i);
         if (i + 1 < m) std::cout << ", ";
     }
-    std::cout << "\n";
+    std::cout << "\n" << std::flush;
 }
 
 void PrintVectorPreview(iGame::ArrayObject* arr, IGsize count) {
-    if (!arr) { std::cout << "    (null)\n"; return; }
+    if (!arr) return;
     const int dim = arr->GetDimension();
     const IGsize n = arr->GetNumberOfElements();
     const IGsize m = count < n ? count : n;
-    std::cout << "    first " << m << " elements (dim=" << dim << "):\n";
     for (IGsize i = 0; i < m; ++i) {
         std::cout << "    [" << i << "] = (";
         for (int d = 0; d < dim; ++d) {
@@ -38,126 +54,104 @@ void PrintVectorPreview(iGame::ArrayObject* arr, IGsize count) {
         }
         std::cout << ")\n";
     }
+    std::cout << std::flush;
+}
+
+iGame::DataObject::Pointer RunMerge(iGame::DataObject::Pointer input,
+                                    const std::vector<std::string>& names,
+                                    IGenum attach, const std::string& outName) {
+    auto filter = iGame::MergeVectorComponentsFilter::New();
+    filter->SetInput(input);
+    filter->SetComponentArrayNames(names);
+    filter->SetAttachmentType(attach);
+    filter->SetOutputVectorName(outName);
+    if (!filter->Execute()) {
+        std::cout << "  [FAIL] Execute: " << filter->GetMessage() << "\n" << std::flush;
+        ++g_failures;
+        return nullptr;
+    }
+    return filter->GetOutput();
+}
+
+// Verify an independent output node for a merge of `names` (same order) under `attach`
+void VerifyOutput(iGame::DataObject::Pointer input, iGame::DataObject::Pointer output,
+                  IGenum attach, const std::vector<std::string>& names) {
+    Check(output != nullptr, "output node exists");
+    if (!output) return;
+    Check(output.GetPointer() != input.GetPointer(),
+          "output is an independent node (not the input)");
+    Check(input->GetAttributeSet()->GetAttributeIndex("vector") < 0,
+          "original model untouched (no merged vector on input)");
+    Check(output->GetName().find("_merged") != std::string::npos,
+          "output node named <vector>_<model>_merged");
+
+    auto inAttrs = input->GetAttributeSet();
+    auto outAttrs = output->GetAttributeSet();
+    if (!outAttrs) { Check(false, "output has an AttributeSet"); return; }
+
+    auto& merged = outAttrs->GetAttribute("vector");
+    Check(!merged.IsNone() && merged.type == IG_VECTOR, "vector attribute registered as IG_VECTOR");
+    Check(merged.attachmentType == attach, "vector attached to the requested data type");
+    Check(merged.pointer && merged.pointer->GetDimension() == 3, "vector dimension == 3");
+
+    std::vector<iGame::ArrayObject::Pointer> src;
+    for (const auto& name : names) {
+        src.push_back(inAttrs->GetAttribute(name).pointer);
+        Check(src.back() != nullptr, "input scalar \"" + name + "\" present");
+    }
+    if (!src[0] || !src[1] || !src[2]) return;
+    const IGsize n = src[0]->GetNumberOfElements();
+    Check(merged.pointer->GetNumberOfElements() == n, "vector element count matches scalars");
+
+    bool valuesOk = true;
+    for (IGsize i = 0; valuesOk && i < n; ++i) {
+        for (int d = 0; d < 3; ++d) {
+            if (merged.pointer->GetElementValue(i, d) != src[static_cast<size_t>(d)]->GetValue(i)) {
+                valuesOk = false;
+                break;
+            }
+        }
+    }
+    Check(valuesOk, "component values match the input scalars");
+
+    // 打印结果: 所选标量前 10 值 + 合并向量前 10 元素
+    const char* axis[3] = {"X", "Y", "Z"};
+    for (int d = 0; d < 3; ++d) {
+        std::cout << "  [" << axis[d] << " " << names[d] << "] first 10 values: ";
+        PrintScalarPreview(src[d], 10);
+    }
+    std::cout << "  [vector] first 10 elements:\n";
+    PrintVectorPreview(merged.pointer, 10);
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
-    std::string fileName;
-    if (argc >= 2) fileName = argv[1];
-    if (fileName.empty()) {
-        std::cout << "Please enter model file path: ";
-        std::getline(std::cin, fileName);
-    }
-    if (fileName.empty()) {
-        std::cerr << "[testMergeVectorComponents] no model path provided\n";
-        return 1;
-    }
-    std::cerr << "[testMergeVectorComponents] cwd=" << std::filesystem::current_path().string()
-              << " file=" << fileName << " exists=" << std::filesystem::exists(fileName) << "\n"
-              << std::flush;
+    // Hardcoded relative model path (no manual input required)
+    std::string modelPath = "./Models/MergeVectorComponents_Quad_Plane.vtk";
+    if (argc >= 2) modelPath = argv[1];
 
-    iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
-    if (!obj) {
-        std::cerr << "[testMergeVectorComponents] FAIL: ReadFile returned null\n" << std::flush;
-        return 1;
-    }
-    auto attrs = obj->GetAttributeSet();
-    if (!attrs) {
-        std::cerr << "[testMergeVectorComponents] FAIL: no AttributeSet\n" << std::flush;
-        return 1;
-    }
+    std::cout << "[testMergeVectorComponents] model: " << modelPath << "\n" << std::flush;
+    iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(modelPath);
+    Check(obj != nullptr, "model loaded");
+    if (!obj) return 1;
+    Check(obj->GetAttributeSet() != nullptr, "model has an AttributeSet");
+    if (!obj->GetAttributeSet()) return 1;
 
-    // 1) choose data type
-    std::cout << "Choose data type (0=PointData 1=CellData): ";
-    std::string line;
-    int typeIdx = 0;
-    if (std::getline(std::cin, line)) {
-        try { typeIdx = std::stoi(line); } catch (...) { typeIdx = 0; }
-    }
-    const IGenum attach = (typeIdx == 1) ? IG_CELL : IG_POINT;
-    const bool isPoint = (attach == IG_POINT);
-    std::cout << "Selected: " << (isPoint ? "PointData" : "CellData") << "\n";
+    std::cout << "--- Point merge {u1, v1, w1} ---\n";
+    const int fail0 = g_failures;
+    auto outP = RunMerge(obj, {"u1", "v1", "w1"}, IG_POINT, "vector");
+    VerifyOutput(obj, outP, IG_POINT, {"u1", "v1", "w1"});
+    std::cout << "  --> point merge: " << (g_failures == fail0 ? "OK" : "FAILED") << "\n";
 
-    auto buf = isPoint ? attrs->GetAllPointAttributes() : attrs->GetAllCellAttributes();
-    if (!buf || buf->GetNumberOfElements() == 0) {
-        std::cerr << "[testMergeVectorComponents] FAIL: no attributes under this data type\n" << std::flush;
-        return 1;
-    }
+    std::cout << "--- Cell merge {c_amp, c_amp, c_amp} ---\n";
+    const int fail1 = g_failures;
+    auto outC = RunMerge(obj, {"c_amp", "c_amp", "c_amp"}, IG_CELL, "vector");
+    VerifyOutput(obj, outC, IG_CELL, {"c_amp", "c_amp", "c_amp"});
+    std::cout << "  --> cell merge: " << (g_failures == fail1 ? "OK" : "FAILED") << "\n";
 
-    // 2) list single-component scalars
-    std::vector<std::string> names;
-    std::cout << "\nAvailable single-component scalars:\n";
-    for (int i = 0; i < buf->GetNumberOfElements(); ++i) {
-        auto& a = buf->GetElement(i);
-        if (a.type != IG_SCALAR || !a.pointer || a.pointer->GetDimension() != 1) continue;
-        const std::string nm = a.pointer->GetName();
-        names.push_back(nm);
-        std::cout << "  [" << (names.size() - 1) << "] " << nm
-                  << "  (n=" << a.pointer->GetNumberOfElements() << ")\n";
-    }
-    if (names.empty()) {
-        std::cerr << "[testMergeVectorComponents] FAIL: no single-component scalar under this data type\n"
-                  << std::flush;
-        return 1;
-    }
-
-    // 3) input three attribute names (index or name accepted)
-    std::vector<std::string> picked(3);
-    const char* axisName[3] = {"X", "Y", "Z"};
-    for (int k = 0; k < 3; ++k) {
-        std::cout << "Enter " << axisName[k] << " component attribute name: ";
-        if (!std::getline(std::cin, picked[k])) picked[k].clear();
-        if (!picked[k].empty()) {
-            bool allDigit = true;
-            for (char c : picked[k]) if (c < '0' || c > '9') { allDigit = false; break; }
-            if (allDigit) {
-                int idx = std::stoi(picked[k]);
-                if (idx >= 0 && idx < static_cast<int>(names.size())) picked[k] = names[idx];
-            }
-        }
-        if (picked[k].empty()) {
-            std::cerr << "[testMergeVectorComponents] FAIL: no attribute name for " << axisName[k] << "\n" << std::flush;
-            return 1;
-        }
-    }
-    std::cout << "\nSelected: X=" << picked[0] << "  Y=" << picked[1] << "  Z=" << picked[2] << "\n";
-
-    // 4) print first 10 values of selected scalars
-    std::cout << "\n=== Selected scalar attributes (first 10 values) ===\n";
-    for (int k = 0; k < 3; ++k) {
-        auto& a = attrs->GetAttribute(picked[k]);
-        std::cout << "[" << axisName[k] << "] " << picked[k] << ":\n";
-        PrintScalarPreview(a.pointer, 10);
-    }
-
-    // 5) merge
-    auto filter = iGame::MergeVectorComponentsFilter::New();
-    filter->SetInput(obj);
-    filter->SetComponentArrayNames(picked);
-    filter->SetAttachmentType(attach);
-    filter->SetOutputVectorName("vector");
-    if (!filter->Execute()) {
-        std::cerr << "[testMergeVectorComponents] FAIL: Execute failed: "
-                  << filter->GetMessage() << "\n" << std::flush;
-        return 1;
-    }
-
-    // 6) print first 10 elements of merged vector
-    auto& merged = attrs->GetAttribute("vector");
-    if (merged.IsNone() || !merged.pointer) {
-        std::cerr << "[testMergeVectorComponents] FAIL: merged result \"vector\" not found\n" << std::flush;
-        return 1;
-    }
-    std::cout << "\n=== Merged vector \"vector\" (first 10 elements) ===\n";
-    std::cout << "  type=" << (merged.type == IG_VECTOR ? "IG_VECTOR" : std::to_string(merged.type))
-              << "  attachment=" << (merged.attachmentType == IG_POINT ? "IG_POINT"
-                                   : merged.attachmentType == IG_CELL ? "IG_CELL"
-                                   : std::to_string(merged.attachmentType))
-              << "  dimension=" << merged.pointer->GetDimension()
-              << "  nElements=" << merged.pointer->GetNumberOfElements() << "\n";
-    PrintVectorPreview(merged.pointer, 10);
-
-    std::cout << "\n[testMergeVectorComponents] done\n" << std::flush;
-    return 0;
+    std::cout << "\n[testMergeVectorComponents] "
+              << (g_failures == 0 ? std::string("ALL PASS") : "FAILED")
+              << "  (" << g_passes << " passed, " << g_failures << " failed)\n" << std::flush;
+    return g_failures == 0 ? 0 : 1;
 }

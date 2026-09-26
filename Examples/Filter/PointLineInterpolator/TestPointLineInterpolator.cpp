@@ -1,13 +1,19 @@
 #include <PointLineInterpolator/iGamePointLineInterpolatorFilter.h>
 #include <iGameAttributeSet.h>
+#include <iGameFileIO.h>
 #include <iGameFlatArray.h>
 #include <iGamePointSet.h>
+#include <iGameScene.h>
+#include <iGameRenderWindow.h>
+#include <iGameInteractor.h>
 
 #include <cmath>
 #include <iostream>
 #include <string>
 
 namespace {
+constexpr const char* PointLineInterpolatorModelPath = "./Models/PointLineInterpolatorFilter_Test.vtk";
+
 bool Near(double lhs, double rhs, double tolerance = 1e-5) { return std::abs(lhs - rhs) <= tolerance; }
 
 bool Check(bool condition, const std::string& message) {
@@ -16,37 +22,15 @@ bool Check(bool condition, const std::string& message) {
 }
 
 iGame::PointSet::Pointer CreateSource() {
-    auto source = iGame::PointSet::New();
-    source->SetName("TwoPointCloud");
-    source->AddPoint(iGame::Point(0.0, 0.0, 0.0));
-    source->AddPoint(iGame::Point(2.0, 0.0, 0.0));
-
-    auto scalar = iGame::DoubleArray::New();
-    scalar->SetName("Temperature");
-    scalar->SetDimension(1);
-    scalar->AddValue(0.0);
-    scalar->AddValue(20.0);
-    source->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_POINT, scalar);
-
-    auto vector = iGame::FloatArray::New();
-    vector->SetName("Velocity");
-    vector->SetDimension(3);
-    vector->AddElement3(0.0, 0.0, 0.0);
-    vector->AddElement3(2.0, 4.0, 6.0);
-    source->GetAttributeSet()->AddAttribute(IG_VECTOR, IG_POINT, vector);
-
-    auto integer = iGame::IntArray::New();
-    integer->SetName("IntegerSamples");
-    integer->SetDimension(1);
-    integer->AddValue(0);
-    integer->AddValue(3);
-    source->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_POINT, integer);
-    return source;
+    std::cout << "Loading model: " << PointLineInterpolatorModelPath << '\n';
+    auto dataObject = iGame::FileIO::ReadFile(PointLineInterpolatorModelPath);
+    return iGame::DynamicCast<iGame::PointSet>(dataObject);
 }
 
 bool TestParameterizedLineAndVoronoi() {
     std::cout << "Running parameterized-line and Voronoi tests..." << std::endl;
     auto source = CreateSource();
+    if (!Check(source != nullptr, "the PointLineInterpolator test model must load automatically")) { return false; }
     auto filter = iGame::PointLineInterpolatorFilter::New();
     filter->SetInput(source);
     filter->SetPoint1(iGame::Point(0.0, 0.0, 0.0));
@@ -100,6 +84,7 @@ bool TestParameterizedLineAndVoronoi() {
 bool TestGaussianAndShepard() {
     std::cout << "Running Gaussian and Shepard tests..." << std::endl;
     auto source = CreateSource();
+    if (!Check(source != nullptr, "the PointLineInterpolator test model must load automatically")) { return false; }
     auto filter = iGame::PointLineInterpolatorFilter::New();
     filter->SetInput(source);
     filter->SetPoint1(iGame::Point(1.0, 0.0, 0.0));
@@ -140,6 +125,7 @@ bool TestGaussianAndShepard() {
 bool TestNullPointStrategiesAndInvalidParameters() {
     std::cout << "Running null-point and validation tests..." << std::endl;
     auto source = CreateSource();
+    if (!Check(source != nullptr, "the PointLineInterpolator test model must load automatically")) { return false; }
     auto filter = iGame::PointLineInterpolatorFilter::New();
     filter->SetInput(source);
     filter->SetPoint1(iGame::Point(10.0, 0.0, 0.0));
@@ -184,6 +170,67 @@ bool TestNullPointStrategiesAndInvalidParameters() {
     ok &= Check(!filter->Execute(), "empty N-closest footprint is rejected");
     return ok;
 }
+
+void VisualizeResult() {
+    std::cout << "\n=== Visualization ===" << std::endl;
+    const char* manualModelPath = "./Models/point-line-interpolator-manual.vtk";
+    std::cout << "Loading model: " << manualModelPath << std::endl;
+    auto dataObject = iGame::FileIO::ReadFile(manualModelPath);
+    auto source = iGame::DynamicCast<iGame::PointSet>(dataObject);
+    if (!source) { std::cerr << "Failed to load model.\n"; return; }
+
+    std::cout << "Source: " << source->GetNumberOfPoints() << " points" << std::endl;
+
+    auto filter = iGame::PointLineInterpolatorFilter::New();
+    filter->SetInput(source);
+    filter->SetPoint1(iGame::Point(0.0, 0.0, 0.0));
+    filter->SetPoint2(iGame::Point(2.0, 1.0, 0.0));
+    filter->SetResolution(40);
+    filter->SetKernelType(iGame::PointLineInterpolatorFilter::GAUSSIAN);
+    filter->SetKernelFootprint(iGame::PointLineInterpolatorFilter::RADIUS);
+    filter->SetRadius(5.0);
+    filter->SetSharpness(2.0);
+
+    if (!filter->Execute()) {
+        std::cerr << "Filter execution failed.\n";
+        return;
+    }
+
+    auto lineOutput = filter->GetLineOutput();
+    std::cout << "Interpolated line: " << lineOutput->GetNumberOfPoints() << " points, "
+              << lineOutput->GetNumberOfCells() << " line cells" << std::endl;
+
+    auto scene = iGame::Scene::New();
+
+    auto srcDraw = iGame::DynamicCast<iGame::DrawObject>(source);
+    if (srcDraw) {
+        srcDraw->SetViewStyle(IG_POINTS);
+        srcDraw->SetPointSize(10.0f);
+        srcDraw->SetDefaultColor(igm::vec3{1.0f, 1.0f, 1.0f});
+    }
+    scene->AddModel(source);
+
+    auto lineDraw = iGame::DynamicCast<iGame::DrawObject>(lineOutput);
+    if (lineDraw) {
+        lineDraw->SetViewStyle(IG_WIREFRAME);
+        lineDraw->SetLineWidth(3.0f);
+        lineDraw->SetLineColor(igm::vec3{0.0f, 1.0f, 1.0f});
+    }
+    scene->AddModel(lineOutput);
+
+    auto window = iGame::RenderWindow::New();
+    window->SetSize(1280, 720);
+    window->SetTitle("PointLineInterpolator - Diagonal Interpolation on Quad");
+    window->SetScene(scene);
+
+    auto interactor = iGame::Interactor::New();
+    interactor->Initialize(scene);
+    interactor->CreateDefaultStyle();
+    window->SetInteractor(interactor);
+
+    std::cout << "Render window opened. Close the window to exit." << std::endl;
+    window->Show();
+}
 }
 
 int main() {
@@ -191,5 +238,6 @@ int main() {
                     TestNullPointStrategiesAndInvalidParameters();
     if (!ok) return 1;
     std::cout << "PointLineInterpolator acceptance tests passed.\n";
+    VisualizeResult();
     return 0;
 }

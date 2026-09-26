@@ -1,6 +1,9 @@
 #include <AxisAlignedReflection/iGameAxisAlignedReflectionFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameFileIO.h>
+#include <iGameInteractor.h>
+#include <iGameRenderWindow.h>
+#include <iGameScene.h>
 #include <iGameUnstructuredMesh.h>
 
 #include <cmath>
@@ -240,6 +243,96 @@ bool TestRealModel() {
     return true;
 }
 
+bool TestMixedCellSizesWithCopyInput() {
+    using namespace iGame;
+
+    auto input = UnstructuredMesh::New();
+    input->AddPoint(Point(0.0f, 0.0f, 0.0f));
+    input->AddPoint(Point(1.0f, 0.0f, 0.0f));
+    input->AddPoint(Point(1.0f, 1.0f, 0.0f));
+    input->AddPoint(Point(0.0f, 1.0f, 0.0f));
+    input->AddPoint(Point(2.0f, 0.0f, 0.0f));
+
+    igIndex quad[4]{0, 1, 2, 3};
+    input->AddCell(quad, 4, IG_QUAD);
+    igIndex triangle[3]{1, 4, 2};
+    input->AddCell(triangle, 3, IG_TRIANGLE);
+
+    auto filter = AxisAlignedReflectionFilter::New();
+    filter->SetInput(input);
+    filter->SetPlane(AxisAlignedReflectionFilter::Plane::XMax);
+
+    if (!Check(filter->Execute(), "mixed cell sizes execute")) return false;
+
+    auto output = DynamicCast<UnstructuredMesh>(filter->GetOutput());
+    if (!Check(output != nullptr, "mixed cell sizes output exists")) return false;
+    if (!Check(output->GetNumberOfPoints() == 10, "mixed cell sizes double points")) return false;
+    if (!Check(output->GetNumberOfCells() == 4, "mixed cell sizes double cells")) return false;
+
+    const igIndex* ids = nullptr;
+    output->GetCells()->GetCellIds(0, ids);
+    if (!Check(ids[0] == 0 && ids[1] == 1 && ids[2] == 2 && ids[3] == 3,
+               "mixed original quad is preserved")) return false;
+
+    output->GetCells()->GetCellIds(1, ids);
+    if (!Check(ids[0] == 1 && ids[1] == 4 && ids[2] == 2,
+               "mixed original triangle is preserved")) return false;
+
+    output->GetCells()->GetCellIds(2, ids);
+    if (!Check(ids[0] == 5 && ids[1] == 8 && ids[2] == 7 && ids[3] == 6,
+               "mixed reflected quad is correct")) return false;
+
+    output->GetCells()->GetCellIds(3, ids);
+    return Check(ids[0] == 6 && ids[1] == 7 && ids[2] == 9,
+                 "mixed reflected triangle is correct");
+}
+
+// 运行测试后打开渲染窗口，显示反射结果
+bool ShowReflectedResult() {
+    using namespace iGame;
+
+    auto object = FileIO::ReadFile("./Models/Quad_Bicycle.vtk");
+    auto input = DynamicCast<UnstructuredMesh>(object);
+    if (!input) {
+        std::cerr << "Failed to load ./Models/Quad_Bicycle.vtk for rendering.\n";
+        return false;
+    }
+
+    auto filter = AxisAlignedReflectionFilter::New();
+    filter->SetInput(input);
+    // 使用 x=1 镜面，并保留原始模型，便于观察反射结果
+    filter->SetPlane(AxisAlignedReflectionFilter::Plane::X);
+    filter->SetCenter(1.0);
+    filter->SetCopyInput(true);
+
+    if (!filter->Execute()) {
+        std::cerr << "AxisAlignedReflectionFilter execute failed for rendering.\n";
+        return false;
+    }
+
+    auto output = DynamicCast<DrawObject>(filter->GetOutput());
+    if (!output) {
+        std::cerr << "Reflection output is not drawable.\n";
+        return false;
+    }
+    output->SetViewStyle(IG_SURFACE);
+
+    auto scene = Scene::New();
+    scene->AddModel(output);
+
+    RenderWindow::Pointer window = RenderWindow::New();
+    window->SetSize(1280, 720);
+    window->SetScene(scene);
+
+    auto interactor = Interactor::New();
+    interactor->Initialize(scene);
+    interactor->CreateDefaultStyle();
+    window->SetInteractor(interactor);
+
+    window->Show();
+    return true;
+}
+
 } // namespace
 
 int main() {
@@ -247,10 +340,16 @@ int main() {
         TestCopyInputAndConnectivity() &&
         TestFlipAllInputArrays() &&
         TestCopyInputOff() &&
+        TestMixedCellSizesWithCopyInput() &&
         TestRealModel();
 
     if (!passed) return 1;
 
     std::cout << "AxisAlignedReflection backend tests passed.\n";
+
+    if (!ShowReflectedResult()) {
+        return 1;
+    }
+
     return 0;
 }

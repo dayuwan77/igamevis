@@ -35,16 +35,21 @@ class igQtSliceWidget;
 class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
+class igQtResampleToLine;
 class igQtDeformationWidget;
 class igQtAiChatWidget;
 class igQtCommandManager;
 class igQtChromeFramelessDialog;
 class igQtPartFocusWidget;
+class igQtResampleToImageWidget;
+class igQtPointSetToOctreeWidget;
 class igQtGlobalIdWidget;
 class igQtTriangleStripWidget;
 class igQtExtractCellsByTypeWidget;
 class igQtAxisAlignedReflectionWidget;
 class igQtPointAndCellIdsWidget;
+class igQtExtractComponentWidget;
+class QDialog;
 
 
 class IG_QT_MODULE_EXPORT igQtMainWindow : public QMainWindow {
@@ -64,8 +69,8 @@ public:
         Selection,
         VariableDensity,
         DataChange,
+        ResampleToLine,
         MergeVectorComponents,
-        ExtractComponent,
         ExtractCellsByType,
         GenerateProcessIds,
         Count
@@ -99,6 +104,8 @@ public:
     igQtColorManagerWidget* ColorManagerWidget;
     igQtFilterDialogDockWidget* filterDialogDockWidget;
     QDockWidget* SliceDockWidget;
+    QDockWidget* ResampleToLineDockWidget{nullptr};
+    igQtResampleToLine* ResampleToLineWidget{nullptr};
     QDockWidget* ContourDockWidget;
     igQtModelClipWidget* SliceWidget;
     QDockWidget* DeformationDockWidget;
@@ -120,6 +127,12 @@ public:
     igQtChromeFramelessDialog* partFocusDialog{nullptr};
     igQtPartFocusWidget* partFocusWidget{nullptr};
 
+    // 重采样到图像参数面板
+    QDockWidget* ResampleToImageDockWidget{nullptr};
+    igQtResampleToImageWidget* ResampleToImageWidget{nullptr};
+    // 点集转八叉树参数面板
+    QDockWidget* PointSetToOctreeDockWidget{nullptr};
+    igQtPointSetToOctreeWidget* PointSetToOctreeWidget{nullptr};
     // 全局 ID 生成与 Local/Global 对照结果
     QDockWidget* GlobalIdDockWidget{nullptr};
     igQtGlobalIdWidget* GlobalIdWidget{nullptr};
@@ -135,6 +148,7 @@ public:
     // 点与单元 ID 参数面板
     QDockWidget* PointAndCellIdsDockWidget{nullptr};
     igQtPointAndCellIdsWidget* PointAndCellIdsWidget{nullptr};
+    int m_pointAndCellIdsCount{0};
 
 private slots:
     void updateRecentFilePaths();
@@ -182,13 +196,18 @@ private:
     igQtExtractCellsByTypeWidget* m_extractCellsByTypeWidget = nullptr;
     iGame::ExtractCellsByTypeFilter::Pointer m_extractCellsByTypeFilter;
     iGame::Model::Pointer m_extractCellsByTypeModel;
+    // 提取分量：独立置顶弹窗（首次打开时懒创建），不占用左侧工具面板；
+    // 面板由用户点 X 关闭，关闭后再次打开复用同一面板（保留上次选择与结果节点）
+    QDialog* m_extractComponentDialog = nullptr;
+    igQtExtractComponentWidget* m_extractComponentWidget = nullptr;
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
     QWidget* wrapContentInScrollArea(QWidget* content, QWidget* parent, bool centerFlowField);
     QDockWidget* shellDockForLeftPanel(LeftToolPanelId id) const;
+    void ensureResampleToLinePanel();
     void onLeftToolTabCloseRequested(int index);
     /** 工具面板与 Properties 垂直比例（需在工具 Dock 已 show 后调用） */
     void applyLeftToolStackVerticalSplit();

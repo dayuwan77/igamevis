@@ -12,10 +12,9 @@ IGAME_NAMESPACE_BEGIN
  * @class PointCoordinatesFilter
  * @brief Exposes point coordinates as a three-component point-data array.
  *
- * The output is the input data object with an additional IG_VECTOR attribute
- * attached to its points. The attribute shares the coordinate storage owned by
- * the input Points object, so later coordinate edits remain visible through the
- * generated array.
+ * The output is an independent deep copy of the input data object with an
+ * additional IG_VECTOR attribute attached to its points. The original input
+ * model is never modified.
  */
 class PointCoordinatesFilter : public Filter {
 public:

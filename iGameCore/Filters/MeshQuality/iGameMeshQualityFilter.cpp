@@ -35,7 +35,7 @@ bool MeshQualityFilter::Execute() {
     CellArray::Pointer cells = nullptr;
     Points::Pointer points = nullptr;
 
-    // 判断网格类型，支持surface、volume和unconstructed
+    // 判断网格类型，支持surface、volume和unstructured
     switch (input->GetDataObjectType()) {
         case IG_SURFACE_MESH:
         {
@@ -196,9 +196,91 @@ bool MeshQualityFilter::Execute() {
     // 暂时不用的计算平均值
     m_Average =sum / static_cast<double>(m_NumberOfCells);
 
-    // 将quality数组加入网格属性
-    auto output = input;
-    output->GetAttributeSet()->AddAttribute(IG_SCALAR,IG_CELL,qualityArray);
+    // 创建独立的输出网格
+    DataObject::Pointer output = nullptr;
+
+    switch (input->GetDataObjectType()) {
+        case IG_SURFACE_MESH:
+        {
+            auto inputMesh = DynamicCast<SurfaceMesh>(input);
+            if (!inputMesh) {
+                return false;
+            }
+            auto outputMesh = SurfaceMesh::New();
+            if (!outputMesh->DeepCopy(inputMesh)) {
+                return false;
+            }
+            output = outputMesh;
+            break;
+        }
+        case IG_VOLUME_MESH:
+        {
+            auto inputMesh = DynamicCast<VolumeMesh>(input);
+            if (!inputMesh) {
+                return false;
+            }
+            auto outputMesh = VolumeMesh::New();
+            auto newPoints = Points::New();
+            if (!newPoints->DeepCopy(inputMesh->GetPoints())) {
+                return false;
+            }
+            outputMesh->SetPoints(newPoints);
+            outputMesh->SetVolumes(inputMesh->GetVolumes());
+            outputMesh->SetName(inputMesh->GetName());
+            auto newAttributeSet = AttributeSet::New();
+            if (!newAttributeSet->DeepCopy(inputMesh->GetAttributeSet())) {
+                return false;
+            }
+            outputMesh->SetAttributeSet(newAttributeSet);
+            output = outputMesh;
+            break;
+        }
+        case IG_UNSTRUCTURED_MESH:
+        {
+            auto inputMesh = DynamicCast<UnstructuredMesh>(input);
+            if (!inputMesh) {
+                return false;
+            }
+            auto outputMesh = UnstructuredMesh::New();
+            outputMesh->SetCells(inputMesh->GetCells(),inputMesh->GetCellTypes());
+            outputMesh->SetName(inputMesh->GetName());
+            auto newPoints = Points::New();
+            if (!newPoints->DeepCopy(inputMesh->GetPoints())) {
+                return false;
+            }
+            outputMesh->SetPoints(newPoints);
+            auto newAttributeSet = AttributeSet::New();
+            if (!newAttributeSet->DeepCopy(inputMesh->GetAttributeSet())) {
+                return false;
+            }
+            outputMesh->SetAttributeSet(newAttributeSet);
+            output = outputMesh;
+            break;
+        }
+        default:
+            return false;
+    }
+
+    auto outputAttributeSet = output->GetAttributeSet();
+    if (outputAttributeSet == nullptr) {
+        return false;
+    }
+
+    // 如果已经存在 Quality，则直接替换
+    IGint qualityIndex =outputAttributeSet->GetAttributeIndex("Quality");
+
+    if (qualityIndex >= 0) {
+        auto& qualityAttribute =outputAttributeSet->GetAttribute(qualityIndex);
+        qualityAttribute.SetPointer(qualityArray);
+        qualityAttribute.SetType(IG_SCALAR);
+        qualityAttribute.SetAttachmentType(IG_CELL);
+    }else {
+        outputAttributeSet->AddAttribute(
+            IG_SCALAR,
+            IG_CELL,
+            qualityArray
+        );
+    }
 
     this->SetOutput(output);
     return true;

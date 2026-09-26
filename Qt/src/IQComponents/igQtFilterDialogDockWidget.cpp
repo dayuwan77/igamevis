@@ -300,3 +300,62 @@ int igQtFilterDialogDockWidget::addParameter(QLabel* label, QWidget* value) {
 
     return index++;
 }
+
+int igQtFilterDialogDockWidget::addVectorParameter(const QString& title,
+                                                   const QString& x, const QString& y, const QString& z) {
+    auto* container = new QWidget(this);
+    auto* layout = new QHBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
+
+    const QString defaults[3] = {x, y, z};
+    const QString axisNames[3] = {QStringLiteral("X"), QStringLiteral("Y"), QStringLiteral("Z")};
+    std::array<QLineEdit*, 3> edits{};
+    for (int c = 0; c < 3; ++c) {
+        auto* axisLabel = new QLabel(axisNames[c], container);
+        axisLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        auto* edit = new QLineEdit(container);
+        edit->setText(defaults[c]);
+        layout->addWidget(axisLabel);
+        layout->addWidget(edit, 1);
+        edits[c] = edit;
+    }
+
+    QLabel* label = new QLabel(this);
+    label->setText(title);
+    const int id = addParameter(label, container);
+    vectorItemMap[id] = edits;
+    return id;
+}
+
+double igQtFilterDialogDockWidget::getVectorComponent(int i, int component, bool& ok) const {
+    ok = false;
+    auto it = vectorItemMap.find(i);
+    if (it == vectorItemMap.end() || component < 0 || component > 2) return 0.0;
+    return it->second[component]->text().toDouble(&ok);
+}
+
+void igQtFilterDialogDockWidget::setVectorComponent(int i, int component, const QString& text) const {
+    auto it = vectorItemMap.find(i);
+    if (it == vectorItemMap.end() || component < 0 || component > 2) return;
+    it->second[component]->setText(text);
+}
+
+QLineEdit* igQtFilterDialogDockWidget::getVectorEdit(int i, int component) const {
+    auto it = vectorItemMap.find(i);
+    if (it == vectorItemMap.end() || component < 0 || component > 2) return nullptr;
+    return it->second[component];
+}
+
+void igQtFilterDialogDockWidget::setVectorEnabled(int i, bool enabled) const {
+    auto it = vectorItemMap.find(i);
+    if (it == vectorItemMap.end()) return;
+    for (QLineEdit* edit : it->second) {
+        if (edit) edit->setEnabled(enabled);
+    }
+}
+
+void igQtFilterDialogDockWidget::setParameterColumnStretch(int labelStretch, int valueStretch) {
+    gridLayout->setColumnStretch(0, labelStretch);
+    gridLayout->setColumnStretch(1, valueStretch);
+}

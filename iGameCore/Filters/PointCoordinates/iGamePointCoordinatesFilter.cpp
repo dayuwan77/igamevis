@@ -2,8 +2,73 @@
 
 #include "iGameAttributeSet.h"
 #include "iGamePoints.h"
+#include "iGameUnstructuredMesh.h"
 
 IGAME_NAMESPACE_BEGIN
+
+namespace {
+
+DataObject::Pointer DeepCopyMesh(DataObject::Pointer input) {
+    if (!input) return nullptr;
+
+    switch (input->GetDataObjectType()) {
+        case IG_UNSTRUCTURED_MESH: {
+            auto inMesh = DynamicCast<UnstructuredMesh>(input);
+            auto outMesh = UnstructuredMesh::New();
+
+            // Deep copy points
+            auto inPoints = inMesh->GetPoints();
+            if (inPoints) {
+                auto outPoints = Points::New();
+                outPoints->DeepCopy(inPoints);
+                outMesh->SetPoints(outPoints);
+            }
+
+            // Deep copy cells and types
+            auto inCells = inMesh->GetCells();
+            auto inTypes = inMesh->GetCellTypes();
+            if (inCells && inTypes) {
+                auto outCells = CellArray::New();
+                outCells->DeepCopy(inCells);
+                auto outTypes = UnsignedIntArray::New();
+                outTypes->DeepCopy(inTypes);
+                outMesh->SetCells(outCells, outTypes);
+            }
+
+            // Deep copy attributes
+            auto inAttrs = inMesh->GetAttributeSet();
+            if (inAttrs && inAttrs->GetNumberOfAttributes() > 0) {
+                auto outAttrs = AttributeSet::New();
+                outAttrs->DeepCopy(inAttrs);
+                outMesh->SetAttributeSet(outAttrs);
+            }
+
+            return outMesh;
+        }
+        default: {
+            // Generic fallback: copy points and attributes only
+            auto outMesh = UnstructuredMesh::New();
+
+            auto inPoints = input->GetPoints();
+            if (inPoints) {
+                auto outPoints = Points::New();
+                outPoints->DeepCopy(inPoints);
+                outMesh->SetPoints(outPoints);
+            }
+
+            auto inAttrs = input->GetAttributeSet();
+            if (inAttrs && inAttrs->GetNumberOfAttributes() > 0) {
+                auto outAttrs = AttributeSet::New();
+                outAttrs->DeepCopy(inAttrs);
+                outMesh->SetAttributeSet(outAttrs);
+            }
+
+            return outMesh;
+        }
+    }
+}
+
+} // namespace
 
 PointCoordinatesFilter::PointCoordinatesFilter() {
     SetNumberOfInputs(1);
@@ -36,44 +101,45 @@ bool PointCoordinatesFilter::Execute() {
         return false;
     }
 
-    auto attributes = input->GetAttributeSet();
-    if (!attributes) {
-        igDebug("PointCoordinatesFilter could not access the input attribute set.");
+    // Deep copy the input to create an independent output node
+    auto output = DeepCopyMesh(input);
+    if (!output) {
+        igDebug("PointCoordinatesFilter failed to deep copy the input.");
         return false;
     }
 
-    const int existingIndex = attributes->GetAttributeIndex(m_ArrayName);
-    if (existingIndex >= 0) {
-        auto& existing = attributes->GetAttribute(existingIndex);
-        if (existing.GetPointer().get() != coordinates.get() || existing.GetType() != IG_VECTOR ||
-            existing.GetAttachmentType() != IG_POINT) {
-            igDebug("PointCoordinatesFilter cannot create array '{}': the name is already in use.", m_ArrayName);
-            return false;
-        }
-
-        // Point coordinates and the generated attribute share the same storage.
-        // Re-advertise that storage as modified and rebuild its cached ranges so
-        // repeated execution reflects edits made to the currently selected model.
-        coordinates->Modified();
-        existing.UpdateAllDataRange();
-        input->Modified();
-        m_CoordinatesArray = coordinates;
-        SetOutput(input);
-        return true;
+    auto outPoints = output->GetPoints();
+    auto outCoordinates = outPoints->ConvertToArray();
+    if (!outCoordinates || outCoordinates->GetDimension() != 3) {
+        igDebug("PointCoordinatesFilter: output point coordinates are invalid.");
+        return false;
     }
 
-    coordinates->SetName(m_ArrayName);
-    coordinates->Modified();
-    const auto coordinatesIndex = attributes->AddAttribute(IG_VECTOR, IG_POINT, coordinates);
+    auto outAttributes = output->GetAttributeSet();
+    if (!outAttributes) {
+        igDebug("PointCoordinatesFilter could not access the output attribute set.");
+        return false;
+    }
+
+    // Check for name collision on the output copy
+    const int existingIndex = outAttributes->GetAttributeIndex(m_ArrayName);
+    if (existingIndex >= 0) {
+        igDebug("PointCoordinatesFilter cannot create array '{}': the name is already in use on the output.", m_ArrayName);
+        return false;
+    }
+
+    outCoordinates->SetName(m_ArrayName);
+    outCoordinates->Modified();
+    const auto coordinatesIndex = outAttributes->AddAttribute(IG_VECTOR, IG_POINT, outCoordinates);
     if (coordinatesIndex < 0) {
         igDebug("PointCoordinatesFilter failed to add array '{}'.", m_ArrayName);
         return false;
     }
 
-    attributes->GetAttribute(coordinatesIndex).UpdateAllDataRange();
-    input->Modified();
-    m_CoordinatesArray = coordinates;
-    SetOutput(input);
+    outAttributes->GetAttribute(coordinatesIndex).UpdateAllDataRange();
+    output->Modified();
+    m_CoordinatesArray = outCoordinates;
+    SetOutput(output);
     return true;
 }
 

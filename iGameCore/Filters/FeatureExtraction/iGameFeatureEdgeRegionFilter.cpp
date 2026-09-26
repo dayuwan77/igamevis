@@ -38,11 +38,26 @@ bool FeatureEdgeRegionFilter::Execute() {
         std::cerr << "Failed to get input mesh" << std::endl;
         return false;
     }
-    auto mesh = DynamicCast<SurfaceMesh>(obj);
-    if (mesh == nullptr) {
+    auto inputMesh = DynamicCast<SurfaceMesh>(obj);
+    if (inputMesh == nullptr) {
         std::cerr << "Failed to get input surface mesh" << std::endl;
         return false;
     }
+    auto mesh = SurfaceMesh::New();
+    auto points = Points::New();
+    points->DeepCopy(inputMesh->GetPoints());
+    mesh->SetPoints(points);
+    auto faces = CellArray::New();
+    faces->GetOffset()->Reset(); // 清除构造时预置的 0
+    if (!faces->DeepCopy(inputMesh->GetFaces())) { return false; }
+    faces->DeepCopy(inputMesh->GetFaces());
+    mesh->SetFaces(faces);
+    auto attributeSet = AttributeSet::New();
+    attributeSet->DeepCopy(inputMesh->GetAttributeSet());
+    mesh->SetAttributeSet(attributeSet);
+    /*mesh->SetPoints(inputMesh->GetPoints());
+    mesh->SetFaces(inputMesh->GetFaces());
+    mesh->SetAttributeSet(inputMesh->GetAttributeSet());*/
 
     mesh->BuildEdges();
     mesh->BuildEdgeLinks();
@@ -127,7 +142,7 @@ bool FeatureEdgeRegionFilter::Execute() {
         regionArray->AddValue(regionIDs[regionID]);
     }
 
-    auto attributeSet = mesh->GetAttributeSet();
+    //auto attributeSet = mesh->GetAttributeSet();
     if (!attributeSet) { return false; }
     auto oldAttributeId = attributeSet->GetAttributeIndex("Region Id");
     if (oldAttributeId >= 0) { 
@@ -145,6 +160,7 @@ bool FeatureEdgeRegionFilter::Execute() {
         attributeSet->AddScalar(IG_CELL, regionArray);
     }
     attributeSet->ForceReConvertToDrawableData();
+    mesh->SetName(inputMesh->GetName() + "_regionId");
 
     std::map<int, int> regionFaceCount;
     for (int i = 0; i < numFaces; i++) {

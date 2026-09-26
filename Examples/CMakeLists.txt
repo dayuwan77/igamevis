@@ -57,8 +57,8 @@ else ()
     add_custom_target(iGameDeployExampleRuntime)
 endif ()
 
-# ±ØĞëÓë±àÒë iGameCore Ê±Ò»ÖÂ£¬·ñÔò Scene µÈÀàĞÍ²¼¾Ö²»Í¬£¨Èç GL_SUPPORT_MSAA£©£¬
-# Scene::New »áÔÚÔËĞĞÆÚÖ±½Ó¶ÑËğ»µ±ÀÀ£¡£ÂãÁ´ ${IGAMEVIS_CORE_LIB_TARGETS} ²»»á×Ô¶¯´øÉÏÕâĞ©ºê¡£
+# ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ iGameCore Ê±Ò»ï¿½Â£ï¿½ï¿½ï¿½ï¿½ï¿½ Scene ï¿½ï¿½ï¿½ï¿½ï¿½Í²ï¿½ï¿½Ö²ï¿½Í¬ï¿½ï¿½ï¿½ï¿½ GL_SUPPORT_MSAAï¿½ï¿½ï¿½ï¿½
+# Scene::New ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö±ï¿½Ó¶ï¿½ï¿½ğ»µ±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ${IGAMEVIS_CORE_LIB_TARGETS} ï¿½ï¿½ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ğ©ï¿½ê¡£
 add_compile_definitions(
     IGAME_PLATFORM_WINDOWS
     $<$<PLATFORM_ID:Windows>:PLATFORM_WINDOWS>
@@ -279,6 +279,8 @@ igame_add_example(testConvertToSurfaceMesh Filter/Convert/TestConvertToSurfaceMe
 igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConvertToLagrangeUnstructuredMesh.cpp)
 igame_add_example(testPointSetToOctree Filter/Convert/TestPointSetToOctree.cpp)
 igame_add_example(testResampleToImage Filter/Convert/TestResampleToImage.cpp)
+# æ— çª—å£çš„æ•°å€¼/é€»è¾‘ä¸€è‡´æ€§å›å½’æ£€æŸ¥ï¼ˆå¤±è´¥æ—¶è¿”å›é 0ï¼Œå¯ç›´æ¥è¿› CIï¼‰
+igame_add_example(testResampleOctreeChecks Filter/Convert/TestResampleOctreeChecks.cpp)
 igame_add_example(testConvertToVertex Filter/Convert/TestConvertToVertex.cpp)
 
 # Axis aligned reflection
@@ -300,6 +302,7 @@ igame_add_example(testTransform Filter/TestTransform.cpp)
 igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
 #Data Processing
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
+igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 
 if (ENABLE_CGNS_MODULE)
     igame_add_example(testCGNS IO/CGNSReader.cpp)
@@ -363,6 +366,7 @@ igame_add_example(testMergeVectorComponents Filter/TestMergeVectorComponents.cpp
 igame_add_example(testThresholdAndGenerateIds Filter/TestThresholdAndGenerateIds.cpp)
 igame_add_example(testMultiBlockGeometry Filter/TestMultiBlockGeometry.cpp)
 igame_add_example(testShrink Filter/Shrink/TestShrink.cpp)
+igame_add_example(testShrinkModel Filter/Shrink/TestShrinkModel.cpp)
 igame_add_example(testGenerateProcessIds Filter/TestGenerateProcessIds.cpp)
 igame_add_example(testCellMeshMetrics Filter/TestCellMeshMetrics.cpp)
 igame_add_example(testGhostDemo Filter/GhostCell/TestGhostDemo.cpp)
@@ -371,7 +375,7 @@ igame_add_example(testBoundaryMeshQuality Filter/TestBoundaryMeshQuality.cpp)
 # Probe
 igame_add_example(testProbe Filter/Probe/TestProbe.cpp)
 
-# ¼òµ¥ÈÎÎñ #5 + ÖĞµÈÈÎÎñ #28 ÅäÌ×²âÊÔÓÃÀı
+# ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ #5 + ï¿½Ğµï¿½ï¿½ï¿½ï¿½ï¿½ #28 ï¿½ï¿½ï¿½×²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 igame_add_example(testCountCellVertices Filter/TestCountCellVertices.cpp)
 igame_add_example(testExtractEdges Filter/TestExtractEdges.cpp)
 
@@ -391,6 +395,7 @@ igame_add_example(testLaplacianExtraction Filter/FeatureExtraction/LaplacianExtr
 igame_add_example(testExtractComponent Filter/TestExtractComponent.cpp)
 igame_add_example(testFeatureEdgeRegion Filter/FeatureExtraction/FeatureEdgeRegion.cpp)
 igame_add_example(testCountCellFaces Filter/FeatureExtraction/CountCellFaces.cpp)
+igame_add_example(testCountCellFacesOutput Filter/FeatureExtraction/CountCellFacesOutput.cpp)
 igame_add_example(testOutlineCorners Filter/FeatureExtraction/OutlineCorners.cpp)
 igame_add_example(testCellSizeExtraction Filter/FeatureExtraction/CellSizeExtraction.cpp)
 
@@ -444,6 +449,7 @@ igame_add_example(testAngularPeriodicSelfCheck Filter/Periodic/TestAngularPeriod
 
 # Volume Interpolation
 igame_add_example(testPointVolumeInterpolator Filter/Interpolation/TestPointVolumeInterpolator.cpp)
+igame_add_example(testPointVolumeInterpolatorSelfCheck Filter/Interpolation/TestPointVolumeInterpolatorSelfCheck.cpp)
 
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)

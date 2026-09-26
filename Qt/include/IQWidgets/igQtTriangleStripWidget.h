@@ -48,6 +48,7 @@ private:
     QLabel* m_TrianglesBefore;
     QLabel* m_TrianglesAfter;
     QLabel* m_StripCount;
+    QLabel* m_OutputCellCount;
     QLabel* m_LongestStrip;
     QLabel* m_LineCount;
     QLabel* m_PointCount;
