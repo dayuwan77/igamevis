@@ -245,6 +245,7 @@ igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConve
 
 # My Filters
 igame_add_example(testCellCenterFilter Filter/MyFilter/TestCellCenterFilter.cpp)
+igame_add_example(testAppendLocationAttributeFilter Filter/TestAppendLocationAttribute.cpp)
 
 # IO (optional modules)
 igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
