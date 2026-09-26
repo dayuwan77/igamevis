@@ -1,4 +1,5 @@
 #include <GlobalIds/iGameGenerateGlobalIdsFilter.h>
+#include <ModelSurface/iGameModelGeometryFilter.h>
 
 #include "iGameAttributeSet.h"
 #include "iGameCellArray.h"
@@ -13,6 +14,7 @@
 #include "iGameUnstructuredMesh.h"
 #include "iGameVolumeMesh.h"
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <iomanip>
@@ -26,7 +28,7 @@ namespace
 
 using namespace iGame;
 
-std::string TestModelFilePath = "Models/ContourExtraction_cylinder_UnstructedGrid.vtk";
+constexpr const char* TestModelFilePath = "Models/GlobalIdsTestModel.vtk";
 
 void Check(bool condition, const std::string& message) {
     if (!condition) { throw std::runtime_error(message); }
@@ -73,6 +75,17 @@ DoubleArray::Pointer FindDoubleArray(DataObject::Pointer object, const std::stri
     auto* attribute = FindAttribute(object, name, attachmentType);
     if (!attribute) { return nullptr; }
     return DynamicCast<DoubleArray>(attribute->pointer);
+}
+
+void CollectLeafObjects(const DataObject::Pointer& object, std::vector<DataObject::Pointer>& leaves) {
+    Check(object != nullptr, "A null object was found in the output hierarchy.");
+    if (!object->HasSubDataObject()) {
+        leaves.push_back(object);
+        return;
+    }
+    for (auto it = object->SubDataObjectIteratorBegin(); it != object->SubDataObjectIteratorEnd(); ++it) {
+        CollectLeafObjects(it->second, leaves);
+    }
 }
 
 void PrintIdArray(const std::string& label, const DoubleArray::Pointer& ids) {
@@ -126,14 +139,87 @@ void CheckIdRange(const DoubleArray::Pointer& ids, IGsize count, iguIndex64 star
               label + " has an unexpected value at index " + std::to_string(i) + ".");
     }
 }
+
+using CanonicalCell = std::vector<igIndex>;
+using CanonicalCells = std::vector<CanonicalCell>;
+
+CanonicalCells CanonicalizeCells(CellArray* cells) {
+    Check(cells != nullptr, "Cannot canonicalize a null CellArray.");
+
+    CanonicalCells result;
+    result.reserve(cells->GetNumberOfCells());
+    for (IGsize cellId = 0; cellId < cells->GetNumberOfCells(); ++cellId) {
+        const igIndex* ids = nullptr;
+        const int count = cells->GetCellIds(cellId, ids);
+        Check(count >= 0 && (count == 0 || ids != nullptr),
+              "A CellArray returned invalid connectivity.");
+
+        CanonicalCell cell;
+        if (count > 0) { cell.assign(ids, ids + count); }
+        std::sort(cell.begin(), cell.end());
+        result.emplace_back(std::move(cell));
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+void CheckUnstructuredTopologyEqual(const UnstructuredMesh::Pointer& source,
+                                    const UnstructuredMesh::Pointer& output) {
+    Check(source != nullptr && output != nullptr,
+          "Cannot compare null UnstructuredMesh objects.");
+    Check(source->GetNumberOfPoints() == output->GetNumberOfPoints(),
+          "The independent output changed the point count.");
+    Check(source->GetNumberOfCells() == output->GetNumberOfCells(),
+          "The independent output changed the cell count.");
+
+    for (IGsize pointId = 0; pointId < source->GetNumberOfPoints(); ++pointId) {
+        const auto& sourcePoint = source->GetPoint(pointId);
+        const auto& outputPoint = output->GetPoint(pointId);
+        Check(sourcePoint[0] == outputPoint[0] && sourcePoint[1] == outputPoint[1] &&
+                      sourcePoint[2] == outputPoint[2],
+              "The independent output changed point coordinates at point " +
+                      std::to_string(pointId) + ".");
+    }
+
+    for (IGsize cellId = 0; cellId < source->GetNumberOfCells(); ++cellId) {
+        Check(source->GetCellType(cellId) == output->GetCellType(cellId),
+              "The independent output changed the type of cell " +
+                      std::to_string(cellId) + ".");
+
+        const igIndex* sourceIds = nullptr;
+        const igIndex* outputIds = nullptr;
+        const int sourceCount = source->GetCellPointIds(cellId, sourceIds);
+        const int outputCount = output->GetCellPointIds(cellId, outputIds);
+        Check(sourceCount == outputCount,
+              "The independent output changed the size of cell " +
+                      std::to_string(cellId) + ".");
+        for (int i = 0; i < sourceCount; ++i) {
+            Check(sourceIds[i] == outputIds[i],
+                  "The independent output changed connectivity in cell " +
+                          std::to_string(cellId) + ".");
+        }
+    }
+}
+
+CanonicalCells ExtractCanonicalSurface(const UnstructuredMesh::Pointer& mesh) {
+    auto surface = SurfaceMesh::New();
+    auto extractor = ModelGeometryFilter::New();
+    // Preserve source point IDs while comparing topology.  The default merge
+    // pass assigns compact IDs in face-discovery order, which is allowed to
+    // differ between parallel extractions even when the geometry is identical.
+    extractor->SetPointMerging(false);
+    Check(extractor->Execute(mesh, surface) != 0,
+          "ModelGeometryFilter failed while checking render topology.");
+    return CanonicalizeCells(surface->GetFaces());
+}
 /**
  * @brief 读取真实 UnstructuredGrid，生成带偏移的全局 ID，并测试 ExistingIdPolicy。
  */
 void TestFileModelAndExistingPolicies() {
     constexpr iguIndex64 initialPointOffset = 10000;
     constexpr iguIndex64 initialCellOffset = 2000;
-    constexpr IGsize expectedPointCount = 8499;
-    constexpr IGsize expectedCellCount = 7472;
+    constexpr IGsize expectedPointCount = 12;
+    constexpr IGsize expectedCellCount = 4;
 
     std::cout << "  Model file: " << TestModelFilePath << '\n';
     auto mesh = FileIO::ReadFile(TestModelFilePath);
@@ -159,17 +245,42 @@ void TestFileModelAndExistingPolicies() {
               << initialCellOffset << "): "
               << (initialSucceeded ? "success" : "failure") << '\n';
     Check(initialSucceeded, "Initial generation failed: " + initial->GetMessage());
-    Check(initial->GetOutput().get() == mesh.get(), "The filter must return its in-place input.");
+    auto generatedMesh = initial->GetOutput();
+    Check(generatedMesh != nullptr, "The filter did not return an output.");
+    Check(generatedMesh.get() != mesh.get(), "The filter must return an independent output.");
+    Check(generatedMesh->GetName() == mesh->GetName() + "_GlobalIds",
+          "The independent output has an unexpected name.");
+    Check(FindAttribute(mesh, "GlobalPointIds", IG_POINT) == nullptr &&
+                  FindAttribute(mesh, "GlobalCellIds", IG_CELL) == nullptr,
+          "Initial generation modified the input model.");
 
-    auto pointIds = FindDoubleArray(mesh, "GlobalPointIds", IG_POINT);
-    auto cellIds = FindDoubleArray(mesh, "GlobalCellIds", IG_CELL);
+    auto sourceUnstructured = DynamicCast<UnstructuredMesh>(mesh);
+    auto outputUnstructured = DynamicCast<UnstructuredMesh>(generatedMesh);
+    CheckUnstructuredTopologyEqual(sourceUnstructured, outputUnstructured);
+
+    const auto sourceSurface = ExtractCanonicalSurface(sourceUnstructured);
+    const auto outputSurface = ExtractCanonicalSurface(outputUnstructured);
+    std::cout << "  Render surface faces: source=" << sourceSurface.size()
+              << ", output=" << outputSurface.size() << '\n';
+    Check(sourceSurface == outputSurface,
+          "The independent output changed the extracted render surface.");
+
+    // Repeating the extraction catches non-deterministic reconstruction defects.
+    for (int iteration = 0; iteration < 16; ++iteration) {
+        Check(ExtractCanonicalSurface(outputUnstructured) == sourceSurface,
+              "Repeated render-surface extraction changed at iteration " +
+                      std::to_string(iteration) + ".");
+    }
+
+    auto pointIds = FindDoubleArray(generatedMesh, "GlobalPointIds", IG_POINT);
+    auto cellIds = FindDoubleArray(generatedMesh, "GlobalCellIds", IG_CELL);
     PrintIdRange("Initial GlobalPointIds range", pointIds);
     PrintIdRange("Initial GlobalCellIds range", cellIds);
     CheckIdRange(pointIds, pointCount, initialPointOffset, "Point IDs");
     CheckIdRange(cellIds, cellCount, initialCellOffset, "Cell IDs");
-    Check(FindAttribute(mesh, "GlobalPointIds", IG_POINT)->type == IG_SCALAR,
+    Check(FindAttribute(generatedMesh, "GlobalPointIds", IG_POINT)->type == IG_SCALAR,
           "Point IDs must be registered as a scalar attribute.");
-    Check(FindAttribute(mesh, "GlobalCellIds", IG_CELL)->type == IG_SCALAR,
+    Check(FindAttribute(generatedMesh, "GlobalCellIds", IG_CELL)->type == IG_SCALAR,
           "Cell IDs must be registered as a scalar attribute.");
 
     const auto nextPointOffset =
@@ -182,37 +293,45 @@ void TestFileModelAndExistingPolicies() {
     Check(initial->GetPointOffset() == initialPointOffset &&
                   initial->GetCellOffset() == initialCellOffset,
           "Execute unexpectedly modified the configured start offsets.");
-    Check(nextPointOffset == 18499 && nextCellOffset == 9472,
+    Check(nextPointOffset == 10012 && nextCellOffset == 2004,
           "The completed next offsets are incorrect.");
 
     auto rejectExisting = GenerateGlobalIdsFilter::New();
-    rejectExisting->SetInput(mesh);
+    rejectExisting->SetInput(generatedMesh);
     rejectExisting->SetOffsets(initialPointOffset, initialCellOffset);
     const bool errorPolicySucceeded = rejectExisting->Execute();
     std::cout << "  ExistingIdPolicy::Error result: "
               << (errorPolicySucceeded ? "success" : "failure (expected)") << '\n';
     Check(!errorPolicySucceeded, "ExistingIdPolicy::Error must reject existing IDs.");
     Check(rejectExisting->GetOutput() == nullptr, "A failed execution must clear its output.");
-    Check(FindDoubleArray(mesh, "GlobalPointIds", IG_POINT).get() == pointIds.get(),
+    Check(FindDoubleArray(generatedMesh, "GlobalPointIds", IG_POINT).get() == pointIds.get(),
           "A rejected execution changed the point array.");
-    Check(FindDoubleArray(mesh, "GlobalCellIds", IG_CELL).get() == cellIds.get(),
+    Check(FindDoubleArray(generatedMesh, "GlobalCellIds", IG_CELL).get() == cellIds.get(),
           "A rejected execution changed the cell array.");
 
     auto keep = GenerateGlobalIdsFilter::New();
-    keep->SetInput(mesh);
+    keep->SetInput(generatedMesh);
     keep->SetOffsets(initialPointOffset, initialCellOffset);
     keep->SetExistingIdPolicy(GenerateGlobalIdsFilter::ExistingIdPolicy::KeepExisting);
     const bool keepSucceeded = keep->Execute();
     std::cout << "  ExistingIdPolicy::KeepExisting matching result: "
               << (keepSucceeded ? "success" : "failure") << '\n';
     Check(keepSucceeded, "KeepExisting rejected valid arrays: " + keep->GetMessage());
-    Check(FindDoubleArray(mesh, "GlobalPointIds", IG_POINT).get() == pointIds.get(),
-          "KeepExisting replaced the valid point array.");
-    Check(FindDoubleArray(mesh, "GlobalCellIds", IG_CELL).get() == cellIds.get(),
-          "KeepExisting replaced the valid cell array.");
+    auto keptOutput = keep->GetOutput();
+    Check(keptOutput != nullptr && keptOutput.get() != generatedMesh.get(),
+          "KeepExisting did not return an independent output.");
+    auto keptPointIds = FindDoubleArray(keptOutput, "GlobalPointIds", IG_POINT);
+    auto keptCellIds = FindDoubleArray(keptOutput, "GlobalCellIds", IG_CELL);
+    CheckIdRange(keptPointIds, pointCount, initialPointOffset, "Kept point IDs");
+    CheckIdRange(keptCellIds, cellCount, initialCellOffset, "Kept cell IDs");
+    Check(keptPointIds.get() != pointIds.get() && keptCellIds.get() != cellIds.get(),
+          "KeepExisting shared attribute storage with its input.");
+    Check(FindDoubleArray(generatedMesh, "GlobalPointIds", IG_POINT).get() == pointIds.get() &&
+                  FindDoubleArray(generatedMesh, "GlobalCellIds", IG_CELL).get() == cellIds.get(),
+          "KeepExisting changed its input arrays.");
 
     auto rejectMismatchedRange = GenerateGlobalIdsFilter::New();
-    rejectMismatchedRange->SetInput(mesh);
+    rejectMismatchedRange->SetInput(generatedMesh);
     rejectMismatchedRange->SetOffsets(initialPointOffset + 1, initialCellOffset);
     rejectMismatchedRange->SetExistingIdPolicy(
             GenerateGlobalIdsFilter::ExistingIdPolicy::KeepExisting);
@@ -220,11 +339,11 @@ void TestFileModelAndExistingPolicies() {
     std::cout << "  KeepExisting with mismatched point offset " << initialPointOffset + 1 << ": "
               << (mismatchedKeepSucceeded ? "success" : "failure (expected)") << '\n';
     Check(!mismatchedKeepSucceeded, "KeepExisting accepted a mismatched point range.");
-    Check(FindDoubleArray(mesh, "GlobalPointIds", IG_POINT).get() == pointIds.get(),
+    Check(FindDoubleArray(generatedMesh, "GlobalPointIds", IG_POINT).get() == pointIds.get(),
           "A failed KeepExisting execution changed the input.");
 
     auto replace = GenerateGlobalIdsFilter::New();
-    replace->SetInput(mesh);
+    replace->SetInput(generatedMesh);
     replace->SetOffsets(nextPointOffset, nextCellOffset);
     replace->SetExistingIdPolicy(GenerateGlobalIdsFilter::ExistingIdPolicy::Replace);
     const bool replaceSucceeded = replace->Execute();
@@ -233,14 +352,19 @@ void TestFileModelAndExistingPolicies() {
               << (replaceSucceeded ? "success" : "failure") << '\n';
     Check(replaceSucceeded, "Replace failed: " + replace->GetMessage());
 
-    auto replacementPointIds = FindDoubleArray(mesh, "GlobalPointIds", IG_POINT);
-    auto replacementCellIds = FindDoubleArray(mesh, "GlobalCellIds", IG_CELL);
+    auto replacementOutput = replace->GetOutput();
+    Check(replacementOutput != nullptr && replacementOutput.get() != generatedMesh.get(),
+          "Replace did not return an independent output.");
+    auto replacementPointIds = FindDoubleArray(replacementOutput, "GlobalPointIds", IG_POINT);
+    auto replacementCellIds = FindDoubleArray(replacementOutput, "GlobalCellIds", IG_CELL);
     PrintIdRange("Replacement GlobalPointIds range", replacementPointIds);
     PrintIdRange("Replacement GlobalCellIds range", replacementCellIds);
     Check(replacementPointIds.get() != pointIds.get(), "Replace retained the old point array.");
     Check(replacementCellIds.get() != cellIds.get(), "Replace retained the old cell array.");
     CheckIdRange(replacementPointIds, pointCount, nextPointOffset, "Replacement point IDs");
     CheckIdRange(replacementCellIds, cellCount, nextCellOffset, "Replacement cell IDs");
+    CheckIdRange(pointIds, pointCount, initialPointOffset, "Unchanged source point IDs");
+    CheckIdRange(cellIds, cellCount, initialCellOffset, "Unchanged source cell IDs");
 }
 /**
  * @brief 模拟多进程调用场景：对多个不相交的 SurfaceMesh 分区生成全局 ID，并测试偏移量的正确性。
@@ -284,8 +408,14 @@ void TestSimulatedProcessOffsets() {
               "Generation failed for simulated rank " + std::to_string(rank) + ": " +
                       filter->GetMessage());
 
-        auto pointIds = FindDoubleArray(partitions[rank], "GlobalPointIds", IG_POINT);
-        auto cellIds = FindDoubleArray(partitions[rank], "GlobalCellIds", IG_CELL);
+        auto output = filter->GetOutput();
+        Check(output != nullptr && output.get() != partitions[rank].get(),
+              "A simulated process did not receive an independent output.");
+        Check(FindAttribute(partitions[rank], "GlobalPointIds", IG_POINT) == nullptr &&
+                      FindAttribute(partitions[rank], "GlobalCellIds", IG_CELL) == nullptr,
+              "Simulated process generation modified its input partition.");
+        auto pointIds = FindDoubleArray(output, "GlobalPointIds", IG_POINT);
+        auto cellIds = FindDoubleArray(output, "GlobalCellIds", IG_CELL);
         PrintIdArray("rank " + std::to_string(rank) + " GlobalPointIds", pointIds);
         PrintIdArray("rank " + std::to_string(rank) + " GlobalCellIds", cellIds);
         CheckIdRange(pointIds, localPointCount, pointOffset,
@@ -337,12 +467,34 @@ void TestCompositeSharedPointsAndParentTimes() {
     std::cout << "  Composite generation with offsets (1000, 2000): "
               << (generated ? "success" : "failure") << '\n';
     Check(generated, "Composite generation failed: " + filter->GetMessage());
-    Check(filter->GetOutput().get() == root.get(), "Composite output is not the input root.");
+    auto outputRoot = filter->GetOutput();
+    Check(outputRoot != nullptr && outputRoot.get() != root.get(),
+          "Composite output must be independent from the input root.");
+    Check(root->GetMTime().GetMTime() == rootTimeBefore &&
+                  middle->GetMTime().GetMTime() == middleTimeBefore,
+          "Composite generation changed input modification times.");
+    Check(FindAttribute(first, "GlobalPointIds", IG_POINT) == nullptr &&
+                  FindAttribute(second, "GlobalPointIds", IG_POINT) == nullptr &&
+                  FindAttribute(first, "GlobalCellIds", IG_CELL) == nullptr &&
+                  FindAttribute(second, "GlobalCellIds", IG_CELL) == nullptr,
+          "Composite generation added IDs to an input leaf.");
 
-    auto firstPointIds = FindDoubleArray(first, "GlobalPointIds", IG_POINT);
-    auto secondPointIds = FindDoubleArray(second, "GlobalPointIds", IG_POINT);
-    auto firstCellIds = FindDoubleArray(first, "GlobalCellIds", IG_CELL);
-    auto secondCellIds = FindDoubleArray(second, "GlobalCellIds", IG_CELL);
+    std::vector<DataObject::Pointer> outputLeaves;
+    CollectLeafObjects(outputRoot, outputLeaves);
+    Check(outputLeaves.size() == 2, "The cloned composite has an unexpected leaf count.");
+    auto outputFirst = DynamicCast<SurfaceMesh>(outputLeaves[0]);
+    auto outputSecond = DynamicCast<SurfaceMesh>(outputLeaves[1]);
+    Check(outputFirst != nullptr && outputSecond != nullptr,
+          "The cloned composite did not preserve the leaf mesh types.");
+    Check(outputFirst->GetPoints().get() == outputSecond->GetPoints().get(),
+          "The cloned leaves no longer share their common Points object.");
+    Check(outputFirst->GetPoints().get() != sharedPoints.get(),
+          "The cloned composite still shares Points storage with its input.");
+
+    auto firstPointIds = FindDoubleArray(outputFirst, "GlobalPointIds", IG_POINT);
+    auto secondPointIds = FindDoubleArray(outputSecond, "GlobalPointIds", IG_POINT);
+    auto firstCellIds = FindDoubleArray(outputFirst, "GlobalCellIds", IG_CELL);
+    auto secondCellIds = FindDoubleArray(outputSecond, "GlobalCellIds", IG_CELL);
     PrintIdArray("first leaf GlobalPointIds", firstPointIds);
     PrintIdArray("second leaf GlobalPointIds", secondPointIds);
     PrintIdArray("first leaf GlobalCellIds", firstCellIds);
@@ -356,18 +508,20 @@ void TestCompositeSharedPointsAndParentTimes() {
     CheckIdRange(secondCellIds, 1, 2001,
                  "Second cell IDs");
 
-    const auto rootTime = root->GetMTime().GetMTime();
-    const auto middleTime = middle->GetMTime().GetMTime();
-    std::cout << "  Modification times: first=" << first->GetMTime().GetMTime()
-              << ", second=" << second->GetMTime().GetMTime() << ", middle=" << middleTime
+    Check(outputRoot->GetNumberOfSubDataObjects() == 1,
+          "The cloned root has an unexpected child count.");
+    auto outputMiddle = outputRoot->SubDataObjectIteratorBegin()->second;
+    const auto rootTime = outputRoot->GetMTime().GetMTime();
+    const auto middleTime = outputMiddle->GetMTime().GetMTime();
+    std::cout << "  Output modification times: first=" << outputFirst->GetMTime().GetMTime()
+              << ", second=" << outputSecond->GetMTime().GetMTime() << ", middle=" << middleTime
               << ", root=" << rootTime << '\n';
-    Check(rootTime > rootTimeBefore && middleTime > middleTimeBefore,
-          "Composite containers were not marked modified.");
     Check(rootTime > middleTime, "The root must be updated after its child container.");
-    Check(middleTime > first->GetMTime().GetMTime() && middleTime > second->GetMTime().GetMTime(),
+    Check(middleTime > outputFirst->GetMTime().GetMTime() &&
+                  middleTime > outputSecond->GetMTime().GetMTime(),
           "A container must be updated after its modified leaves.");
-    Check(root->GetAttributeSet()->GetNumberOfAttributes() == 0 &&
-                  middle->GetAttributeSet()->GetNumberOfAttributes() == 0,
+    Check(outputRoot->GetAttributeSet()->GetNumberOfAttributes() == 0 &&
+                  outputMiddle->GetAttributeSet()->GetNumberOfAttributes() == 0,
           "Global ID arrays must only be stored on leaf objects.");
 }
 /**
@@ -401,6 +555,7 @@ void TestFailureIsAtomicAcrossLeaves() {
     PrintIdArray("first leaf after rejected execution", firstIdsAfterFailure);
     PrintIdArray("second leaf after rejected execution", secondIdsAfterFailure);
     Check(!generated, "The default policy accepted an existing ID array.");
+    Check(filter->GetOutput() == nullptr, "A failed composite execution retained a partial output.");
     Check(FindAttribute(first, "GlobalPointIds", IG_POINT) == nullptr,
           "A later validation failure partially modified an earlier leaf.");
     Check(secondIdsAfterFailure.get() == existing.get(),
@@ -426,8 +581,16 @@ void CheckSupportedLeaf(DataObject::Pointer object, IGsize expectedPointCount,
     std::cout << "    generation with offsets (300, 400): "
               << (generated ? "success" : "failure") << '\n';
     Check(generated, label + " generation failed: " + filter->GetMessage());
-    auto pointIds = FindDoubleArray(object, "GlobalPointIds", IG_POINT);
-    auto cellIds = FindDoubleArray(object, "GlobalCellIds", IG_CELL);
+    auto output = filter->GetOutput();
+    Check(output != nullptr && output.get() != object.get(),
+          label + " did not produce an independent output.");
+    Check(output->GetDataObjectType() == object->GetDataObjectType(),
+          label + " output did not preserve its mesh type.");
+    Check(FindAttribute(object, "GlobalPointIds", IG_POINT) == nullptr &&
+                  FindAttribute(object, "GlobalCellIds", IG_CELL) == nullptr,
+          label + " generation modified its input.");
+    auto pointIds = FindDoubleArray(output, "GlobalPointIds", IG_POINT);
+    auto cellIds = FindDoubleArray(output, "GlobalCellIds", IG_CELL);
     PrintIdArray(label + " GlobalPointIds", pointIds);
     PrintIdArray(label + " GlobalCellIds", cellIds);
     CheckIdRange(pointIds, expectedPointCount, 300,
@@ -481,14 +644,19 @@ void TestDoublePrecisionBoundary() {
     accepted->SetGenerateCellIds(false);
     accepted->SetPointOffset(maximumExactDoubleInteger);
     const bool boundaryAccepted = accepted->Execute();
-    auto boundaryIds = FindDoubleArray(onePoint, "GlobalPointIds", IG_POINT);
+    auto acceptedOutput = accepted->GetOutput();
+    auto boundaryIds = FindDoubleArray(acceptedOutput, "GlobalPointIds", IG_POINT);
     std::cout << "  One point at DoubleArray boundary 2^53=" << maximumExactDoubleInteger
               << ": " << (boundaryAccepted ? "success" : "failure") << '\n';
     PrintIdArray("boundary GlobalPointIds", boundaryIds);
     Check(boundaryAccepted,
           "The exact 2^53 boundary was rejected: " + accepted->GetMessage());
+    Check(acceptedOutput != nullptr && acceptedOutput.get() != onePoint.get(),
+          "The precision-boundary case did not create an independent output.");
     CheckIdRange(boundaryIds, 1,
                  maximumExactDoubleInteger, "Boundary point IDs");
+    Check(FindAttribute(onePoint, "GlobalPointIds", IG_POINT) == nullptr,
+          "The accepted precision-boundary case modified its input.");
 
     auto twoPoints = PointSet::New();
     twoPoints->GetPoints()->AddPoint(0.0f, 0.0f, 0.0f);
@@ -513,12 +681,10 @@ void TestDoublePrecisionBoundary() {
 
 } // namespace
 
-int main(int argc, char* argv[]) {
-    if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " [model.vtk]\n";
-        return 2;
-    }
-    if (argc == 2) { TestModelFilePath = argv[1]; }
+int main() {
+    // Keep progress visible if a low-level runtime error terminates the process before normal stream flushing.
+    std::cout << std::unitbuf;
+    std::cerr << std::unitbuf;
 
     const std::vector<std::pair<std::string, std::function<void()>>> tests{
             {"VTK file model and existing-ID policies", TestFileModelAndExistingPolicies},

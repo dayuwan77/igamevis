@@ -26,10 +26,10 @@ namespace {
     }
 
     /*
-     * ¼ÆËãÁ½¸öµ¥Î»·¨ÏòÁ¿µÄµã»ı¡£
+     * è®¡ç®—ä¸¤ä¸ªå•ä½æ³•å‘é‡çš„ç‚¹ç§¯ã€‚
      *
-     * ²»Ê¹ÓÃ abs(dot)£¬ÒòÎª ParaView/VTK
-     * Ê¹ÓÃÔ­Ê¼·¨ÏòÁ¿µã»ı½øĞĞÌØÕ÷½ÇÅĞ¶Ï¡£
+     * ä¸ä½¿ç”¨ abs(dot)ï¼Œå› ä¸º ParaView/VTK
+     * ä½¿ç”¨åŸå§‹æ³•å‘é‡ç‚¹ç§¯è¿›è¡Œç‰¹å¾è§’åˆ¤æ–­ã€‚
      */
     double ComputeNormalDot(
         const std::array<double, 3>& normal1,
@@ -46,7 +46,7 @@ namespace {
     }
 
     /*
-     * Ê¹ÓÃ Newell ·½·¨¼ÆËã SurfaceMesh Ãæ·¨ÏòÁ¿¡£
+     * ä½¿ç”¨ Newell æ–¹æ³•è®¡ç®— SurfaceMesh é¢æ³•å‘é‡ã€‚
      */
     std::array<double, 3>
         ComputeSurfaceFaceNormal(
@@ -173,7 +173,7 @@ bool FeatureEdgesFilter::Execute() {
     }
 
     /*
-     * µ±Ç° FeatureEdgesFilter ÒªÇóÊäÈëÎª SurfaceMesh¡£
+     * å½“å‰ FeatureEdgesFilter è¦æ±‚è¾“å…¥ä¸º SurfaceMeshã€‚
      */
     auto surfaceMesh =
         DynamicCast<SurfaceMesh>(
@@ -216,7 +216,7 @@ bool FeatureEdgesFilter::Execute() {
     }
 
     /*
-     * ¹¹½¨±ßÒÔ¼°Ãæµ½±ßµÄÁÚ½Ó¹ØÏµ¡£
+     * æ„å»ºè¾¹ä»¥åŠé¢åˆ°è¾¹çš„é‚»æ¥å…³ç³»ã€‚
      */
     surfaceMesh->BuildEdges();
     surfaceMesh->BuildFaceEdgeLinks();
@@ -234,13 +234,13 @@ bool FeatureEdgesFilter::Execute() {
     }
 
     /*
-     * ÌØÕ÷½Ç¶ÈÓàÏÒÖµ¡£
+     * ç‰¹å¾è§’åº¦ä½™å¼¦å€¼ã€‚
      *
-     * ParaView/VTK µÄÅĞ¶Ï·½Ê½£º
+     * ParaView/VTK çš„åˆ¤æ–­æ–¹å¼ï¼š
      *
      *     normalDot <= cos(featureAngle)
      *
-     * Òò´ËµÈÓÚÌØÕ÷½Ç¶ÈµÄ±ßÒ²»á±»ÅĞ¶¨ÎªÌØÕ÷±ß¡£
+     * å› æ­¤ç­‰äºç‰¹å¾è§’åº¦çš„è¾¹ä¹Ÿä¼šè¢«åˆ¤å®šä¸ºç‰¹å¾è¾¹ã€‚
      */
     const double featureCosine =
         std::cos(
@@ -280,7 +280,7 @@ bool FeatureEdgesFilter::Execute() {
     /*
      * Cell Data:
      *
-     * Ã¿¸öÊä³öÏßµ¥Ôª¶ÔÓ¦µÄÔ­Ê¼ SurfaceMesh Edge Id¡£
+     * æ¯ä¸ªè¾“å‡ºçº¿å•å…ƒå¯¹åº”çš„åŸå§‹ SurfaceMesh Edge Idã€‚
      */
     auto edgeIds =
         UnsignedIntArray::New();
@@ -295,7 +295,7 @@ bool FeatureEdgesFilter::Execute() {
         numberOfEdges);
 
     /*
-     * µ±Ç°ÊµÏÖ±£ÁôÔ­Ê¼ SurfaceMesh µÄµã¡£
+     * å½“å‰å®ç°ä¿ç•™åŸå§‹ SurfaceMesh çš„ç‚¹ã€‚
      */
     output->SetPoints(
         surfaceMesh->GetPoints());
@@ -331,7 +331,7 @@ bool FeatureEdgesFilter::Execute() {
             -1;
 
         /*
-         * Ò»ÕÅÃæ¹²ÏíµÄ±ß£º
+         * ä¸€å¼ é¢å…±äº«çš„è¾¹ï¼š
          * Boundary Edge
          */
         if (neighborFaceCount == 1) {
@@ -343,7 +343,7 @@ bool FeatureEdgesFilter::Execute() {
         }
 
         /*
-         * ÈıÕÅ¼°ÒÔÉÏÃæ¹²ÏíµÄ±ß£º
+         * ä¸‰å¼ åŠä»¥ä¸Šé¢å…±äº«çš„è¾¹ï¼š
          * Non-Manifold Edge
          */
         else if (neighborFaceCount >= 3) {
@@ -355,8 +355,8 @@ bool FeatureEdgesFilter::Execute() {
         }
 
         /*
-         * Á½ÕÅÃæ¹²ÏíµÄ±ß£º
-         * ¿ÉÄÜÊÇ Feature Edge »ò Manifold Edge¡£
+         * ä¸¤å¼ é¢å…±äº«çš„è¾¹ï¼š
+         * å¯èƒ½æ˜¯ Feature Edge æˆ– Manifold Edgeã€‚
          */
         else if (neighborFaceCount == 2) {
             const auto normal1 =
@@ -383,7 +383,7 @@ bool FeatureEdgesFilter::Execute() {
                         normal2);
 
                 /*
-                 * Óë ParaView/VTK ±£³ÖÒ»ÖÂ£º
+                 * ä¸ ParaView/VTK ä¿æŒä¸€è‡´ï¼š
                  *
                  * normalDot <= cos(featureAngle)
                  */
@@ -395,8 +395,8 @@ bool FeatureEdgesFilter::Execute() {
                 }
 
                 /*
-                 * Á½¸öÏàÁÚÃæ¼Ğ½ÇĞ¡ÓÚÌØÕ÷½Ç¶È£¬
-                 * ÊôÓÚÆÕÍ¨Á÷ĞÎ±ß¡£
+                 * ä¸¤ä¸ªç›¸é‚»é¢å¤¹è§’å°äºç‰¹å¾è§’åº¦ï¼Œ
+                 * å±äºæ™®é€šæµå½¢è¾¹ã€‚
                  */
                 else if (m_ManifoldEdges) {
                     shouldOutput = true;
@@ -426,7 +426,7 @@ bool FeatureEdgesFilter::Execute() {
         }
 
         /*
-         * Êä³öÒ»¸öÏßµ¥Ôª¡£
+         * è¾“å‡ºä¸€ä¸ªçº¿å•å…ƒã€‚
          */
         outputCells->AddCellId2(
             pointIds[0],
@@ -436,14 +436,14 @@ bool FeatureEdgesFilter::Execute() {
             IG_LINE);
 
         /*
-         * Ğ´Èë Edge Types Cell Data¡£
+         * å†™å…¥ Edge Types Cell Dataã€‚
          */
         edgeTypes->AddValue(
             static_cast<float>(
                 edgeTypeValue));
 
         /*
-         * Ğ´ÈëÔ­Ê¼ Edge Id Cell Data¡£
+         * å†™å…¥åŸå§‹ Edge Id Cell Dataã€‚
          */
         edgeIds->AddValue(
             static_cast<unsigned int>(
@@ -469,22 +469,22 @@ bool FeatureEdgesFilter::Execute() {
         output->GetAttributeSet();
 
     /*
-     * Ìí¼Ó Cell Data: Edge Types¡£
+     * æ·»åŠ  Cell Data: Edge Typesã€‚
      */
     attributeSet->AddScalar(
         IG_CELL,
         edgeTypes);
 
     /*
-     * Ìí¼Ó Cell Data: Edge Ids¡£
+     * æ·»åŠ  Cell Data: Edge Idsã€‚
      */
     attributeSet->AddScalar(
         IG_CELL,
         edgeIds);
 
     /*
-     * Í¨Öª»æÖÆÄ£¿éÖØĞÂ×ª»»ÊôĞÔÊı¾İ£¬
-     * ÒÔ±ãºóĞøµ÷ÓÃ ViewCloudPicture¡£
+     * é€šçŸ¥ç»˜åˆ¶æ¨¡å—é‡æ–°è½¬æ¢å±æ€§æ•°æ®ï¼Œ
+     * ä»¥ä¾¿åç»­è°ƒç”¨ ViewCloudPictureã€‚
      */
     attributeSet->
         ForceReConvertToDrawableData();

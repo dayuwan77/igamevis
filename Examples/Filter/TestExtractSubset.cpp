@@ -10,7 +10,8 @@ int main() {
     auto scene = iGame::Scene::New();
 
     // 读取结构化网格数据文件
-    const std::string fileName = "./Models/kit.vtk";
+    // 模型为 5×4×3 的结构化网格 (DIMENSIONS 5 4 3)
+    const std::string fileName = "./Models/Structured_Volume_Test.vtk";
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
         std::cout << "读取文件失败!\n";
@@ -23,8 +24,9 @@ int main() {
 
     // 设置感兴趣区域 (VOI: Volume of Interest)
     // 格式: minI, maxI, minJ, maxJ, minK, maxK
-    // 根据实际数据结构调整这些参数
-    filter->SetVOI(0, 2, 0, 23, 0, 16);
+    // 模型维度为 5×4×3 (含 4×3×2 = 24 个六面体单元)
+    // 提取 I:[0,2] J:[0,2] K:[0,1] 区域，共 3×3×2 = 18 个单元
+    filter->SetVOI(0, 2, 0, 2, 0, 1);
 
     // 执行提取
     if (!filter->Execute()) {

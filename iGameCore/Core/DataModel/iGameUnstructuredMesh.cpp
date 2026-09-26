@@ -498,6 +498,9 @@ void UnstructuredMesh::ConvertToDrawableData() {
         edgeIndices->SetDimension(2);
         auto triangleIndices = UnsignedIntArray::New();
         triangleIndices->SetDimension(3);
+        // 逐三角形记录其源单元号,供渲染做单元数据的逐面上色
+        auto triangleToCell = UnsignedIntArray::New();
+        triangleToCell->SetDimension(1);
         auto triangleEdgeMasks = UnsignedCharArray::New();
         triangleEdgeMasks->SetDimension(1);
 
@@ -542,6 +545,7 @@ void UnstructuredMesh::ConvertToDrawableData() {
                 if (!visible) continue;
             }
 
+            const IGsize triangleCountBefore = triangleIndices->GetNumberOfElements();
             IGenum type = GetCellType(id);
             switch (type) {
                 case IG_VERTEX:
@@ -660,6 +664,12 @@ void UnstructuredMesh::ConvertToDrawableData() {
                 default:
                     break;
             }
+
+            // 本单元新产生的三角形都归属该单元
+            const IGsize triangleCountAfter = triangleIndices->GetNumberOfElements();
+            for (IGsize t = triangleCountBefore; t < triangleCountAfter; ++t) {
+                triangleToCell->AddValue(static_cast<unsigned int>(id));
+            }
         }
         if (skippedInvalidCells > 0) {
             igDebug("UnstructuredMesh::ConvertToDrawableData skipped invalid cells: {}", skippedInvalidCells);
@@ -675,6 +685,9 @@ void UnstructuredMesh::ConvertToDrawableData() {
 
         m_TriangleIndices = triangleIndices;
         m_TriangleIndices->Modified();
+
+        m_TriangleToCell = triangleToCell;
+        m_TriangleToCell->Modified();
 
         m_TriangleEdgeMasks = triangleEdgeMasks;
         m_TriangleEdgeMasks->Modified();
@@ -740,7 +753,13 @@ void UnstructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, Doubl
         }
     }
     FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension);
-    if (colors == nullptr) { return; }
+    if (colors == nullptr) {
+        // 单元属性取色失败时不能保留上一个属性生成的逐点颜色，否则点样式会显示过期颜色
+        m_Colors = FloatArray::New();
+        m_Colors->SetDimension(3);
+        m_Colors->Modified();
+        return;
+    }
 
     FloatArray::Pointer newPositions = FloatArray::New();
     FloatArray::Pointer newColors = FloatArray::New();
@@ -751,11 +770,16 @@ void UnstructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, Doubl
 
     float color[3]{};
     igIndex ids[IGAME_CELL_MAX_SIZE]{};
+    // 点样式（IG_POINTS）绘制的是 m_Positions / m_Colors，单元属性的颜色却只在 m_CellColors 里，
+    // 渲染侧过去只好把点画成纯白。这里同时生成逐点颜色（cell->point 取入射单元颜色平均）。
+    CellToPointColorBuilder pointColors;
+    pointColors.Initialize(this->GetNumberOfPoints());
 
     const IGsize nCells = this->GetNumberOfCells();
     for (IGsize cid = 0; cid < nCells; ++cid) {
         const int size = this->GetCellPointIds(cid, ids);
         colors->GetElement(cid, color);
+        if (size > 0) { pointColors.AddCell(ids, size, color); }
 
         const IGenum type = this->GetCellType(cid);
         switch (type) {
@@ -938,5 +962,8 @@ void UnstructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, Doubl
 
     m_CellTriangleEdgeMasks = newEdgeMasks;
     m_CellTriangleEdgeMasks->Modified();
+
+    m_Colors = pointColors.Build(this->GetDefaultColor());
+    m_Colors->Modified();
 }
 IGAME_NAMESPACE_END

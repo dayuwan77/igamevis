@@ -1476,7 +1476,13 @@ void VolumeMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray
     }
 
     FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension);
-    if (colors == nullptr) { return; }
+    if (colors == nullptr) {
+        // 单元属性取色失败时不能保留上一个属性生成的逐点颜色，否则点样式会显示过期颜色
+        m_Colors = FloatArray::New();
+        m_Colors->SetDimension(3);
+        m_Colors->Modified();
+        return;
+    }
 
     FloatArray::Pointer newPositions = FloatArray::New();
     FloatArray::Pointer newColors = FloatArray::New();
@@ -1486,10 +1492,21 @@ void VolumeMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray
     newEdgeMasks->SetDimension(3);
 
     float color[3]{};
+    // 点样式（IG_POINTS）绘制的是 m_Positions / m_Colors，单元属性的颜色却只在 m_CellColors 里，
+    // 渲染侧过去只好把点画成纯白。这里同时生成逐点颜色（cell->point 取入射单元颜色平均）。
+    CellToPointColorBuilder pointColors;
+    pointColors.Initialize(this->GetNumberOfPoints());
+    igIndex volumePointIds[IGAME_CELL_MAX_SIZE]{};
     for (int i = 0; i < this->GetNumberOfVolumes(); i++) {
         Volume* volume = this->GetVolume(i);
         const igIndex* face;
         colors->GetElement(i, color);
+        const int volumePointCount =
+                volume->m_PointIds ? volume->GetNumberOfPoints() : 0;
+        for (int j = 0; j < volumePointCount && j < IGAME_CELL_MAX_SIZE; ++j) {
+            volumePointIds[j] = volume->m_PointIds->GetId(j);
+        }
+        if (volumePointCount > 0) { pointColors.AddCell(volumePointIds, volumePointCount, color); }
         for (int j = 0; j < volume->GetNumberOfFaces(); j++) {
             int size = volume->GetFacePointIds(j, face);
             for (int k = 1; k < size - 1; k++) {
@@ -1520,5 +1537,8 @@ void VolumeMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray
 
     m_CellTriangleEdgeMasks = newEdgeMasks;
     m_CellTriangleEdgeMasks->Modified();
+
+    m_Colors = pointColors.Build(this->GetDefaultColor());
+    m_Colors->Modified();
 }
 IGAME_NAMESPACE_END

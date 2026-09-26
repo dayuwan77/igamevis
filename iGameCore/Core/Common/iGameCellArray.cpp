@@ -7,6 +7,9 @@ void CellArray::Initialize() {
     m_Buffer->Initialize();
     m_Offsets->Initialize();
     m_Offsets->AddValue(0);
+    m_NumberOfCells = 0;
+    m_FixedCellSize = -1;
+    m_UseOffsets = false;
 }
 
 // Allocate memory, and the old memory is preserved. The array
@@ -26,6 +29,10 @@ void CellArray::Reset() {
     m_Buffer->Reset();
     m_Offsets->Reset();
     m_DeleteMasker->Reset();
+    m_NumberOfCells = 0;
+    m_FixedCellSize = -1;
+    m_UseOffsets = false;
+    m_Offsets->AddValue(0);
 }
 
 // Free up extra memory.

@@ -2,6 +2,8 @@
 
 #include "iGameCell.h"
 #include "iGamePoints.h"
+#include "iGameAttributeSet.h"
+#include "iGameCellArray.h"
 
 #include <algorithm>
 
@@ -69,88 +71,126 @@ ArrayObject::Pointer ShrinkFilter::CloneArray(ArrayObject::Pointer src,
 }
 
 bool ShrinkFilter::Execute() {
-	auto input = GetInput(0);
-	if (input.IsNull()) return false;
+    auto input = GetInput(0);
+    if (input.IsNull()) return false;
 
-	auto shrinkCells = [&](PointSet* pointSet, IGsize count, CellArray* cells,
-	                       auto getCellPointIds) -> bool {
-		if (pointSet == nullptr || cells == nullptr || count == 0) return false;
+    // 只在"输出的副本"上做修改，输入网格保持原样
+    auto shrinkCells = [&](PointSet* mesh, IGsize count, CellArray* cells, auto getCellPointIds) -> bool {
+        if (mesh == nullptr || cells == nullptr || count == 0) return false;
 
-		auto oldPoints = pointSet->GetPoints();
-		if (oldPoints.IsNull()) return false;
+        auto oldPoints = mesh->GetPoints();
+        if (oldPoints.IsNull()) return false;
 
-		auto newPoints = Points::New();
-		std::vector<IGsize> srcOfNew;
+        auto newPoints = Points::New();
+        std::vector<IGsize> srcOfNew;
 
-		igIndex ids[IGAME_CELL_MAX_SIZE];
-		for (IGsize c = 0; c < count; c++) {
-			int n = getCellPointIds(c, ids);
-			if (n <= 0 || n > IGAME_CELL_MAX_SIZE) return false;
+        igIndex ids[IGAME_CELL_MAX_SIZE];
+        for (IGsize c = 0; c < count; c++) {
+            int n = getCellPointIds(c, ids);
+            if (n <= 0 || n > IGAME_CELL_MAX_SIZE) return false;
 
-			double cx = 0.0, cy = 0.0, cz = 0.0;
-			for (int k = 0; k < n; k++) {
-				const auto& p = oldPoints->GetPoint(ids[k]);
-				cx += p[0];
-				cy += p[1];
-				cz += p[2];
-			}
-			cx /= n;
-			cy /= n;
-			cz /= n;
+            double cx = 0.0, cy = 0.0, cz = 0.0;
+            for (int k = 0; k < n; k++) {
+                const auto& p = oldPoints->GetPoint(ids[k]);
+                cx += p[0];
+                cy += p[1];
+                cz += p[2];
+            }
+            cx /= n;
+            cy /= n;
+            cz /= n;
 
-			igIndex newIds[IGAME_CELL_MAX_SIZE];
-			for (int k = 0; k < n; k++) {
-				const auto& p = oldPoints->GetPoint(ids[k]);
-				float nx = static_cast<float>(cx + (p[0] - cx) * m_ShrinkFactor);
-				float ny = static_cast<float>(cy + (p[1] - cy) * m_ShrinkFactor);
-				float nz = static_cast<float>(cz + (p[2] - cz) * m_ShrinkFactor);
-				newIds[k] = static_cast<igIndex>(newPoints->AddPoint(nx, ny, nz));
-				srcOfNew.push_back(ids[k]);
-			}
+            igIndex newIds[IGAME_CELL_MAX_SIZE];
+            for (int k = 0; k < n; k++) {
+                const auto& p = oldPoints->GetPoint(ids[k]);
+                float nx = static_cast<float>(cx + (p[0] - cx) * m_ShrinkFactor);
+                float ny = static_cast<float>(cy + (p[1] - cy) * m_ShrinkFactor);
+                float nz = static_cast<float>(cz + (p[2] - cz) * m_ShrinkFactor);
+                newIds[k] = static_cast<igIndex>(newPoints->AddPoint(nx, ny, nz));
+                srcOfNew.push_back(ids[k]);
+            }
 
-			cells->SetCellIds(c, newIds, n);
+            cells->SetCellIds(c, newIds, n);
 
-			if ((c & 0x3FF) == 0) {
-				UpdateProgress(static_cast<double>(c) / static_cast<double>(count));
-			}
-		}
+            if ((c & 0x3FF) == 0) { UpdateProgress(static_cast<double>(c) / static_cast<double>(count)); }
+        }
 
-		pointSet->SetPoints(newPoints);
-		CopyPointAttributes(pointSet, srcOfNew);
-		return true;
-	};
+        mesh->SetPoints(newPoints);
+        CopyPointAttributes(mesh, srcOfNew);
+        return true;
+    };
 
-	// 体网格
-	if (auto mesh = DynamicCast<VolumeMesh>(input)) {
-		if (!shrinkCells(mesh, mesh->GetNumberOfVolumes(), mesh->GetVolumes(),
-		                 [mesh](IGsize c, igIndex* ids) { return mesh->GetVolumePointIds(c, ids); })) {
-			return false;
-		}
-		UpdateProgress(1.0);
-		SetOutput(0, input);
-		return true;
-	}
-	// 表面网格
-	if (auto mesh = DynamicCast<SurfaceMesh>(input)) {
-		if (!shrinkCells(mesh, mesh->GetNumberOfFaces(), mesh->GetFaces(),
-		                 [mesh](IGsize c, igIndex* ids) { return mesh->GetFacePointIds(c, ids); })) {
-			return false;
-		}
-		UpdateProgress(1.0);
-		SetOutput(0, input);
-		return true;
-	}
-	// 非结构化网格
-	if (auto mesh = DynamicCast<UnstructuredMesh>(input)) {
-		if (!shrinkCells(mesh, mesh->GetNumberOfCells(), mesh->GetCellArray(),
-		                 [mesh](IGsize c, igIndex* ids) { return mesh->GetCellPointIds(c, ids); })) {
-			return false;
-		}
-		UpdateProgress(1.0);
-		SetOutput(0, input);
-		return true;
-	}
-	return false;
+    // 体网格
+    if (auto inMesh = DynamicCast<VolumeMesh>(input)) {
+        auto out = VolumeMesh::New();
+        auto points = Points::New();
+        points->DeepCopy(inMesh->GetPoints());
+        auto volumes = CellArray::New();
+        volumes->DeepCopy(inMesh->GetVolumes());
+        auto attrs = AttributeSet::New();
+        attrs->DeepCopy(input->GetAttributeSet());
+        out->SetPoints(points);
+        out->SetVolumes(volumes);
+        out->SetAttributeSet(attrs);
+
+        if (!shrinkCells(out, out->GetNumberOfVolumes(), out->GetVolumes(),
+                         [out](IGsize c, igIndex* ids) { return out->GetVolumePointIds(c, ids); })) {
+            return false;
+        }
+        out->SetName(input->GetName() + "_shrink");
+        UpdateProgress(1.0);
+        SetOutput(0, out);
+        return true;
+    }
+    // 表面网格
+    if (auto inMesh = DynamicCast<SurfaceMesh>(input)) {
+        auto out = SurfaceMesh::New();
+        auto points = Points::New();
+        points->DeepCopy(inMesh->GetPoints());
+        auto faces = CellArray::New();
+        faces->DeepCopy(inMesh->GetFaces());
+        auto attrs = AttributeSet::New();
+        attrs->DeepCopy(input->GetAttributeSet());
+        out->SetPoints(points);
+        out->SetFaces(faces);
+        out->SetAttributeSet(attrs);
+
+        if (!shrinkCells(out, out->GetNumberOfFaces(), out->GetFaces(),
+                         [out](IGsize c, igIndex* ids) { return out->GetFacePointIds(c, ids); })) {
+            return false;
+        }
+        out->SetName(input->GetName() + "_shrink");
+        UpdateProgress(1.0);
+        SetOutput(0, out);
+        return true;
+    }
+    // 非结构化网格
+    if (auto inMesh = DynamicCast<UnstructuredMesh>(input)) {
+        auto out = UnstructuredMesh::New();
+        auto points = Points::New();
+        points->DeepCopy(inMesh->GetPoints());
+        auto cells = CellArray::New();
+        cells->DeepCopy(inMesh->GetCells());
+        auto types = UnsignedIntArray::New();
+        types->Resize(inMesh->GetNumberOfCells());
+        auto inTypes = inMesh->GetCellTypes();
+        for (IGsize i = 0; i < inMesh->GetNumberOfCells(); i++) { types->SetValue(i, inTypes->GetValue(i)); }
+        auto attrs = AttributeSet::New();
+        attrs->DeepCopy(input->GetAttributeSet());
+        out->SetPoints(points);
+        out->SetCells(cells, types);
+        out->SetAttributeSet(attrs);
+
+        if (!shrinkCells(out, out->GetNumberOfCells(), out->GetCellArray(),
+                         [out](IGsize c, igIndex* ids) { return out->GetCellPointIds(c, ids); })) {
+            return false;
+        }
+        out->SetName(input->GetName() + "_shrink");
+        UpdateProgress(1.0);
+        SetOutput(0, out);
+        return true;
+    }
+    return false;
 }
 
 IGAME_NAMESPACE_END

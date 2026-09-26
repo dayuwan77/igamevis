@@ -303,9 +303,14 @@ bool AxisAlignedReflectionFilter::Execute() {
     auto outputCells = CellArray::New();
     auto outputTypes = UnsignedIntArray::New();
 
+    // 新建单元数组，避免复制输入单元的偏移数据
     if (m_CopyInput) {
-        outputCells->DeepCopy(input->GetCells());
-        outputTypes->DeepCopy(input->GetCellTypes());
+        for (IGsize cellId = 0; cellId < inputCellCount; ++cellId) {
+            const igIndex* inputIds = nullptr;
+            const int size = input->GetCells()->GetCellIds(cellId, inputIds);
+            outputCells->AddCellIds(inputIds, size);
+            outputTypes->AddValue(input->GetCellType(cellId));
+        }
     }
 
     const igIndex pointOffset = m_CopyInput

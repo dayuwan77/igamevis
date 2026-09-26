@@ -57,8 +57,8 @@ else ()
     add_custom_target(iGameDeployExampleRuntime)
 endif ()
 
-#           iGameCore ʱһ £      Scene      Ͳ  ֲ ͬ     GL_SUPPORT_MSAA    
-# Scene::New           ֱ Ӷ  𻵱          ${IGAMEVIS_CORE_LIB_TARGETS}      Զ       Щ ꡣ
+# ��������� iGameCore ʱһ�£����� Scene �����Ͳ��ֲ�ͬ���� GL_SUPPORT_MSAA����
+# Scene::New ����������ֱ�Ӷ��𻵱��������� ${IGAMEVIS_CORE_LIB_TARGETS} �����Զ�������Щ�ꡣ
 add_compile_definitions(
     IGAME_PLATFORM_WINDOWS
     $<$<PLATFORM_ID:Windows>:PLATFORM_WINDOWS>
@@ -279,6 +279,8 @@ igame_add_example(testConvertToSurfaceMesh Filter/Convert/TestConvertToSurfaceMe
 igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConvertToLagrangeUnstructuredMesh.cpp)
 igame_add_example(testPointSetToOctree Filter/Convert/TestPointSetToOctree.cpp)
 igame_add_example(testResampleToImage Filter/Convert/TestResampleToImage.cpp)
+# 无窗口的数值/逻辑一致性回归检查（失败时返回非 0，可直接进 CI）
+igame_add_example(testResampleOctreeChecks Filter/Convert/TestResampleOctreeChecks.cpp)
 igame_add_example(testConvertToVertex Filter/Convert/TestConvertToVertex.cpp)
 
 # Axis aligned reflection
@@ -287,6 +289,7 @@ igame_add_example(testAxisAlignedReflection Filter/AxisAlignedReflection/TestAxi
 # My Filters
 igame_add_example(testExtractCellsByType Filter/MyFilter/TestExtractCellsByType.cpp)
 igame_add_example(testCellCenterFilter Filter/MyFilter/TestCellCenterFilter.cpp)
+igame_add_example(testAppendLocationAttributeFilter Filter/TestAppendLocationAttribute.cpp)
 
 # Force Static Mesh
 igame_add_example(testForceStaticMesh Filter/ForceStaticMesh/TestForceStaticMesh.cpp)
@@ -300,6 +303,7 @@ igame_add_example(testTransform Filter/TestTransform.cpp)
 igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
 #Data Processing
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
+igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 
 if (ENABLE_CGNS_MODULE)
     igame_add_example(testCGNS IO/CGNSReader.cpp)
@@ -363,6 +367,7 @@ igame_add_example(testMergeVectorComponents Filter/TestMergeVectorComponents.cpp
 igame_add_example(testThresholdAndGenerateIds Filter/TestThresholdAndGenerateIds.cpp)
 igame_add_example(testMultiBlockGeometry Filter/TestMultiBlockGeometry.cpp)
 igame_add_example(testShrink Filter/Shrink/TestShrink.cpp)
+igame_add_example(testShrinkModel Filter/Shrink/TestShrinkModel.cpp)
 igame_add_example(testGenerateProcessIds Filter/TestGenerateProcessIds.cpp)
 igame_add_example(testCellMeshMetrics Filter/TestCellMeshMetrics.cpp)
 igame_add_example(testGhostDemo Filter/GhostCell/TestGhostDemo.cpp)
@@ -372,7 +377,7 @@ igame_add_example(testCleanToGridFilter Filter/TestCleanToGridFilter.cpp)
 # Probe
 igame_add_example(testProbe Filter/Probe/TestProbe.cpp)
 
-#        #5 +  е      #28    ײ       
+# ������ #5 + �е����� #28 ���ײ�������
 igame_add_example(testCountCellVertices Filter/TestCountCellVertices.cpp)
 igame_add_example(testExtractEdges Filter/TestExtractEdges.cpp)
 
@@ -391,6 +396,8 @@ igame_add_example(testGradientExtraction Filter/FeatureExtraction/GradientExtrac
 igame_add_example(testLaplacianExtraction Filter/FeatureExtraction/LaplacianExtraction.cpp)
 igame_add_example(testExtractComponent Filter/TestExtractComponent.cpp)
 igame_add_example(testFeatureEdgeRegion Filter/FeatureExtraction/FeatureEdgeRegion.cpp)
+igame_add_example(testCountCellFaces Filter/FeatureExtraction/CountCellFaces.cpp)
+igame_add_example(testCountCellFacesOutput Filter/FeatureExtraction/CountCellFacesOutput.cpp)
 igame_add_example(testOutlineCorners Filter/FeatureExtraction/OutlineCorners.cpp)
 igame_add_example(testCellSizeExtraction Filter/FeatureExtraction/CellSizeExtraction.cpp)
 
@@ -444,6 +451,7 @@ igame_add_example(testAngularPeriodicSelfCheck Filter/Periodic/TestAngularPeriod
 
 # Volume Interpolation
 igame_add_example(testPointVolumeInterpolator Filter/Interpolation/TestPointVolumeInterpolator.cpp)
+igame_add_example(testPointVolumeInterpolatorSelfCheck Filter/Interpolation/TestPointVolumeInterpolatorSelfCheck.cpp)
 
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)

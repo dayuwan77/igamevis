@@ -27,7 +27,7 @@ igQtModelClipWidget::igQtModelClipWidget(QWidget* parent) : QWidget(parent), ui(
         this->m_Crinkle = isChecked; 
         this->ClipModel();
         });
-
+    
     connect(ui->checkBox_Preview, &QCheckBox::toggled, this, [&](bool isChecked) { GetSelection()->Preview = isChecked; });
     ui->radioButton_Slice->setChecked(true);
     ui->checkBox_Preview->setChecked(false);

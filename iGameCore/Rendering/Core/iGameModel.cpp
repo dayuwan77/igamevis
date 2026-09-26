@@ -274,8 +274,9 @@ void Model::Draw() {
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 0.0f, 0.0f});
             }
 
-            // 如果是cell标量，强制用白色绘制点
-            if (colorWithCell) {
+            // 如果是cell标量：核心侧已经为单元属性生成了逐点颜色（m_Colors），此时按顶点色绘制，
+            // 点样式也能显示当前属性的颜色；只有在拿不到逐点颜色时才回退到旧的纯白行为。
+            if (colorWithCell && !(useColor && renderableObject->HasPointColors())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
 #ifdef __EMSCRIPTEN__
@@ -402,7 +403,10 @@ void Model::Draw() {
 #ifdef __EMSCRIPTEN__
                 m_Scene->m_ShaderManager->ApplyWebFallbackUniforms(shader);
 #endif
-                if (!useColor && !colorWithCell) {
+                // 只要不使用顶点颜色就必须给出 inputColor：BlinnPhong.frag 在 ubo.useColor==0 时
+                // 使用 inputColor，未赋值时会落到着色器默认值 vec3(1,1,1)（纯白），
+                // 于是 !useColor && colorWithCell 这一组合会让整个模型变成纯白。
+                if (!useColor) {
                     shader->SetUniform3f("inputColor", defaultColor);
                 }
 
@@ -532,8 +536,9 @@ void Model::DrawWithTransparency() {
             shader->SetUniformi("uUseLighting", 0);
             shader->SetUniformi("colorMode", 1);
 
-            // 如果是cell标量，强制用白色绘制点
-            if (colorWithCell) {
+            // 如果是cell标量：核心侧已经为单元属性生成了逐点颜色（m_Colors），此时按顶点色绘制，
+            // 点样式也能显示当前属性的颜色；只有在拿不到逐点颜色时才回退到旧的纯白行为。
+            if (colorWithCell && !(useColor && renderableObject->HasPointColors())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
                 #ifdef __EMSCRIPTEN__
