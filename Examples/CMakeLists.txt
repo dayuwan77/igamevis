@@ -394,6 +394,7 @@ igame_add_example(testGradientExtraction Filter/FeatureExtraction/GradientExtrac
 igame_add_example(testLaplacianExtraction Filter/FeatureExtraction/LaplacianExtraction.cpp)
 igame_add_example(testExtractComponent Filter/TestExtractComponent.cpp)
 igame_add_example(testFeatureEdgeRegion Filter/FeatureExtraction/FeatureEdgeRegion.cpp)
+igame_add_example(testCountCellFacesOutput Filter/FeatureExtraction/CountCellFacesOutput.cpp)
 igame_add_example(testOutlineCorners Filter/FeatureExtraction/OutlineCorners.cpp)
 igame_add_example(testCellSizeExtraction Filter/FeatureExtraction/CellSizeExtraction.cpp)
 

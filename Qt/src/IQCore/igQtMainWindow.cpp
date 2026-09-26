@@ -4148,7 +4148,6 @@ void igQtMainWindow::initAllFilters() {
             return;
         }
 
-        const int previousAttributeIndex = input->GetAttributeIndex();
         CountCellFacesFilter::Pointer filter = CountCellFacesFilter::New();
         filter->SetInput(input);
         if (!filter->Execute()) {
@@ -4156,14 +4155,7 @@ void igQtMainWindow::initAllFilters() {
             return;
         }
 
-        modelTreeWidget->updateAllAttriubute(input);
-        if (auto* item = modelTreeWidget->getItemFromObject(input)) {
-            item->setExpanded(true);
-            if (previousAttributeIndex >= 0 && previousAttributeIndex < item->childCount()) {
-                item->viewAttribute(previousAttributeIndex, -1);
-            }
-        }
-        ui->widget_SearchInfo->setCurrentModel(scene->GetCurrentModel());
+        modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
         rendererWidget->update();
     });
 
