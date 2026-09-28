@@ -64,12 +64,9 @@ bool CheckBrownianVectors(const iGame::DataObject::Pointer& obj, double minSpeed
 
 } // namespace
 
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: testRandomVectors <mesh-file>\n";
-        return 2;
-    }
-    const std::string fileName = argv[1];
+int main() {
+    // 相对路径：Examples 构建目录会自动把 Examples/Models 拷贝为 ./Models
+    const std::string fileName = "./Models/RandomVectors_TestA.vtk";
 
     auto obj = iGame::FileIO::ReadFile(fileName);
     if (!obj) {
