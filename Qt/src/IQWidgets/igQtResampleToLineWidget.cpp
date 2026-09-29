@@ -69,10 +69,7 @@ igQtResampleToLine::~igQtResampleToLine() {
         m_OriginDataObject->RemoveObserver(m_OriginObserverTag);
         m_OriginObserverTag = 0;
     }
-    if (m_ResultMesh && m_ResultObserverTag) {
-        m_ResultMesh->RemoveObserver(m_ResultObserverTag);
-        m_ResultObserverTag = 0;
-    }
+    DetachResultObserver();
     ClearPreviewHandles();
 }
 
@@ -334,37 +331,20 @@ void igQtResampleToLine::SetOriginDataObject(iGame::DataObject::Pointer m_d) {
         m_OriginDataObject->RemoveObserver(m_OriginObserverTag);
         m_OriginObserverTag = 0;
     }
-    if (m_ResultMesh && m_ResultObserverTag) {
-        m_ResultMesh->RemoveObserver(m_ResultObserverTag);
-        m_ResultObserverTag = 0;
-    }
+    // 换绑/清空结果之前先摘掉旧回调：tag 只对注册它的那个对象有效
+    DetachResultObserver();
 
     m_OriginDataObject = m_d;
-    m_ResultMesh = iGame::SurfaceMesh::New();
-    m_ResultMesh->SetName("ResampleToLine");
+    // 不再创建「临时结果网格」：结果只在 ResampleToLine() 真正产出后才存在，
+    // 避免出现一个挂着 lambda 观察者的临时对象被悄悄析构（正是之前崩溃的触发对象）
+    m_ResultMesh = nullptr;
 
     if (m_d == nullptr) { return; }
 
     // 原始模型被删除
     m_OriginObserverTag = m_d->AddObserver(iGame::Command::DeleteEvent, [this]() -> void {
-        if (m_ResultMesh && m_ResultObserverTag) {
-            m_ResultMesh->RemoveObserver(m_ResultObserverTag);
-            m_ResultObserverTag = 0;
-        }
+        DetachResultObserver();
         m_OriginObserverTag = 0;
-        this->m_OriginDataObject = nullptr;
-        this->m_ResultMesh = nullptr;
-        if (this->parentWidget() != nullptr) { this->parentWidget()->hide(); }
-        emit ResetInteractor();
-    });
-
-    // 结果折线被删除
-    m_ResultObserverTag = m_ResultMesh->AddObserver(iGame::Command::DeleteEvent, [this]() -> void {
-        if (m_OriginDataObject && m_OriginObserverTag) {
-            m_OriginDataObject->RemoveObserver(m_OriginObserverTag);
-            m_OriginObserverTag = 0;
-        }
-        m_ResultObserverTag = 0;
         this->m_OriginDataObject = nullptr;
         this->m_ResultMesh = nullptr;
         if (this->parentWidget() != nullptr) { this->parentWidget()->hide(); }
@@ -374,6 +354,27 @@ void igQtResampleToLine::SetOriginDataObject(iGame::DataObject::Pointer m_d) {
     // 默认端点根据模型包围盒设置
     ResetLineFromBoundingBox();
     RefreshLine();
+}
+
+void igQtResampleToLine::DetachResultObserver() {
+    // tag 只对它注册时所属的对象有效，所以只能对当前的 m_ResultMesh 使用
+    if (m_ResultMesh && m_ResultObserverTag) {
+        m_ResultMesh->RemoveObserver(m_ResultObserverTag);
+    }
+    m_ResultObserverTag = 0;
+}
+
+void igQtResampleToLine::AttachResultObserver() {
+    m_ResultObserverTag = 0;
+    if (m_ResultMesh == nullptr) { return; }
+
+    // 结果折线被删除（模型树/场景移除时 InvokeEvent，此刻对象仍然存活）。
+    // 与 ContourExtract 等面板一致：不关闭面板、不清空原始模型绑定，只清空结果状态，
+    // 这样用户删掉结果后可以在同一面板内直接再次执行。
+    m_ResultObserverTag = m_ResultMesh->AddObserver(iGame::Command::DeleteEvent, [this]() -> void {
+        m_ResultObserverTag = 0; // 观察者随对象一起销毁，这个 tag 不能再用了
+        this->m_ResultMesh = nullptr;
+    });
 }
 
 void igQtResampleToLine::UpdateOriginDataObject(iGame::DataObject::Pointer _origin_ptr) {
@@ -430,8 +431,13 @@ void igQtResampleToLine::ResampleToLine() {
     if (m_ModelTreeWidget == nullptr) { m_ModelTreeWidget = ResolveModelTreeWidget(); }
     if (m_ModelTreeWidget != nullptr) { m_ModelTreeWidget->addDataObjectToModelTree(poly, Algorithm); }
 
+    // 换绑结果对象：先摘掉上一次结果上的回调，再改写成员，最后给新结果重新挂上。
+    // 顺序不能反：tag 属于旧对象，若先改写成员，旧对象可能已被释放，
+    // 用旧 tag 去 RemoveObserver 会落到新对象上，误删别人的观察者。
+    DetachResultObserver();
     m_ResultMesh = poly;
     m_ResultMesh->ConvertToDrawableData();
+    AttachResultObserver();
 
     auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
     if (scene != nullptr) { scene->Update(); }

@@ -36,6 +36,7 @@ class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
 class igQtResampleToLine;
+class igQtResampleWithDataSet;
 class igQtDeformationWidget;
 class igQtAiChatWidget;
 class igQtCommandManager;
@@ -70,6 +71,7 @@ public:
         ExtractComponent,
         ExtractCellsByType,
         GenerateProcessIds,
+        ResampleWithDataSet,
         Count
     };
 
@@ -103,6 +105,8 @@ public:
     QDockWidget* SliceDockWidget;
     QDockWidget* ResampleToLineDockWidget{nullptr};
     igQtResampleToLine* ResampleToLineWidget{nullptr};
+    QDockWidget* ResampleWithDataSetDockWidget{nullptr};
+    igQtResampleWithDataSet* ResampleWithDataSetWidget{nullptr};
     QDockWidget* ContourDockWidget;
     igQtModelClipWidget* SliceWidget;
     QDockWidget* DeformationDockWidget;
@@ -188,8 +192,9 @@ private:
     iGame::ExtractCellsByTypeFilter::Pointer m_extractCellsByTypeFilter;
     iGame::Model::Pointer m_extractCellsByTypeModel;
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
     void ensureResampleToLinePanel();
+    void ensureResampleWithDataSetPanel();
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);

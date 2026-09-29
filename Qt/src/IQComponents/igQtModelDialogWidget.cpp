@@ -325,6 +325,16 @@ igQtModelDialogWidget::igQtModelDialogWidget(QWidget* parent) : QObject(parent),
     connect(modelTreeWidget, &igQtModelTreeWidget::ViewCloudPicture, this, &igQtModelDialogWidget::updateCloudPicture);
 }
 
+QList<ModelTreeWidgetItem*> igQtModelDialogWidget::getAllModelItems() const {
+    QList<ModelTreeWidgetItem*> items;
+    if (modelTreeWidget == nullptr) { return items; }
+    for (int i = 0; i < modelTreeWidget->topLevelItemCount(); ++i) {
+        auto* item = dynamic_cast<ModelTreeWidgetItem*>(modelTreeWidget->topLevelItem(i));
+        if (item != nullptr) { items.append(item); }
+    }
+    return items;
+}
+
 ModelTreeWidgetItem* igQtModelDialogWidget::getItemFromObject(iGame::DataObject::Pointer obj) {
     // 遍历子项
     for (int i = 0; i < modelTreeWidget->topLevelItemCount(); ++i) {

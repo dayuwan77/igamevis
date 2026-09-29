@@ -2,6 +2,7 @@
 
 #include "iGameAttributeSet.h"
 #include "iGameCellArray.h"
+#include "iGameDataObjectCopy.h"
 #include "iGameFlatArray.h"
 #include "iGamePoints.h"
 
@@ -1494,108 +1495,142 @@ int LinearCornerVolumeCell(IGenum cellType, Cell::Pointer& cell) {
 } // namespace
 
 /* ------------------------------------------------------------------ */
-/* 参数设置                                                            */
-/* ------------------------------------------------------------------ */
-void ResampleWithDataSet::setOrigTarget(const Vector3d& p0, const Vector3d& p1, const int& x) {
-    orig = Point(static_cast<float>(p0[0]), static_cast<float>(p0[1]), static_cast<float>(p0[2]));
-    target = Point(static_cast<float>(p1[0]), static_cast<float>(p1[1]), static_cast<float>(p1[2]));
-    n = x;
-}
-
-/* ------------------------------------------------------------------ */
 /* 主流程                                                              */
 /* ------------------------------------------------------------------ */
 bool ResampleWithDataSet::Execute() {
-    auto input = GetInput(0);
-    auto sample = GetInput(1);
-    if (input == nullptr) {
-        m_Message = "未选择输入数据";
+    // 输入 0：被采样网格（数据来源，VTK 的 Source）
+    // 输入 1：采样点网格（探针几何，输出是它的深拷贝；VTK 的 Input）
+    auto source = GetInput(0);
+    auto probe = GetInput(1);
+
+    m_UnsupportedQuadraticCellCount = 0;
+    m_SnappedPointCount = 0;
+    m_Output = nullptr;
+    SetOutput(0, nullptr);
+    m_SampleCellIds.clear();
+    m_SampleValidMask.clear();
+
+    if (source == nullptr) {
+        m_Message = "未选择「被采样网格」";
         return false;
     }
-    if (n < 2) {
-        m_Message = "n must be greater than 1";
+    if (probe == nullptr) {
+        m_Message = "未选择「采样点网格」";
         return false;
     }
 
-    // 优先使用 UnstructuredMesh；SurfaceMesh / VolumeMesh 先转换
-    auto mesh = DynamicCast<UnstructuredMesh>(input);
-    if (mesh == nullptr) { mesh = UnstructuredMesh::TransDataObjToUnstructuredMesh(input); }
+    auto probePoints = probe->GetPoints();
+    if (probePoints == nullptr || probePoints->GetNumberOfPoints() == 0) {
+        m_Message = "「采样点网格」没有点，无法确定采样位置";
+        return false;
+    }
+
+    // 被采样网格优先使用 UnstructuredMesh；SurfaceMesh / VolumeMesh / StructuredMesh 先转换
+    auto mesh = DynamicCast<UnstructuredMesh>(source);
+    if (mesh == nullptr) { mesh = UnstructuredMesh::TransDataObjToUnstructuredMesh(source); }
     if (mesh == nullptr) {
-        m_Message = "please input UnstructuredMesh / SurfaceMesh / VolumeMesh";
+        m_Message = "「被采样网格」无法转换为 UnstructuredMesh";
         return false;
     }
     if (mesh->GetNumberOfPoints() == 0 || mesh->GetNumberOfCells() == 0) {
-        m_Message = "Mesh has no cells or points.";
+        m_Message = "「被采样网格」没有单元或点";
         return false;
     }
 
     const BoundingBox& bbox = mesh->GetBoundingBox();
     const double diag = std::max(bbox.diag(), 1e-12);
 
-    // 容差：自动（包围盒对角线 × 1e-6）或手动
+    // 容差：自动（包围盒对角线 × 1e-6）或手动；吸附半径按同一比例换算成绝对长度
     m_EffectiveTolerance = m_AutoTolerance ? (diag * kAutoToleranceRatio) : (m_Tolerance * diag);
     const double distTol = m_EffectiveTolerance;
+    const bool snappingEnabled = (m_SnappingRadius > 0.0);
+    m_EffectiveSnappingRadius = snappingEnabled ? (m_SnappingRadius * diag) : -1.0;
 
-    m_UnsupportedQuadraticCellCount = 0;
-
-    //根据网格生成采样点
-
-    auto samples = sample->GetPoints();
-    auto numberofpoints = samples->GetNumberOfPoints();
-    std::vector<SampleLocation> locations(static_cast<size_t>(n));
-    // Points::Pointer samples = Points::New();
-    for (int i = 0; i < numberofpoints; i++) {
-        const Point p = samples->GetPoint(i);
-        locations[static_cast<size_t>(i)].point = p;
+    // 采样位置就是「采样点网格」的所有点
+    const int sampleNum = static_cast<int>(probePoints->GetNumberOfPoints());
+    std::vector<SampleLocation> locations(static_cast<size_t>(sampleNum));
+    for (int i = 0; i < sampleNum; ++i) {
+        locations[static_cast<size_t>(i)].point = probePoints->GetPoint(i);
     }
 
-    // 1. 沿线均匀生成采样点
-    // Points::Pointer samples = Points::New();
-    // std::vector<SampleLocation> locations(static_cast<size_t>(n));
-    // for (int i = 0; i < n; ++i) {
-    //     const double t = static_cast<double>(i) / static_cast<double>(n - 1);
-    //     const Point p(static_cast<float>((1.0 - t) * orig[0] + t * target[0]),
-    //                   static_cast<float>((1.0 - t) * orig[1] + t * target[1]),
-    //                   static_cast<float>((1.0 - t) * orig[2] + t * target[2]));
-    //     samples->AddPoint(p);
-    //     locations[static_cast<size_t>(i)].point = p;
-    // }
-
-    // 2. 均匀网格加速结构
+    // 均匀网格加速结构
     const double cellNum = static_cast<double>(mesh->GetNumberOfCells());
     igIndex gridDim = static_cast<igIndex>(std::cbrt(cellNum) + 0.5);
     gridDim = std::max<igIndex>(4, std::min<igIndex>(64, gridDim));
     const igIndex nx = gridDim, ny = gridDim, nz = gridDim;
     auto grid = BuildUniformGrid(mesh, bbox, nx, ny, nz);
 
-    // 3. 逐采样点定位单元（不再吸附最近单元：不在任何单元内即标记无效）
-    m_SampleCellIds.assign(static_cast<size_t>(n), -1);
-    m_SampleValidMask.assign(static_cast<size_t>(n), 0);
+    // 逐采样点定位单元；未命中且开启吸附半径时，尝试吸附到半径内最近单元
+    m_SampleCellIds.assign(static_cast<size_t>(sampleNum), -1);
+    m_SampleValidMask.assign(static_cast<size_t>(sampleNum), 0);
     int validCount = 0;
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < sampleNum; ++i) {
+        const Point p = probePoints->GetPoint(i);
+
         SampleLocation loc;
-        if (LocateSample(mesh, samples->GetPoint(i), bbox, grid, nx, ny, nz, distTol, loc) && loc.cellId >= 0) {
+        if (LocateSample(mesh, p, bbox, grid, nx, ny, nz, distTol, loc) && loc.cellId >= 0) {
             locations[static_cast<size_t>(i)] = loc;
             m_SampleCellIds[static_cast<size_t>(i)] = loc.cellId;
             m_SampleValidMask[static_cast<size_t>(i)] = 1;
             ++validCount;
+            continue;
         }
+
+        if (!snappingEnabled) { continue; }
+
+        igIndex snapCellId = -1;
+        Point closest;
+        if (!LocateNearestCell(mesh, p, bbox, grid, nx, ny, nz, m_EffectiveSnappingRadius, snapCellId, closest)) {
+            continue;
+        }
+        // 用单元边界上的最近点求权重（该点落在单元上），采样点自身坐标保持不变
+        std::vector<double> weights;
+        if (!ComputeCellWeights(mesh, snapCellId, closest, distTol, weights) || weights.empty()) { continue; }
+
+        igIndex ptIds[IGAME_CELL_MAX_SIZE];
+        const int npts = mesh->GetCellPointIds(snapCellId, ptIds);
+        if (npts <= 0) { continue; }
+
+        SampleLocation snapped;
+        snapped.cellId = snapCellId;
+        snapped.point = p;
+        snapped.pointIds.assign(ptIds, ptIds + npts);
+        snapped.weights = std::move(weights);
+        locations[static_cast<size_t>(i)] = snapped;
+        m_SampleCellIds[static_cast<size_t>(i)] = snapCellId;
+        m_SampleValidMask[static_cast<size_t>(i)] = 1;
+        ++validCount;
+        ++m_SnappedPointCount;
     }
 
-    // 4. 插值 Point Data / 复制 Cell Data / 有效点掩码
+    // 属性：① 源点数据插值 ② 源单元数据按命中单元拷到点 ③ validpointmask ④ 采样点网格自身数组
     AttributeSet* inAttr = mesh->GetAttributeSet();
     AttributeSet::Pointer outAttr = AttributeSet::New();
-    InterpolatePointData(inAttr, outAttr, locations, n);
-    CopyCellData(inAttr, outAttr, locations, n);
-    AddValidPointMask(outAttr, n);
+    std::vector<std::string> producedPointNames;
+    InterpolatePointData(inAttr, outAttr, locations, sampleNum, producedPointNames);
+    std::vector<std::string> producedNames = producedPointNames;
+    CopyCellData(inAttr, outAttr, locations, sampleNum, producedPointNames, producedNames);
+    AddValidPointMask(outAttr, sampleNum, producedNames);
+    CopyProbeAttributes(probe->GetAttributeSet(), outAttr, producedNames);
 
-    // 5. 生成折线输出
-    BuildPolyLineOutputs(samples, outAttr, n);
+    // 输出 = 采样点网格的同类型深拷贝（几何/拓扑独立），属性换成采样结果
+    auto output = DeepCopyDataObject(probe, outAttr);
+    if (output == nullptr) {
+        m_Message = "输出构建失败：不支持「采样点网格」的数据类型";
+        return false;
+    }
+    output->SetName(probe->GetName() + "_resample");
+    m_Output = output;
+    SetOutput(0, output);
 
-    m_Message = "ResampleWithDataSet: samples=" + std::to_string(n) + ", valid=" + std::to_string(validCount) +
-                ", invalid=" + std::to_string(n - validCount) +
+    m_Message = "ResampleWithDataSet: samples=" + std::to_string(sampleNum) + ", valid=" + std::to_string(validCount) +
+                ", invalid=" + std::to_string(sampleNum - validCount) +
                 ", tolerance=" + std::to_string(m_EffectiveTolerance) +
                 (m_AutoTolerance ? " (auto = bboxDiag*1e-6)" : " (manual)");
+    if (m_SnappedPointCount > 0) {
+        m_Message += ", snapped=" + std::to_string(m_SnappedPointCount) +
+                     " (radius=" + std::to_string(m_EffectiveSnappingRadius) + ")";
+    }
     if (m_UnsupportedQuadraticCellCount > 0) {
         m_Message += ", degraded high-order cells=" + std::to_string(m_UnsupportedQuadraticCellCount);
     }
@@ -2039,7 +2074,8 @@ double ResampleWithDataSet::DistanceToCellBoundary(const UnstructuredMesh::Point
 /* 属性插值                                                            */
 /* ------------------------------------------------------------------ */
 void ResampleWithDataSet::InterpolatePointData(AttributeSet* inSet, AttributeSet::Pointer outSet,
-                                          const std::vector<SampleLocation>& locations, int sampleNum) {
+                                          const std::vector<SampleLocation>& locations, int sampleNum,
+                                          std::vector<std::string>& producedPointNames) {
     if (inSet == nullptr || outSet == nullptr) { return; }
     auto all = inSet->GetAllAttributes();
     if (all == nullptr) { return; }
@@ -2082,12 +2118,15 @@ void ResampleWithDataSet::InterpolatePointData(AttributeSet* inSet, AttributeSet
             dst->SetElement(static_cast<IGsize>(j), values.data());
         }
 
+        producedPointNames.push_back(src->GetName());
         outSet->AddAttribute(attr.type, IG_POINT, dst, attr.GetDataRange());
     }
 }
 
 void ResampleWithDataSet::CopyCellData(AttributeSet* inSet, AttributeSet::Pointer outSet,
-                                  const std::vector<SampleLocation>& locations, int sampleNum) {
+                                  const std::vector<SampleLocation>& locations, int sampleNum,
+                                  const std::vector<std::string>& pointNames,
+                                  std::vector<std::string>& producedNames) {
     if (inSet == nullptr || outSet == nullptr) { return; }
     auto all = inSet->GetAllAttributes();
     if (all == nullptr) { return; }
@@ -2099,6 +2138,12 @@ void ResampleWithDataSet::CopyCellData(AttributeSet* inSet, AttributeSet::Pointe
         if (attr.attachmentType != IG_CELL) { continue; }
 
         auto src = attr.pointer;
+
+        // 同名数组若已由源点数据产出，则点数据优先（与 vtkProbeFilter 一致：
+        // “If an array of the same name exists both in source's point and cell data,
+        //   only the one from the point data is probed.”）
+        if (std::find(pointNames.begin(), pointNames.end(), src->GetName()) != pointNames.end()) { continue; }
+
         const int dim = src->GetDimension();
         if (dim <= 0) { continue; }
 
@@ -2120,12 +2165,14 @@ void ResampleWithDataSet::CopyCellData(AttributeSet* inSet, AttributeSet::Pointe
             dst->SetElement(static_cast<IGsize>(j), values.data());
         }
 
+        producedNames.push_back(src->GetName());
         // 复制到采样点上，因此附着类型为 IG_POINT
         outSet->AddAttribute(attr.type, IG_POINT, dst, attr.GetDataRange());
     }
 }
 
-void ResampleWithDataSet::AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum) {
+void ResampleWithDataSet::AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum,
+                                            std::vector<std::string>& producedPointNames) {
     if (outSet == nullptr) { return; }
 
     auto mask = UnsignedCharArray::New();
@@ -2140,73 +2187,105 @@ void ResampleWithDataSet::AddValidPointMask(AttributeSet::Pointer outSet, int sa
     }
 
     // validpointmask 附着在采样点上：1 = 可插值，0 = 无效
+    producedPointNames.push_back("validpointmask");
     outSet->AddAttribute(IG_SCALAR, IG_POINT, mask);
 }
 
 /* ------------------------------------------------------------------ */
-/* 折线输出                                                            */
+/* 采样点网格自身的属性                                                */
 /* ------------------------------------------------------------------ */
-/** 复制一份属性条目（数组共享，属性条目独立），避免共享 AttributeSet 时宿主对象混乱 */
-namespace {
-AttributeSet::Pointer CloneAttributeSetEntries(const AttributeSet::Pointer& srcSet) {
-    auto dstSet = AttributeSet::New();
-    if (srcSet == nullptr) { return dstSet; }
+void ResampleWithDataSet::CopyProbeAttributes(AttributeSet* inSet, AttributeSet::Pointer outSet,
+                                             const std::vector<std::string>& producedPointNames) {
+    if (inSet == nullptr || outSet == nullptr) { return; }
 
-    auto all = srcSet->GetAllAttributes();
-    if (all == nullptr) { return dstSet; }
+    auto all = inSet->GetAllAttributes();
+    if (all == nullptr) { return; }
 
     for (IGsize i = 0; i < all->GetNumberOfElements(); ++i) {
         auto& attr = all->GetElement(i);
         if (attr.isDeleted || attr.pointer == nullptr) { continue; }
-        dstSet->AddAttribute(attr.type, attr.attachmentType, attr.pointer, attr.dataRange);
+
+        // 采样点网格的「点」属性与采样结果同名时，以采样结果为准（对应 VTK 的
+        // PassPointArrays 与 probe 结果冲突时的取舍）；「单元」属性照常保留
+        // （输出与采样点网格同拓扑，尺寸天然匹配，对应 PassCellArrays）
+        if (attr.attachmentType == IG_POINT &&
+            std::find(producedPointNames.begin(), producedPointNames.end(), attr.pointer->GetName()) !=
+                    producedPointNames.end()) {
+            continue;
+        }
+
+        // 数组共享、属性条目独立，避免两个 AttributeSet 共用同一属性条目
+        outSet->AddAttribute(attr.type, attr.attachmentType, attr.pointer, attr.dataRange);
     }
-    return dstSet;
 }
-} // namespace
 
 
-void ResampleWithDataSet::BuildSameUnstructuredMesh(const UnstructuredMesh& src, AttributeSet::Pointer attrSet) {
+/* ------------------------------------------------------------------ */
+/* 吸附搜索                                                            */
+/* ------------------------------------------------------------------ */
+bool ResampleWithDataSet::LocateNearestCell(const UnstructuredMesh::Pointer& mesh, const Point& p,
+                                           const BoundingBox& bbox, const std::vector<std::vector<igIndex>>& grid,
+                                           igIndex nx, igIndex ny, igIndex nz, double radius, igIndex& cellId,
+                                           Point& closest) {
+    cellId = -1;
+    closest = p;
+    if (radius <= 0.0) { return false; }
 
-}
-void ResampleWithDataSet::BuildPolyLineOutputs(const Points::Pointer& samples, AttributeSet::Pointer attrSet,
-                                          int sampleNum) {
-    // (1) UnstructuredMesh 折线：IG_LINE 单元，保持与既有流程（菜单/示例）兼容
-    auto lineMesh = UnstructuredMesh::New();
-    lineMesh->SetName("resample_to_line");
-    lineMesh->SetPoints(samples);
+    double voxelX = (bbox.max[0] - bbox.min[0]) / static_cast<double>(nx);
+    double voxelY = (bbox.max[1] - bbox.min[1]) / static_cast<double>(ny);
+    double voxelZ = (bbox.max[2] - bbox.min[2]) / static_cast<double>(nz);
+    if (voxelX < 1e-12) { voxelX = 1.0; }
+    if (voxelY < 1e-12) { voxelY = 1.0; }
+    if (voxelZ < 1e-12) { voxelZ = 1.0; }
 
-    auto cells = CellArray::New();
-    auto types = UnsignedIntArray::New();
-    for (int i = 0; i + 1 < sampleNum; ++i) {
-        cells->AddCellId2(i, i + 1);
-        types->AddValue(IG_LINE);
+    const igIndex ix =
+            std::max<igIndex>(0, std::min<igIndex>(nx - 1, static_cast<igIndex>((p[0] - bbox.min[0]) / voxelX)));
+    const igIndex iy =
+            std::max<igIndex>(0, std::min<igIndex>(ny - 1, static_cast<igIndex>((p[1] - bbox.min[1]) / voxelY)));
+    const igIndex iz =
+            std::max<igIndex>(0, std::min<igIndex>(nz - 1, static_cast<igIndex>((p[2] - bbox.min[2]) / voxelZ)));
+
+    // 半径覆盖的环数：吸附半径通常只有若干单元大小，扫描代价可控
+    const double minVoxel = std::max(1e-12, std::min(voxelX, std::min(voxelY, voxelZ)));
+    igIndex maxRing = static_cast<igIndex>(std::ceil(radius / minVoxel)) + 1;
+    maxRing = std::min(maxRing, std::max(nx, std::max(ny, nz)));
+
+    std::vector<igIndex> candidates;
+    for (igIndex r = 0; r <= maxRing; ++r) {
+        for (igIndex dx = -r; dx <= r; ++dx) {
+            for (igIndex dy = -r; dy <= r; ++dy) {
+                for (igIndex dz = -r; dz <= r; ++dz) {
+                    if (std::max(std::abs(dx), std::max(std::abs(dy), std::abs(dz))) != r) { continue; }
+                    const igIndex cx = ix + dx, cy = iy + dy, cz = iz + dz;
+                    if (cx < 0 || cx >= nx || cy < 0 || cy >= ny || cz < 0 || cz >= nz) { continue; }
+                    const auto& list = grid[static_cast<size_t>(cx) + static_cast<size_t>(cy) * nx +
+                                            static_cast<size_t>(cz) * nx * ny];
+                    candidates.insert(candidates.end(), list.begin(), list.end());
+                }
+            }
+        }
     }
-    lineMesh->SetCells(cells, types);
-    lineMesh->SetAttributeSet(CloneAttributeSetEntries(attrSet));
-    lineMesh->SetViewStyle(IG_WIREFRAME);
+    if (candidates.empty()) { return false; }
 
-    m_LineMesh = lineMesh;
-    SetOutput(0, lineMesh);
+    std::sort(candidates.begin(), candidates.end());
+    candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
 
-    // (2) SurfaceMesh 折线：真正的折线数据（点 + 边），可直接渲染为折线
-    auto poly = SurfaceMesh::New();
-    poly->SetName("resample_to_line");
-    poly->SetPoints(samples);
+    double best = DBL_MAX;
+    for (const igIndex id : candidates) {
+        Point c;
+        const double d = DistanceToCellBoundary(mesh, id, p, c);
+        if (d < best) {
+            best = d;
+            closest = c;
+            cellId = id;
+        }
+    }
 
-    // 先给出空的面片数组：SurfaceMesh 的拓扑/可绘制数据接口要求面片数组非空，
-    // 且其时间戳要早于边数组，避免后续 RequestEditStatus() 依据面片重建边而丢掉折线
-    poly->SetFaces(CellArray::New());
-
-    auto edges = CellArray::New();
-    for (int i = 0; i + 1 < sampleNum; ++i) { edges->AddCellId2(i, i + 1); }
-    poly->SetEdges(edges);
-    poly->SetAttributeSet(attrSet);
-    poly->SetViewStyle(IG_WIREFRAME);
-    // 折线没有面片，关闭抽壳/简化渲染，避免空面片网格参与简化
-    poly->SetShellRenderingOption(false);
-
-    m_PolyLine = poly;
-    SetOutput(1, poly);
+    if (cellId < 0 || best > radius) {
+        cellId = -1;
+        return false;
+    }
+    return true;
 }
 
 IGAME_NAMESPACE_END

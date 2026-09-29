@@ -7,9 +7,9 @@
 #include "iGameFilter.h"
 #include "iGamePointSet.h"
 #include "iGameSceneManager.h"
+#include "iGameStructuredMesh.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
-#include "iGameStructuredMesh.h"
 #include "iGameVector.h"
 #include "iGameVolumeMesh.h"
 
@@ -19,31 +19,37 @@
 IGAME_NAMESPACE_BEGIN
 
 /**
- * @brief 重采样至直线（Resample to line）
+ * @brief 重采样至数据集（对标 ParaView / VTK 的 Resample With Dataset）
  *
- * 沿给定线段均匀生成采样点，为每个采样点定位其所在的单元并插值：
- *   1) 线性面单元（三角形 / 四边形 / 多边形）：线性插值（重心坐标 / 双线性 / 扇形三角化）；
- *   2) 体单元（四面体 / 六面体 / 三棱柱 / 金字塔 / 多面体）：均值坐标（Mean Value
- *      Coordinates）插值；四面体的均值坐标即重心坐标，直接用解析解；
- *   3) 二次 / 高次单元：二次形函数 + 参数坐标 Newton 反解，覆盖 10 类：
- *      6 节点三角形 / 8 节点四边形 / 10 节点四面体 / 20 节点六面体 /
- *      15 节点三棱柱（楔形） / 13 节点金字塔 /
- *      9 节点双二次四边形 / 6 节点二次-线性四边形 / 12 节点二次-线性楔形 / 27 节点三二次六面体；
- *      其中后四类的节点序与形函数按 VTK 硬编码，与 vtkBiQuadraticQuad / vtkQuadraticLinearQuad /
- *      vtkQuadraticLinearWedge / vtkTriQuadraticHexahedron 源码逐行一致。
- * 仍未实现的类型（18 节点双二次-二次楔形、24 节点双二次-二次六面体、19 节点三二次金字塔、
- * 含棱中点的 QuadraticPolygon、Lagrange* 任意阶）退化处理：面单元按角点线性、
- * 体单元按「角点线性 + 均值坐标」，并在 GetMessage() 中给出 degraded high-order cells 数量提示。
+ * 两个输入，语义与 vtkProbeFilter 一致。**注意 VTK 的命名与直觉相反**：
+ *   - 输入 0「被采样网格」= VTK 的 **Source**：提供数据的网格。它的点数据被插值到采样点上；
+ *     它的单元数据按「采样点落在哪个单元」拷到采样点上。非 UnstructuredMesh 的类型会先
+ *     转换成 UnstructuredMesh 再参与单元定位与插值。
+ *   - 输入 1「采样点网格」= VTK 的 **Input**：探针几何。它的**所有点**就是采样位置，
+ *     并且它的几何与拓扑会被原样**深拷贝**成输出。
  *
- * 采样点不在任何单元内（超出容差）时不再吸附最近单元，而是标记为无效：
- * 新增点数据属性 "validpointmask"（UnsignedCharArray），1 = 该采样点可插值，0 = 无效；
- * 无效采样点各插值属性填 0（与 VTK vtkProbeFilter 行为一致）。
+ * 输出（output 0）：
+ *   - 几何与拓扑：输入 1 的同类型深拷贝（PointSet / SurfaceMesh / UnstructuredMesh /
+ *     VolumeMesh / StructuredMesh），类型与输入 1 保持一致；
+ *   - 属性：
+ *     ① 输入 0 的点数据插值到输出点上；
+ *     ② 输入 0 的单元数据按命中单元拷到输出点上（与 vtkProbeFilter 一致；若同一名字
+ *        同时存在于输入 0 的点数据与单元数据，只取点数据）；
+ *     ③ validpointmask（UnsignedCharArray，1 = 该采样点插值成功，0 = 无效；无效点的
+ *        各插值属性填 0）；
+ *     ④ 输入 1 自身的属性数组也一并保留（对应 VTK 的 PassPointArrays / PassCellArrays）；
+ *        若输入 1 的**点**属性与 ①②③ 产出的数组同名，以采样结果为准（单元属性不受影响）。
  *
- * 容差默认自动计算（包围盒对角线 × 1e-6，紧容差），也可用 SetTolerance() 手动指定。
+ * 采样与容差：
+ *   - 采样位置是输入 1 的所有点，不再沿线均匀生成；
+ *   - 容差默认自动（被采样网格包围盒对角线 × 1e-6），可用 SetTolerance() 手动指定；
+ *   - 采样点落在所有单元之外时可选的「吸附半径」：SetSnappingRadius(r) 打开后，若在 r
+ *     （相对包围盒对角线）范围内存在单元，则把该点吸附到最近单元的边界最近点处取值，
+ *     该采样点记为有效。对应 vtkProbeFilter 的 SnappingRadius；本实现不移动采样点坐标。
  *
- * 输出：
- *   output 0 : UnstructuredMesh 折线（IG_LINE 单元），与既有流程兼容;
- *   output 1 : SurfaceMesh 折线（点 + 边），真正的折线数据，可直接渲染为折线。
+ * 单元类型与插值方式沿用 ResampleToLine 的内核：线性面单元用线性插值（重心坐标 / 双线性 /
+ * 扇形三角化），体单元用均值坐标（Mean Value Coordinates），二次/高次单元用二次形函数 +
+ * 参数坐标 Newton 反解；未覆盖的高次单元退化为角点线性处理，并在 GetMessage() 中提示数量。
  */
 class ResampleWithDataSet : public Filter {
 public:
@@ -52,28 +58,23 @@ public:
 
     bool Execute() override;
 
-    /* ---------------- 参数设置 ---------------- */
+    /* ---------------- 输入 ---------------- */
 
-    /** 设置采样线段：起点 p0、终点 p1、采样点数量 x */
-    void setOrigTarget(const Point& p0, const Point& p1, const int& x) {
-        orig = p0;
-        target = p1;
-        n = x;
-    }
-    void setOrigTarget(const Vector3d& p0, const Vector3d& p1, const int& x);
-    void SetOrigTarget(const Point& p0, const Point& p1) {
-        orig = p0;
-        target = p1;
-    }
-    void SetSampleNumber(int x) { n = x; }
-    int GetSampleNumber() const { return n; }
+    /** 被采样网格（数据来源，对应 VTK 的 Source）→ 输入 0 */
+    void SetSourceData(DataObject::Pointer data) { SetInput(0, data); }
+    /** 采样点网格（探针几何，输出是它的同类型深拷贝；对应 VTK 的 Input）→ 输入 1 */
+    void SetProbeData(DataObject::Pointer data) { SetInput(1, data); }
+    DataObject::Pointer GetSourceData() { return GetInput(0); }
+    DataObject::Pointer GetProbeData() { return GetInput(1); }
+
+    /* ---------------- 参数设置 ---------------- */
 
     /** 是否使用自动容差（默认开启） */
     void SetAutoTolerance(bool flag) { m_AutoTolerance = flag; }
     bool IsAutoTolerance() const { return m_AutoTolerance; }
 
     /**
-     * 手动指定容差（相对于模型包围盒对角线长度）。
+     * 手动指定容差（相对被采样网格包围盒对角线长度）。
      * t <= 0 时恢复自动容差（包围盒对角线 × 1e-6）。
      */
     void SetTolerance(double t) {
@@ -90,18 +91,27 @@ public:
     /** 上一次 Execute() 实际使用的容差（绝对长度） */
     double GetEffectiveTolerance() const { return m_EffectiveTolerance; }
 
+    /**
+     * 吸附半径（相对被采样网格包围盒对角线长度）。r <= 0 表示关闭吸附（默认）。
+     * 开启后，未被任何单元包含、但在半径内存在单元的采样点会吸附到最近单元边界最近点取值。
+     */
+    void SetSnappingRadius(double r) { m_SnappingRadius = (r > 0.0) ? r : -1.0; }
+    double GetSnappingRadius() const { return m_SnappingRadius; }
+    /** 上一次 Execute() 实际使用的吸附半径（绝对长度）；< 0 表示未启用 */
+    double GetEffectiveSnappingRadius() const { return m_EffectiveSnappingRadius; }
+
     std::string GetMessage() const { return m_Message; }
 
     /* ---------------- 结果查询 ---------------- */
 
-    /** output 1: 折线（SurfaceMesh，点 + 边） */
-    SurfaceMesh::Pointer GetPolyLine() const { return m_PolyLine; }
-    /** output 0: 折线（UnstructuredMesh，IG_LINE 单元） */
-    UnstructuredMesh::Pointer GetLineMesh() const { return m_LineMesh; }
-    /** 每个采样点命中的单元 id，-1 表示无效（不在任何单元内） */
+    /** output 0：输入 1 的同类型深拷贝 + 采样得到的属性 */
+    DataObject::Pointer GetResampledData() const { return m_Output; }
+    /** 每个采样点命中的单元 id，-1 表示无效（不在任何单元内且未吸附） */
     const std::vector<igIndex>& GetSampleCellIds() const { return m_SampleCellIds; }
     /** 每个采样点是否有效（1 = 可插值，0 = 无效），与 validpointmask 属性一致 */
     const std::vector<unsigned char>& GetSampleValidMask() const { return m_SampleValidMask; }
+    /** 本次执行中依靠吸附半径才命中的采样点数量 */
+    IGsize GetSnappedPointCount() const { return m_SnappedPointCount; }
     /** 本次执行中退化为线性角点处理的二次/高次单元数量 */
     IGsize GetUnsupportedQuadraticCellCount() const { return m_UnsupportedQuadraticCellCount; }
 
@@ -120,6 +130,13 @@ private:
     bool LocateSample(const UnstructuredMesh::Pointer& mesh, const Point& p, const BoundingBox& bbox,
                       const std::vector<std::vector<igIndex>>& grid, igIndex nx, igIndex ny, igIndex nz,
                       double distTol, SampleLocation& out);
+    /**
+     * 吸附搜索：在 radius（绝对长度）范围内寻找离 p 最近的单元，并给出该单元边界上的最近点。
+     * 只有采样点未被任何单元包含（LocateSample 失败）且开启了吸附半径时才会调用。
+     */
+    bool LocateNearestCell(const UnstructuredMesh::Pointer& mesh, const Point& p, const BoundingBox& bbox,
+                           const std::vector<std::vector<igIndex>>& grid, igIndex nx, igIndex ny, igIndex nz,
+                           double radius, igIndex& cellId, Point& closest);
 
     /* ---------------- 单元权重 ---------------- */
     bool ComputeCellWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
@@ -137,43 +154,41 @@ private:
     double DistanceToCellBoundary(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, Point& closest);
 
     /* ---------------- 属性处理 ---------------- */
+    /** 输入 0 的点数据 → 输出点；producedPointNames 记录已产出的数组名 */
     void InterpolatePointData(AttributeSet* inSet, AttributeSet::Pointer outSet,
-                              const std::vector<SampleLocation>& locations, int sampleNum);
+                              const std::vector<SampleLocation>& locations, int sampleNum,
+                              std::vector<std::string>& producedPointNames);
+    /** 输入 0 的单元数据按命中单元 → 输出点；pointNames 中的名字（源点数据）优先，同名跳过 */
     void CopyCellData(AttributeSet* inSet, AttributeSet::Pointer outSet,
-                      const std::vector<SampleLocation>& locations, int sampleNum);
-    void AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum);
-
-    /* ---------------- 输出构建 ---------------- */
-    void BuildSameUnstructuredMesh(const UnstructuredMesh& src, AttributeSet::Pointer attrSet);
-
-    void BuildSameSurfaceMesh(const SurfaceMesh& src, AttributeSet::Pointer attrSet);
-
-    void BuildSameVolumeMesh(const VolumeMesh& src, AttributeSet::Pointer attrSet);
-
-    void BuildSameStructuredMesh(const StructuredMesh& src, AttributeSet::Pointer attrSet);
-
-    void BuildPolyLineOutputs(const Points::Pointer& samples, AttributeSet::Pointer attrSet, int sampleNum);
+                      const std::vector<SampleLocation>& locations, int sampleNum,
+                      const std::vector<std::string>& pointNames,
+                      std::vector<std::string>& producedNames);
+    void AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum,
+                           std::vector<std::string>& producedPointNames);
+    /** 保留输入 1 自身的属性数组；与 producedPointNames 同名的点属性跳过（采样结果优先） */
+    void CopyProbeAttributes(AttributeSet* inSet, AttributeSet::Pointer outSet,
+                             const std::vector<std::string>& producedPointNames);
 
     ResampleWithDataSet() {
         SetNumberOfInputs(2);
-        SetNumberOfOutputs(2);
+        SetNumberOfOutputs(1);
     }
     ~ResampleWithDataSet() override = default;
-
-    Point orig{-1.0f, -0.983795f, -0.35714f};
-    Point target{1.0f, 0.983795f, 0.35714f};
-    int n{40};
 
     // 容差：默认自动（包围盒对角线 × kAutoToleranceRatio）
     bool m_AutoTolerance{true};
     double m_Tolerance{-1.0};
     double m_EffectiveTolerance{0.0};
 
-    std::string m_Message{"Not Unstructured Mesh !"};
-    IGsize m_UnsupportedQuadraticCellCount{0};
+    // 吸附半径：默认关闭（相对包围盒对角线长度，<= 0 表示关闭）
+    double m_SnappingRadius{-1.0};
+    double m_EffectiveSnappingRadius{-1.0};
 
-    SurfaceMesh::Pointer m_PolyLine{};
-    UnstructuredMesh::Pointer m_LineMesh{};
+    std::string m_Message{"未执行"};
+    IGsize m_UnsupportedQuadraticCellCount{0};
+    IGsize m_SnappedPointCount{0};
+
+    DataObject::Pointer m_Output{};
     std::vector<igIndex> m_SampleCellIds;
     std::vector<unsigned char> m_SampleValidMask;
 };

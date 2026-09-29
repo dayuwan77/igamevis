@@ -135,6 +135,7 @@
 #include <map>
 
 #include "ResampleToLine/iGameResampleToLine.h"
+#include "ResampleWithDataset/iGameResampleWithDataSet.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
@@ -170,8 +171,10 @@
 #include "ui_igQtVariableCorrelationWidget.h"
 
 #include "ui_ResampleToLine.h"
+#include "ui_ResampleWithDataSet.h"
 
 #include "IQWidgets/igQtResampleToLineWidget.h"
+#include "IQWidgets/igQtResampleWithDataSetWidget.h"
 
 namespace {
 struct ToolbarSpacingMetrics {
@@ -5416,10 +5419,17 @@ void igQtMainWindow::initAllFilters() {
     QAction* ResampleToLineAct1 = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
 
     connect(ResampleToLineAct1, &QAction::triggered, this, [this](bool) {
-        // 与「网格切面」一致：面板挂在左侧上方工具 Tab 中
         ensureResampleToLinePanel();
         openLeftToolPanel(LeftToolPanelId::ResampleToLine);
         if (ResampleToLineWidget != nullptr) { ResampleToLineWidget->BindCurrentModel(); }
+    });
+
+    QAction* ResampleWithDataSetAct1 = ui->menu_filters->addAction(QStringLiteral("重采样至数据集(ResampleWithDataSet)"));
+
+    connect(ResampleWithDataSetAct1, &QAction::triggered, this, [this](bool) {
+        ensureResampleWithDataSetPanel();
+        openLeftToolPanel(LeftToolPanelId::ResampleWithDataSet);
+        if (ResampleWithDataSetWidget != nullptr) { ResampleWithDataSetWidget->BindCurrentModel(); }
     });
 
     QAction* pointSetToOctree_action =
@@ -6482,6 +6492,8 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
             return SliceDockWidget;
         case LeftToolPanelId::ResampleToLine: 
             return ResampleToLineDockWidget;
+        case LeftToolPanelId::ResampleWithDataSet:
+            return ResampleWithDataSetDockWidget;
         case LeftToolPanelId::Deformation:
             return DeformationDockWidget;
         case LeftToolPanelId::Selection:
@@ -6537,9 +6549,31 @@ void igQtMainWindow::ensureResampleToLinePanel() {
     // 面板内容会在 openLeftToolPanel() 里迁入左侧工具 Tab，这里先把壳 Dock 收起来
     ResampleToLineDockWidget->hide();
 
-    // 源模型/结果被删除时：关闭该 Tab 并还原基础交互风格
+    // 源模型被删除时：关闭该 Tab 并还原基础交互风格
+    // （结果折线被删除不关面板：面板保留原始模型绑定，可直接再次执行）
     connect(ResampleToLineWidget, &igQtResampleToLine::ResetInteractor, this,
             [this]() { closeLeftToolPanel(LeftToolPanelId::ResampleToLine); });
+}
+
+void igQtMainWindow::ensureResampleWithDataSetPanel() {
+    if (ResampleWithDataSetWidget != nullptr) { return; }
+
+    ResampleWithDataSetDockWidget = new QDockWidget(this);
+    ResampleWithDataSetDockWidget->setObjectName(QStringLiteral("dockWidget_ResampleWithDataSet"));
+    ResampleWithDataSetDockWidget->setWindowTitle(QStringLiteral("重采样至数据集"));
+    ResampleWithDataSetDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
+    ResampleWithDataSetDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
+
+    // 第一个参数是模型树控件（igQtModelDialogWidget 派生自 QObject，不是 QWidget），
+    // 第二个参数才是 Dock 父窗口
+    ResampleWithDataSetWidget = new igQtResampleWithDataSet(modelTreeWidget, ResampleWithDataSetDockWidget);
+    ResampleWithDataSetWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    ResampleWithDataSetWidget->setMinimumWidth(300);
+
+    ResampleWithDataSetDockWidget->setWidget(ResampleWithDataSetWidget);
+    addDockWidget(Qt::LeftDockWidgetArea, ResampleWithDataSetDockWidget);
+    // 面板内容会在 openLeftToolPanel() 里迁入左侧工具 Tab，这里先把壳 Dock 收起来
+    ResampleWithDataSetDockWidget->hide();
 }
 
 void igQtMainWindow::applyLeftToolStackVerticalSplit() {
@@ -6659,6 +6693,10 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
             relocateContentToLeftTab(ResampleToLineDockWidget, ResampleToLineWidget, QStringLiteral("重采样至直线"), id,
                                  false);
         break;
+        case LeftToolPanelId::ResampleWithDataSet:
+            relocateContentToLeftTab(ResampleWithDataSetDockWidget, ResampleWithDataSetWidget,
+                                     QStringLiteral("重采样至数据集"), id, false);
+            break;
         case LeftToolPanelId::Count:
             break;
     }
