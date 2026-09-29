@@ -20,19 +20,39 @@ IGAME_NAMESPACE_BEGIN
 /**
  * @brief 重采样至直线（Resample to line）
  *
- * 沿给定线段均匀生成采样点，为每个采样点定位其所在的单元并插值：
- *   1) 线性面单元（三角形 / 四边形 / 多边形）：线性插值（重心坐标 / 双线性 / 扇形三角化）；
- *   2) 体单元（四面体 / 六面体 / 三棱柱 / 金字塔 / 多面体）：均值坐标（Mean Value
+ * 沿给定线段均匀生成采样点，为每个采样点定位其所在的单元并插值；定位 + 插值的语义与
+ * VTK / ParaView 的 vtkProbeFilter（Plot Over Line）一致：FindCell → InterpolatePoint，
+ * 命中单元时对 Point Data 线性/形函数插值、对 Cell Data 复制命中单元的值，未命中任何
+ * 单元的采样点用 "validpointmask" 标记为无效并把各属性填 0。
+ *
+ * 输入：任意类型的网格（等价 vtkProbeFilter 接受任意 vtkDataSet），内部统一转换为
+ *      UnstructuredMesh 后采样：
+ *   1) UnstructuredMesh：直接使用；
+ *   2) SurfaceMesh / VolumeMesh：按其面 / 体单元连接关系转换；
+ *   3) StructuredMesh：按 (ni, nj, nk) 尺寸生成 0D 顶点 / 1D 线 / 2D 四边形 / 3D 六面体
+ *      单元，覆盖 1D 曲线、2D 平面（含 (1, nj, nk) 这类退化排布）与 3D 结构化网格；
+ *   4) LagrangeUnstructuredMesh：保留 IG_LAGRANGE_* 单元类型转换；
+ *   5) PointSet（点云）：每个点生成一个 IG_VERTEX 单元（等价 vtkPolyData 的 verts）；
+ *   6) 多块输入：输入对象通过子数据对象组织多个网格块（例如 CGNS 多 zone 的父对象）
+ *      时逐块转换并合并为一个网格（等价 ParaView 先 Merge Blocks 再 Plot Over Line），
+ *      采样点命中多个块时取序号靠前的块的数据。
+ *
+ * 单元插值方式：
+ *   1) 0D 顶点单元：采样点落在容差内即取该点数据；
+ *   2) 1D 线 / 折线 / 二次边 / Lagrange 曲线：逐段投影取最近的一段做线性插值；
+ *   3) 线性面单元（三角形 / 四边形 / 多边形）：线性插值（重心坐标 / 双线性 / 扇形三角化）；
+ *   4) 体单元（四面体 / 六面体 / 三棱柱 / 金字塔 / 多面体）：均值坐标（Mean Value
  *      Coordinates）插值；四面体的均值坐标即重心坐标，直接用解析解；
- *   3) 二次 / 高次单元：二次形函数 + 参数坐标 Newton 反解，覆盖 10 类：
+ *   5) 二次 / 高次单元：二次形函数 + 参数坐标 Newton 反解，覆盖 10 类：
  *      6 节点三角形 / 8 节点四边形 / 10 节点四面体 / 20 节点六面体 /
  *      15 节点三棱柱（楔形） / 13 节点金字塔 /
  *      9 节点双二次四边形 / 6 节点二次-线性四边形 / 12 节点二次-线性楔形 / 27 节点三二次六面体；
  *      其中后四类的节点序与形函数按 VTK 硬编码，与 vtkBiQuadraticQuad / vtkQuadraticLinearQuad /
  *      vtkQuadraticLinearWedge / vtkTriQuadraticHexahedron 源码逐行一致。
  * 仍未实现的类型（18 节点双二次-二次楔形、24 节点双二次-二次六面体、19 节点三二次金字塔、
- * 含棱中点的 QuadraticPolygon、Lagrange* 任意阶）退化处理：面单元按角点线性、
- * 体单元按「角点线性 + 均值坐标」，并在 GetMessage() 中给出 degraded high-order cells 数量提示。
+ * 含棱中点的 QuadraticPolygon、Lagrange* 任意阶）退化处理：面单元按角点线性、一维单元按
+ * 节点折线、体单元按「角点线性 + 均值坐标」，并在 GetMessage() 中给出 degraded high-order
+ * cells 数量提示。
  *
  * 采样点不在任何单元内（超出容差）时不再吸附最近单元，而是标记为无效：
  * 新增点数据属性 "validpointmask"（UnsignedCharArray），1 = 该采样点可插值，0 = 无效；
@@ -103,6 +123,10 @@ public:
     const std::vector<unsigned char>& GetSampleValidMask() const { return m_SampleValidMask; }
     /** 本次执行中退化为线性角点处理的二次/高次单元数量 */
     IGsize GetUnsupportedQuadraticCellCount() const { return m_UnsupportedQuadraticCellCount; }
+    /** 上一次 Execute() 的输入数据对象类型（IG_*，见 iGameType.h） */
+    IGenum GetLastInputType() const { return m_LastInputType; }
+    /** 上一次 Execute() 实际参与采样的网格块数量（多块输入 > 1，等价 Merge Blocks 后的块数） */
+    int GetLastInputBlockCount() const { return m_LastInputBlockCount; }
 
 private:
     /** 单个采样点的定位与插值权重 */
@@ -125,6 +149,9 @@ private:
                             std::vector<double>& weights);
     bool ComputeLinearFaceWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
                                   std::vector<double>& weights);
+    /** 0D 顶点单元 / 1D 线、折线、二次边、Lagrange 曲线单元：点包含判定与线性权重 */
+    bool ComputeLineWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
+                            std::vector<double>& weights);
     bool ComputeMeanValueWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
                                  std::vector<double>& weights);
     bool ComputeQuadraticWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
@@ -160,8 +187,10 @@ private:
     double m_Tolerance{-1.0};
     double m_EffectiveTolerance{0.0};
 
-    std::string m_Message{"Not Unstructured Mesh !"};
+    std::string m_Message{"Not Executed !"};
     IGsize m_UnsupportedQuadraticCellCount{0};
+    IGenum m_LastInputType{IG_NONE};
+    int m_LastInputBlockCount{0};
 
     SurfaceMesh::Pointer m_PolyLine{};
     UnstructuredMesh::Pointer m_LineMesh{};

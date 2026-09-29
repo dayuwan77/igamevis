@@ -9,6 +9,7 @@
 #include "iGameSceneManager.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
+#include "iGameStructuredMesh.h"
 #include "iGameVector.h"
 #include "iGameVolumeMesh.h"
 
@@ -143,6 +144,14 @@ private:
     void AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum);
 
     /* ---------------- 输出构建 ---------------- */
+    void BuildSameUnstructuredMesh(const UnstructuredMesh& src, AttributeSet::Pointer attrSet);
+
+    void BuildSameSurfaceMesh(const SurfaceMesh& src, AttributeSet::Pointer attrSet);
+
+    void BuildSameVolumeMesh(const VolumeMesh& src, AttributeSet::Pointer attrSet);
+
+    void BuildSameStructuredMesh(const StructuredMesh& src, AttributeSet::Pointer attrSet);
+
     void BuildPolyLineOutputs(const Points::Pointer& samples, AttributeSet::Pointer attrSet, int sampleNum);
 
     ResampleWithDataSet() {

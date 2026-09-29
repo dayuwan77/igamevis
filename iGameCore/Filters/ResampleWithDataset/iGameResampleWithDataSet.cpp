@@ -2164,6 +2164,10 @@ AttributeSet::Pointer CloneAttributeSetEntries(const AttributeSet::Pointer& srcS
 }
 } // namespace
 
+
+void ResampleWithDataSet::BuildSameUnstructuredMesh(const UnstructuredMesh& src, AttributeSet::Pointer attrSet) {
+
+}
 void ResampleWithDataSet::BuildPolyLineOutputs(const Points::Pointer& samples, AttributeSet::Pointer attrSet,
                                           int sampleNum) {
     // (1) UnstructuredMesh 折线：IG_LINE 单元，保持与既有流程（菜单/示例）兼容
