@@ -7,6 +7,7 @@
 #define iGameRenameArrays_h
 
 #include "iGameFilter.h"
+#include "iGameDataObjectCopy.h"
 
 
 IGAME_NAMESPACE_BEGIN
@@ -14,9 +15,14 @@ IGAME_NAMESPACE_BEGIN
 class RenameArrays : public Filter {
     I_OBJECT(RenameArrays);
 public:
-    std::string getarrayname(IGenum type,igIndex  index) {
-
+    std::string getarrayname(IGenum type,igIndex  index);
+    inline bool setattrindex(IGenum type, igIndex index) {
+        attrtype = type;
+        attrindex = index;
+        if (type == -1 || index == -1) {return false;}
+        return true;
     }
+    bool execute();
 
     protected:
     RenameArrays() {
@@ -24,6 +30,9 @@ public:
         SetNumberOfOutputs(1);
     }
     ~RenameArrays() override = default;
+
+    IGenum attrtype;
+    igIndex attrindex;
 };
 
 IGAME_NAMESPACE_END
