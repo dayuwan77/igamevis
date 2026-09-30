@@ -1486,6 +1486,21 @@ QLabel#CustomTitleLabel {
    </attribute>
    <widget class="igQtContourExtractWidget" name="widget_ContourExtract"/>
   </widget>
+  <widget class="QDockWidget" name="dockWidget_MedianFilter">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>中值滤波（Median）</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtMedianFilterWidget" name="widget_MedianFilter"/>
+  </widget>
   <action name="action_SaveMesh">
    <property name="icon">
     <iconset>
@@ -2375,6 +2390,12 @@ QLabel#CustomTitleLabel {
    <class>igQtContextPreservingShowWidget</class>
    <extends>QWidget</extends>
    <header>IQWidgets/igQtContextPreservingShowWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtMedianFilterWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtMedianFilterWidget.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

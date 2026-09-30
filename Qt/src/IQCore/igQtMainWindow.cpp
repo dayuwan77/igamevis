@@ -97,6 +97,7 @@
 #include <IQWidgets/igQtLinearExtrusionWidget.h>
 #include <IQWidgets/igQtAxisAlignedReflectionWidget.h>
 #include <IQWidgets/igQtMergeVectorComponentsWidget.h>
+#include <IQWidgets/igQtMedianFilterWidget.h>
 #include <IQWidgets/igQtModelClipWidget.h>
 #include <IQWidgets/igQtModelDrawWidget.h>
 #include <IQWidgets/igQtModelInformationWidget.h>
@@ -1210,6 +1211,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     this->addDockWidget(Qt::BottomDockWidgetArea, ui->dockWidget_Animation);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ModelList);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ContourExtract);
+    this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_MedianFilter);
 
     // 禁止所有 dock 悬浮：去掉 DockWidgetFloatable
     // 同时为了防止“拖拽标题栏就被扯成系统浮动窗”，这里也把 Movable 去掉（只保留可关闭）。
@@ -1230,6 +1232,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     ui->dockWidget_Animation->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_ModelList->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_ContourExtract->setFeatures(QDockWidget::DockWidgetClosable);
+    ui->dockWidget_MedianFilter->setFeatures(QDockWidget::DockWidgetClosable);
 
     QDockWidget* dockWidget_null = new QDockWidget("", this);
     this->addDockWidget(Qt::RightDockWidgetArea, dockWidget_null);
@@ -1250,7 +1253,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     ui->dockWidget_Animation->hide();
     ui->dockWidget_ModelList->hide();
     ui->dockWidget_ContourExtract->hide();
-    
+    ui->dockWidget_MedianFilter->hide();
     // Setup default GUI layout.
     // 启用左侧区域的 tab 功能，使左侧 dockwidget 可以通过 tab 切换
     this->setTabPosition(Qt::LeftDockWidgetArea, QTabWidget::North);
@@ -5290,6 +5293,19 @@ void igQtMainWindow::initAllFilters() {
                 });
                 dialog->show();
             });
+
+    // ---------- 中值滤波 (Median)：追加在“开发中filter/第二批”菜单末尾 ----------
+    QAction* medianFilterAction = developingFiltersBatch2->addAction(QStringLiteral("中值滤波 (Median)"));
+    connect(medianFilterAction, &QAction::triggered, this, [this](bool) {
+        openLeftToolPanel(LeftToolPanelId::MedianFilter);
+        auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+        if (!scene) return;
+        auto CurrentModel = scene->GetCurrentModel();
+        if (!CurrentModel) return;
+        auto dataObject = CurrentModel->GetDataObject();
+        if (!dataObject) return;
+        ui->widget_MedianFilter->SetOriginDataObject(dataObject);
+    });
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {
@@ -5742,6 +5758,7 @@ void igQtMainWindow::initAllDockWidgetConnectWithAction() {
         if (!dataObject) return;
         ui->widget_ContourExtract->SetOriginDataObject(dataObject);
     });
+
     connect(ui->action_GenerateChart, &QAction::triggered, this, [&](bool checked) {
         auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
         if (!scene) return;
@@ -6033,6 +6050,7 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
     case LeftToolPanelId::Selection: return ui->dockWidget_SelectionField;
     case LeftToolPanelId::VariableDensity: return ui->dockWidget_VariableDensityField;
     case LeftToolPanelId::DataChange: return ui->dockWidget_DataChangeField;
+    case LeftToolPanelId::MedianFilter: return ui->dockWidget_MedianFilter;
     case LeftToolPanelId::Count: return nullptr;
     }
     return nullptr;
@@ -6136,6 +6154,9 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
     case LeftToolPanelId::DataChange:
         relocateContentToLeftTab(ui->dockWidget_DataChangeField, ui->widget_DataChangeField, QStringLiteral("路径图"), id,
                                  false);
+        break;
+    case LeftToolPanelId::MedianFilter:
+        relocateContentToLeftTab(ui->dockWidget_MedianFilter, ui->widget_MedianFilter, QStringLiteral("中值滤波"), id, false);
         break;
     case LeftToolPanelId::Count:
         break;
@@ -6432,6 +6453,15 @@ void igQtMainWindow::initAllMySignalConnections() {
                 modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
             });
     connect(ui->widget_ContourExtract, &igQtContourExtractWidget::UpdateContourModel, this,
+            [&](DataObject::Pointer mesh) {
+                modelTreeWidget->updateCurrentModelInfo();
+                rendererWidget->update();
+            });
+    connect(ui->widget_MedianFilter, &igQtMedianFilterWidget::DrawMedianModel, this,
+            [&](iGame::DataObject::Pointer res) {
+                modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
+            });
+    connect(ui->widget_MedianFilter, &igQtMedianFilterWidget::UpdateMedianModel, this,
             [&](DataObject::Pointer mesh) {
                 modelTreeWidget->updateCurrentModelInfo();
                 rendererWidget->update();
