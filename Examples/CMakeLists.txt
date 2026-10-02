@@ -400,6 +400,7 @@ igame_add_example(testCountCellFaces Filter/FeatureExtraction/CountCellFaces.cpp
 igame_add_example(testCountCellFacesOutput Filter/FeatureExtraction/CountCellFacesOutput.cpp)
 igame_add_example(testOutlineCorners Filter/FeatureExtraction/OutlineCorners.cpp)
 igame_add_example(testCellSizeExtraction Filter/FeatureExtraction/CellSizeExtraction.cpp)
+igame_add_example(testIntegrateVariables Filter/FeatureExtraction/IntegrateVariables.cpp)
 
 igame_add_example(TestValidateCellsFilter Filter/MyFilter/TestValidateCellsFilter.cpp)
 igame_add_example(TestSurfaceNormalsFilter Filter/SurfaceNormals/TestSurfaceNormalsFilter.cpp)

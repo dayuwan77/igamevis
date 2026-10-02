@@ -4657,6 +4657,52 @@ void igQtMainWindow::initAllFilters() {
         }
     });
 
+    QAction* integrateVariables =
+            ui->menu_filters->addAction(QStringLiteral("变量积分 (Integrate Variables)"));
+    connect(integrateVariables, &QAction::triggered, this, [this](bool checked) {
+        auto* scene = rendererWidget->GetScene();
+        auto model = scene ? scene->GetCurrentModel() : nullptr;
+        auto data = model ? model->GetDataObject() : nullptr;
+        if (data == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("No Model Available"),
+                                     QStringLiteral("Please load and select a model first."));
+            return;
+        }
+        const auto dtype = data->GetDataObjectType();
+        if (dtype != IG_SURFACE_MESH && dtype != IG_VOLUME_MESH &&
+            dtype != IG_UNSTRUCTURED_MESH && dtype != IG_STRUCTURED_MESH) {
+            showDarkFramelessMessage(
+                    QStringLiteral("Unsupported Model"),
+                    QStringLiteral("Integrate Variables supports surface, volume, unstructured, and structured meshes."));
+            return;
+        }
+
+        IntegrateVariablesFilter::Pointer filter = IntegrateVariablesFilter::New();
+        filter->SetInput(data);
+        if (filter->Execute()) {
+            auto output = filter->GetOutput();
+            if (output) {
+                modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+                if (auto item = modelTreeWidget->getItemFromObject(output)) {
+                    item->setExpanded(true);
+                }
+            }
+            rendererWidget->update();
+            showDarkFramelessMessage(
+                    QStringLiteral("Success"),
+                    QStringLiteral("Integrated %1 cells; total %2 = %3.")
+                            .arg(filter->GetIntegratedCellCount())
+                            .arg(QString::fromStdString(filter->GetMeasureName()))
+                            .arg(filter->GetIntegratedMeasure(), 0, 'g', 12),
+                    true);
+        } else {
+            std::string message = filter->GetMessage();
+            if (message.empty()) message = "IntegrateVariablesFilter execute failed";
+            showDarkFramelessMessage(QStringLiteral("Warning"),
+                                     QString::fromStdString(message));
+        }
+    });
+
     QAction* vortex = view->addAction(QStringLiteral("计算涡量 (ComputeVorticity)"));
     connect(vortex, &QAction::triggered, this, [this](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
