@@ -43,6 +43,7 @@
 #include "FeatureExtraction/iGameFeatureEdgesFilter.h"
 #include "Selection/iGameExtractCellsByRegionFilter.h"
 #include "MyFilter/iGameExtractCellsByTypeFilter.h"
+#include "Connectivity/iGameConnectivityFilter.h"
 
 #include "Convert/iGameConvertToPointCloudFilter.h"
 #include "Convert/iGameConvertToPointDataFilter.h"
@@ -6058,6 +6059,188 @@ void igQtMainWindow::initAllFilters() {
             });
 
 
+
+    // 连通区域 (Connectivity)。
+    connect(ui->menu_filters->addAction(QStringLiteral("连通区域 (Connectivity)")),
+            &QAction::triggered, this, [this](bool) {
+                auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+                auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+                if (!currentModel) {
+                    showDarkFramelessMessage(QStringLiteral("连通区域"), QStringLiteral("请先选择一个模型。"));
+                    return;
+                }
+                auto object = currentModel->GetDataObject();
+                if (iGame::DynamicCast<iGame::SurfaceMesh>(object).IsNull()) {
+                    showDarkFramelessMessage(QStringLiteral("连通区域"),
+                                             QStringLiteral("当前模型不是曲面网格（SurfaceMesh）"));
+                    return;
+                }
+
+                auto* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("连通区域"));
+                dialog->setFilterDescription(
+                        QStringLiteral("按共享点连通性给区域编号或抽取区域"));
+                const int modeId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("抽取模式"),
+                        std::vector<QString>{QStringLiteral("点种子"),
+                                             QStringLiteral("单元种子"),
+                                             QStringLiteral("指定区域"),
+                                             QStringLiteral("最大区域"),
+                                             QStringLiteral("全部区域"),
+                                             QStringLiteral("最近点")});
+                const int colorId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX, QStringLiteral("编号染色"), "true");
+                const int assignId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX, QStringLiteral("编号方式"),
+                        std::vector<QString>{QStringLiteral("遍历顺序"), QStringLiteral("单元数升序"),
+                                             QStringLiteral("单元数降序")});
+                const int seedsId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("种子 (逗号分隔)"), "0");
+                const int specId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("指定区域 (逗号分隔)"), "0");
+                const int closestId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("最近点 (x,y,z)"), "0,0,0");
+                // 紧凑布局：固定宽度、值列占满剩余宽度、关闭横向滚动条，避免对话框过宽需要左右滑动。
+                dialog->setFixedWidth(360);
+                dialog->setParameterColumnStretch(0, 1);
+                if (auto* scrollArea = dialog->findChild<QScrollArea*>(QStringLiteral("scrollArea"))) {
+                    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+                }
+                // 默认「全部区域」：一次即可看到所有连通区域的编号着色。
+                if (auto* modeCombo = qobject_cast<QComboBox*>(dialog->getWidget(modeId))) {
+                    modeCombo->setCurrentIndex(4);
+                }
+                dialog->show();
+
+                dialog->setApplyFunctor([=, this]() {
+                    bool ok = false;
+                    const int mode = dialog->getComboIndex(modeId, ok);
+                    auto filter = iGame::ConnectivityFilter::New();
+                    switch (mode) {
+                        case 0: filter->SetExtractionMode(iGame::ConnectivityFilter::POINT_SEEDED_REGIONS); break;
+                        case 1: filter->SetExtractionMode(iGame::ConnectivityFilter::CELL_SEEDED_REGIONS); break;
+                        case 2: filter->SetExtractionMode(iGame::ConnectivityFilter::SPECIFIED_REGIONS); break;
+                        case 3: filter->SetExtractionMode(iGame::ConnectivityFilter::LARGEST_REGION); break;
+                        case 4: filter->SetExtractionMode(iGame::ConnectivityFilter::ALL_REGIONS); break;
+                        default: filter->SetExtractionMode(iGame::ConnectivityFilter::CLOSEST_POINT_REGION); break;
+                    }
+                    filter->SetColorRegions(dialog->getChecked(colorId, ok));
+                    const int assign = dialog->getComboIndex(assignId, ok);
+                    if (assign == 1) {
+                        filter->SetRegionIdAssignmentMode(iGame::ConnectivityFilter::CELL_COUNT_ASCENDING);
+                    } else if (assign == 2) {
+                        filter->SetRegionIdAssignmentMode(iGame::ConnectivityFilter::CELL_COUNT_DESCENDING);
+                    } else {
+                        filter->SetRegionIdAssignmentMode(iGame::ConnectivityFilter::UNSPECIFIED);
+                    }
+
+                    auto parseDoubles = [](const QString& text, std::vector<double>& out) -> bool {
+                        out.clear();
+                        QString t = text;
+                        t.replace(',', ' ');
+                        const auto parts = t.simplified().split(' ', Qt::SkipEmptyParts);
+                        for (const auto& p : parts) {
+                            bool c = false;
+                            const double v = p.toDouble(&c);
+                            if (!c) { return false; }
+                            out.push_back(v);
+                        }
+                        return !out.empty();
+                    };
+
+                    if (mode == 0 || mode == 1) {
+                        auto* edit = qobject_cast<QLineEdit*>(dialog->getWidget(seedsId));
+                        std::vector<double> vals;
+                        if (edit && parseDoubles(edit->text(), vals)) {
+                            filter->InitializeSeedList();
+                            for (double v : vals) { filter->AddSeed(static_cast<igIndex>(v)); }
+                        }
+                    } else if (mode == 2) {
+                        auto* edit = qobject_cast<QLineEdit*>(dialog->getWidget(specId));
+                        std::vector<double> vals;
+                        if (edit && parseDoubles(edit->text(), vals)) {
+                            filter->InitializeSpecifiedRegionList();
+                            for (double v : vals) { filter->AddSpecifiedRegion(static_cast<int>(v)); }
+                        }
+                    } else if (mode == 5) {
+                        auto* edit = qobject_cast<QLineEdit*>(dialog->getWidget(closestId));
+                        std::vector<double> vals;
+                        if (edit && parseDoubles(edit->text(), vals) && vals.size() == 3) {
+                            filter->SetClosestPoint(vals[0], vals[1], vals[2]);
+                        } else {
+                            showDarkFramelessMessage(QStringLiteral("连通区域"),
+                                                     QStringLiteral("最近点格式应为 x,y,z"));
+                            return;
+                        }
+                    }
+
+                    filter->SetInput(object);
+                    if (!filter->Execute()) {
+                        showDarkFramelessMessage(
+                                QStringLiteral("连通区域"),
+                                QStringLiteral("执行失败：%1").arg(QString::fromStdString(filter->GetMessage())));
+                        return;
+                    }
+                    auto output = filter->GetOutput();
+                    if (!output) {
+                        showDarkFramelessMessage(QStringLiteral("连通区域"), QStringLiteral("输出对象为空"));
+                        return;
+                    }
+                    output->SetName(object->GetName() + "_Connectivity");
+
+                    auto inputDraw = iGame::DynamicCast<iGame::DrawObject>(object);
+                    auto outDraw = iGame::DynamicCast<iGame::DrawObject>(output);
+                    if (inputDraw && outDraw) {
+                        // 只继承视图样式；不继承颜色映射表——RegionId 是新增属性，需用输出自身的
+                        // 颜色映射（range 由 RegionId 数据范围确定），否则会出现只有一种颜色。
+                        outDraw->SetViewStyle(static_cast<IGenum>(inputDraw->GetViewStyle()));
+                    }
+
+                    dialog->setFilterDescription(
+                            QStringLiteral("共 %1 个连通区域").arg(filter->GetNumberOfExtractedRegions()));
+                    modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+
+                    // 优先按 RegionId（点标量）上色；否则退回第一个标量点/单元属性。
+                    if (auto attrSet = output->GetAttributeSet()) {
+                        int activeIdx = attrSet->GetAttributeIndex(iGame::ConnectivityFilter::RegionIdName);
+                        if (activeIdx < 0) {
+                            int pointAttrIdx = -1;
+                            int cellAttrIdx = -1;
+                            for (int i = 0; i < static_cast<int>(attrSet->GetNumberOfAttributes()); ++i) {
+                                auto& attr = attrSet->GetAttribute(i);
+                                if (attr.IsNone() || attr.isDeleted || attr.type != IG_SCALAR) { continue; }
+                                if (attr.attachmentType == IG_POINT && pointAttrIdx < 0) {
+                                    pointAttrIdx = i;
+                                } else if (attr.attachmentType == IG_CELL && cellAttrIdx < 0) {
+                                    cellAttrIdx = i;
+                                }
+                            }
+                            activeIdx = (pointAttrIdx >= 0) ? pointAttrIdx : cellAttrIdx;
+                        }
+                        if (activeIdx >= 0 && outDraw) {
+                            // 显式按该属性的数据范围设置色表 range，保证热力图映射正确
+                            // （不依赖 SetAttributeWithPointData 内部的 MTime 条件）。
+                            auto& attr = attrSet->GetAttribute(activeIdx);
+                            if (auto range = attr.GetDataRange()) {
+                                double lo = range->GetValue(2);
+                                double hi = range->GetValue(3);
+                                if (hi <= lo) { hi = lo + 1.0; } // 单值退化范围，避免所有值落入同一点
+                                if (auto cm = outDraw->GetColorMapper()) {
+                                    cm->SetRangeStable(false);
+                                    cm->SetRange(lo, hi);
+                                }
+                            }
+                            if (auto scene2 = rendererWidget->GetScene()) {
+                                outDraw->ViewCloudPicture(scene2, activeIdx, 0);
+                            }
+                        }
+                    }
+
+                    modelTreeWidget->updateCloudPicture();
+                    rendererWidget->update();
+                    dialog->close();
+                });
+            });
 
     QAction* ResampleToLineAct1 = ui->menu_filters->addAction(QStringLiteral("重采样至直线(ResampleToLine)"));
 
