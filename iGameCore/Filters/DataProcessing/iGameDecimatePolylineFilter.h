@@ -7,15 +7,6 @@
 
 IGAME_NAMESPACE_BEGIN
 
-/**
- * Reduce the number of vertices in every explicit input polyline.
- *
- * The filter follows vtkDecimatePolylineFilter: vertices with the smallest
- * local error are removed first, errors are recomputed after every removal,
- * and open-polyline end points are preserved. Legacy VTK POLYDATA maps to a
- * SurfaceMesh in iGameVis; its explicit LINES are emitted as line/polyline
- * cells in an UnstructuredMesh output.
- */
 class DecimatePolylineFilter : public Filter {
 public:
     I_OBJECT(DecimatePolylineFilter);

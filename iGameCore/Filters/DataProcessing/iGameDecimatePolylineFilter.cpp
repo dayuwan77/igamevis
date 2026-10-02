@@ -31,11 +31,12 @@ struct VertexNode {
     bool alive{true};
 };
 
-// vtkDecimatePolylineFilter uses vtkPriorityQueue.  Its equal-priority heap
-// ordering is observable for symmetric polylines, so reproduce that ordering
-// instead of relying on std::priority_queue's implementation-defined ties.
+// vtkDecimatePolylineFilter 使用 vtkPriorityQueue。对于对称折线，相同优先级
+// 元素的堆排序会直接影响最终结果，因此这里复现其排序方式，而不依赖
+// std::priority_queue 对相同优先级元素未明确规定的顺序。
 class VtkPriorityQueue {
 public:
+    // 将指定编号及其误差优先级插入最小堆。
     void Insert(double priority, int id) {
         if (id < static_cast<int>(m_Locations.size()) && m_Locations[id] != -1) return;
         if (id >= static_cast<int>(m_Locations.size())) m_Locations.resize(id + 1, -1);
@@ -53,6 +54,7 @@ public:
         }
     }
 
+    // 删除并返回指定堆位置的元素，默认弹出误差最小的堆顶元素。
     int Pop(int location = 0) {
         if (m_MaxId < 0 || location < 0 || location > m_MaxId) return -1;
 
@@ -74,8 +76,8 @@ public:
             index = child;
         }
 
-        // vtkPriorityQueue starts this second pass again at the original
-        // deletion location, rather than where the downward pass finished.
+        // vtkPriorityQueue 的第二轮调整会重新从最初的删除位置开始，
+        // 而不是从向下调整结束的位置开始。
         for (int index = location; index > 0;) {
             const int parent = (index - 1) / 2;
             if (m_Items[index].priority >= m_Items[parent].priority) break;
@@ -85,12 +87,14 @@ public:
         return id;
     }
 
+    // 根据元素编号删除其当前位于队列中的记录。
     void DeleteId(int id) {
         if (id >= 0 && id < static_cast<int>(m_Locations.size()) && m_Locations[id] != -1) {
             Pop(m_Locations[id]);
         }
     }
 
+    // 清空队列状态并将所有元素位置标记为无效。
     void Reset() {
         m_MaxId = -1;
         std::fill(m_Locations.begin(), m_Locations.end(), -1);
@@ -102,6 +106,7 @@ private:
         int id;
     };
 
+    // 交换两个堆元素，并同步更新编号到堆位置的映射。
     void Swap(int first, int second) {
         std::swap(m_Items[first], m_Items[second]);
         m_Locations[m_Items[first].id] = first;
@@ -113,6 +118,7 @@ private:
     int m_MaxId{-1};
 };
 
+// 根据源数组的数据类型创建一个同类型的空数组。
 ArrayObject::Pointer CreateArrayLike(const ArrayObject::Pointer& source) {
     if (!source) return nullptr;
     switch (source->GetArrayType()) {
@@ -131,6 +137,7 @@ ArrayObject::Pointer CreateArrayLike(const ArrayObject::Pointer& source) {
 }
 
 template<typename TArray, typename TValue>
+// 按来源下标复制指定类型数组中的完整元素。
 void CopyArrayElements(ArrayObject::Pointer& destination,
                        const ArrayObject::Pointer& source,
                        const std::vector<IGsize>& sourceIndices) {
@@ -148,6 +155,7 @@ void CopyArrayElements(ArrayObject::Pointer& destination,
     }
 }
 
+// 根据数组类型分派到对应的元素复制实现。
 void CopyArrayByIndex(ArrayObject::Pointer& destination,
                       const ArrayObject::Pointer& source,
                       const std::vector<IGsize>& sourceIndices) {
@@ -186,6 +194,7 @@ void CopyArrayByIndex(ArrayObject::Pointer& destination,
     }
 }
 
+// 检查所有来源下标是否都落在数组的有效元素范围内。
 bool IndicesFitArray(const ArrayObject::Pointer& array, const std::vector<IGsize>& sourceIndices) {
     if (!array) return false;
     const IGsize tupleCount = array->GetNumberOfElements();
@@ -195,11 +204,13 @@ bool IndicesFitArray(const ArrayObject::Pointer& array, const std::vector<IGsize
     return true;
 }
 
+// 判断当前边集合是否完全由表面网格的面拓扑派生而来。
 bool EdgesMatchFaceTopology(SurfaceMesh::Pointer surface, CellArray* edges) {
     auto faces = surface ? surface->GetFaces() : nullptr;
     if (!faces || faces->GetNumberOfCells() == 0 || !edges) return false;
 
     using EdgeKey = std::pair<igIndex, igIndex>;
+    // 将边的两个端点按固定顺序排列，便于忽略方向比较边。
     auto makeEdgeKey = [](igIndex first, igIndex second) {
         return first < second ? EdgeKey{first, second} : EdgeKey{second, first};
     };
@@ -229,6 +240,7 @@ bool EdgesMatchFaceTopology(SurfaceMesh::Pointer surface, CellArray* edges) {
     return currentEdges == faceTopology;
 }
 
+// 按输出点和单元的来源下标复制输入网格中的点属性与单元属性。
 void CopyAttributes(DataObject::Pointer input,
                     UnstructuredMesh::Pointer output,
                     const std::vector<IGsize>& pointSourceIds,
@@ -277,6 +289,7 @@ void CopyAttributes(DataObject::Pointer input,
     output->SetAttributeSet(outputAttributes);
 }
 
+// 从输入 SurfaceMesh 中提取显式折线，并验证折线点编号的有效性。
 bool CollectInputPolylines(DataObject::Pointer input,
                            PointSet::Pointer& pointSet,
                            std::vector<InputPolyline>& polylines) {
@@ -286,11 +299,6 @@ bool CollectInputPolylines(DataObject::Pointer input,
     auto edges = surface->GetEdges();
     if (!edges) return false;
 
-    // Rendering a polygon-only SurfaceMesh may lazily populate GetEdges() from
-    // face topology. vtkDecimatePolylineFilter only consumes vtkPolyData::Lines,
-    // never polygon edges, so ignore that exact derived-edge set. If explicit
-    // LINES coexist with POLYGONS, the reader keeps a different edge array and
-    // those line cells remain valid input.
     if (EdgesMatchFaceTopology(surface, edges)) return false;
 
     pointSet = surface;
@@ -313,6 +321,7 @@ bool CollectInputPolylines(DataObject::Pointer input,
     return true;
 }
 
+// 计算候选点到其前后邻点所成无限直线的距离平方。
 double ComputeDistanceError(const Points::Pointer& points,
                             const std::vector<VertexNode>& vertices,
                             int vertexIndex) {
@@ -323,20 +332,20 @@ double ComputeDistanceError(const Points::Pointer& points,
 
     Vector3d neighbourLine = Vector3d(p1) - Vector3d(p2);
     const double lineLength = neighbourLine.norm();
-    // vtkDecimatePolylineDistanceStrategy defines this degenerate case as zero.
+    // vtkDecimatePolylineDistanceStrategy 将这种退化情况的误差定义为零。
     if (lineLength == 0.0) return 0.0;
 
-    // Keep vtkLine::DistanceToLine's operation order. Dividing each component
-    // before the dot product matters for exact priority ordering when two
-    // candidates have almost equal errors.
+    // 保持 vtkLine::DistanceToLine 的运算顺序。先对每个分量做除法再计算
+    // 点积，可确保两个候选点误差几乎相同时仍具有一致的优先级顺序。
     neighbourLine /= lineLength;
     const Vector3d fromP1 = Vector3d(origin) - Vector3d(p1);
     const double projection = DotProduct(fromP1, neighbourLine);
-    // vtkLine::DistanceToLine(x, p1, p2) returns squared distance to the
-    // infinite line (not to the finite segment).
+    // vtkLine::DistanceToLine(x, p1, p2) 返回点到无限直线的距离平方，
+    // 而不是到有限线段的距离平方。
     return fromP1.squaredNorm() - projection * projection;
 }
 
+// 计算候选点处两条相邻线段夹角对应的余弦误差。
 double ComputeAngleError(const Points::Pointer& points,
                          const std::vector<VertexNode>& vertices,
                          int vertexIndex) {
@@ -351,6 +360,7 @@ double ComputeAngleError(const Points::Pointer& points,
     return DotProduct(first, second) / normProduct;
 }
 
+// 计算候选点及其前后邻点之间自定义字段的最大分量差值。
 double ComputeCustomFieldError(const ArrayObject::Pointer& field,
                                const std::vector<VertexNode>& vertices,
                                int vertexIndex) {
@@ -370,6 +380,7 @@ double ComputeCustomFieldError(const ArrayObject::Pointer& field,
     return error;
 }
 
+// 根据当前简化策略调用相应的局部误差计算方法。
 double ComputeError(const Points::Pointer& points,
                     const std::vector<VertexNode>& vertices,
                     int vertexIndex,
@@ -386,6 +397,7 @@ double ComputeError(const Points::Pointer& points,
     return std::numeric_limits<double>::max();
 }
 
+// 按目标缩减率和最大误差逐步删除一条折线中的低误差点。
 std::vector<igIndex> DecimateOnePolyline(const Points::Pointer& points,
                                          const std::vector<igIndex>& inputIds,
                                          double targetReduction,
@@ -405,6 +417,7 @@ std::vector<igIndex> DecimateOnePolyline(const Points::Pointer& points,
     const bool isLoop = inputIds.front() == inputIds.back();
     VtkPriorityQueue queue;
 
+    // 重新计算指定顶点的误差，并更新它在优先队列中的记录。
     auto updateQueueEntry = [&](int vertexIndex) {
         VertexNode& vertex = vertices[vertexIndex];
         if (!vertex.alive || !vertex.removable || vertex.previous < 0 || vertex.next < 0) return;
@@ -444,33 +457,36 @@ std::vector<igIndex> DecimateOnePolyline(const Points::Pointer& points,
     return outputIds;
 }
 
-} // namespace
+} // 匿名命名空间
 
+// 初始化过滤器的输入端口和输出端口数量。
 DecimatePolylineFilter::DecimatePolylineFilter() {
     SetNumberOfInputs(1);
     SetNumberOfOutputs(1);
 }
 
+// 设置目标缩减率，并将参数限制在零到一之间。
 void DecimatePolylineFilter::SetTargetReduction(double value) {
     if (std::isnan(value)) value = 0.0;
     m_TargetReduction = std::max(0.0, std::min(1.0, value));
 }
 
+// 设置允许删除点的最大误差，并保证参数为非负有限范围值。
 void DecimatePolylineFilter::SetMaximumError(double value) {
     if (std::isnan(value)) value = 0.0;
     m_MaximumError = std::max(0.0, std::min(std::numeric_limits<double>::max(), value));
 }
 
+// 检查输入数据中是否存在可供该过滤器处理的显式折线。
 bool DecimatePolylineFilter::CanProcessInput(DataObject::Pointer input) {
     PointSet::Pointer pointSet;
     std::vector<InputPolyline> polylines;
     return CollectInputPolylines(input, pointSet, polylines);
 }
 
+// 执行折线简化，构造输出拓扑并复制保留点和折线的属性。
 bool DecimatePolylineFilter::Execute() {
-    if (m_DecimationStrategy != DecimationStrategy::Angle &&
-        m_DecimationStrategy != DecimationStrategy::CustomField &&
-        m_DecimationStrategy != DecimationStrategy::Distance) {
+    if (m_DecimationStrategy != DecimationStrategy::Angle && m_DecimationStrategy != DecimationStrategy::CustomField && m_DecimationStrategy != DecimationStrategy::Distance) {
         return false;
     }
 
