@@ -14,6 +14,12 @@ void PrintResult(iGame::DataObject* output) {
     if (!attributes) return;
 
     std::cout << std::setprecision(12);
+    auto points = output->GetPoints();
+    if (points && points->GetNumberOfPoints() > 0) {
+        const auto& point = points->GetPoint(0);
+        std::cout << "Center:" << ' ' << point[0] << ' ' << point[1]
+                  << ' ' << point[2] << '\n';
+    }
     for (IGsize i = 0; i < attributes->GetNumberOfAttributes(); ++i) {
         auto& attribute = attributes->GetAttribute(i);
         if (attribute.IsNone() || attribute.isDeleted || !attribute.pointer) continue;
@@ -43,17 +49,29 @@ bool RunFilter(const iGame::DataObject::Pointer& input, bool divideCellData) {
     return true;
 }
 
-} // namespace
-
-int main() {
-    const std::string fileName = "./Models/AIGen_Tet_TwistedRod.vtk";
+// 读取模型，并分别显示积分值和 Cell Data 加权平均值。
+bool RunModel(const std::string& fileName) {
     auto input = iGame::FileIO::ReadFile(fileName);
     if (!input) {
         std::cerr << "[IntegrateVariables] failed to read: " << fileName << '\n';
-        return 1;
+        return false;
     }
 
-    const bool passed = RunFilter(input, false) && RunFilter(input, true);
-    std::cout << "\n[IntegrateVariables] " << (passed ? "PASSED" : "FAILED") << '\n';
-    return passed ? 0 : 1;
+    std::cout << "\n========== " << fileName << " ==========\n";
+    return RunFilter(input, false) && RunFilter(input, true);
+}
+
+} // namespace
+
+int main() {
+    const std::string models[] = {
+        "./Models/vase2.vtk",
+        "./Models/SurfaceNormalsFilter_pyramid_roof.vtk",
+        "./Models/AIGen_Tet_TwistedRod.vtk",
+    };
+
+    for (const auto& model : models) {
+        if (!RunModel(model)) return 1;
+    }
+    return 0;
 }

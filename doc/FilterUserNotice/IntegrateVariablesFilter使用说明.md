@@ -1,6 +1,7 @@
 # IntegrateVariablesFilter 使用说明
 
-> Filter 名称：**IntegrateVariablesFilter（变量积分 / Integrate Variables）**  
+> Filter 名称：**IntegrateVariablesFilter（变量积分 / Integrate Variables）**
+>
 > 代码位置：`iGameCore/Filters/IntegrateVariables/iGameIntegrateVariablesFilter.{h,cpp}`
 
 ---
@@ -136,21 +137,66 @@ cd D:\igame\igamevis-dev\build\Examples
 .\Release\testIntegrateVariables.exe
 ```
 
-示例使用 `Examples/Models/AIGen_Tet_TwistedRod.vtk`，分别执行不开启和开启“单元数据除以总测度”两种情况。
+示例依次读取线、面、体三个模型，并分别显示不开启和开启“单元数据除以总测度”两种情况下的最终数据：
+
+| 维度 | 测试模型 | 主要属性 |
+| --- | --- | --- |
+| 1D 线 | `vase2.vtk` | Point Data `height`、Cell Data `segment_id` |
+| 2D 面 | `SurfaceNormalsFilter_pyramid_roof.vtk` | Point Data `PointId`、Cell Data `FaceId` |
+| 3D 体 | `AIGen_Tet_TwistedRod.vtk` | `Temperature`、`Pressure`、`MaterialID`、`CellEnergy` 等 |
 
 ---
 
 ## 三、使用示例
 
-测试模型 `AIGen_Tet_TwistedRod.vtk` 是一个四面体体网格，同时包含：
+### 1. 线积分示例
+
+`vase2.vtk` 是由 7 条线段组成的花瓶轮廓线，同时包含点属性 `height` 和单元属性 `segment_id`。示例输出：
+
+```text
+Divide Cell Data By Volume: Off
+Center: 0.618550956249 0 1.96484804153
+Point Data: height = 16.9246727876
+Cell Data:  segment_id = 38.7800007901
+Cell Data:  Length = 10.1386895703
+
+Divide Cell Data By Volume: On
+Center: 0.618550956249 0 1.96484804153
+Point Data: height = 16.9246727876
+Cell Data:  segment_id = 3.82495198429
+Cell Data:  Length = 10.1386895703
+```
+
+### 2. 面积分示例
+
+`SurfaceNormalsFilter_pyramid_roof.vtk` 是同时包含三角形和四边形的表面网格。示例输出：
+
+```text
+Divide Cell Data By Volume: Off
+Center: 0.5 0.5 0.569035589695
+Point Data: PointId = 24.2900192284
+Cell Data:  FaceId = 19.1923881554
+Cell Data:  Area = 6.41421356237
+
+Divide Cell Data By Volume: On
+Center: 0.5 0.5 0.569035589695
+Point Data: PointId = 24.2900192284
+Cell Data:  FaceId = 2.99216544145
+Cell Data:  Area = 6.41421356237
+```
+
+### 3. 体积分示例
+
+`AIGen_Tet_TwistedRod.vtk` 是一个四面体体网格，同时包含：
 
 - Point Data：`Temperature`、`Pressure`、`Displacement`；
 - Cell Data：`MaterialID`、`CellEnergy`。
 
-不开启“单元数据除以总测度”时，示例输出：
+不开启“单元数据除以总测度”时：
 
 ```text
 Divide Cell Data By Volume: Off
+Center: -0.135519579053 -0.418100446463 2.99306607246
 Point Data: Temperature = 54.5537109394
 Point Data: Pressure = 68.2730147515
 Cell Data:  MaterialID = 2.00847412025
@@ -162,6 +208,7 @@ Cell Data:  Volume = 0.741240893801
 
 ```text
 Divide Cell Data By Volume: On
+Center: -0.135519579053 -0.418100446463 2.99306607246
 Point Data: Temperature = 54.5537109394
 Point Data: Pressure = 68.2730147515
 Cell Data:  MaterialID = 2.70961051535
@@ -175,20 +222,18 @@ Cell Data:  Volume = 0.741240893801
 - `Volume` 总体积不变；
 - Cell Data 从体积分值变为除以总体积后的体积加权平均值。
 
-程序最终输出以下内容表示执行成功：
-
-```text
-[IntegrateVariables] PASSED
-```
+示例程序只展示各模型的最终积分数据，不额外输出 `PASSED`。读取或执行失败时会在标准错误中显示失败原因，并返回非零退出码。
 
 ---
 
 ## 四、注意事项
 
-1. **只积分最高维度单元**  
+1. **只积分最高维度单元**
+
    混合维度网格中的低维单元不会参与积分。例如同时存在三角形和四面体时，只积分四面体。
 
-2. **支持的输入数据对象**  
+2. **支持的输入数据对象**
+
    支持 `SurfaceMesh`、`VolumeMesh`、`UnstructuredMesh` 和 `StructuredMesh`。点云等其他数据类型会执行失败。
 
 3. **当前支持的线性单元**
@@ -197,18 +242,22 @@ Cell Data:  Volume = 0.741240893801
    - 3D：四面体、金字塔、三棱柱和六面体；
    - 当前不支持一般多面体、二次单元和其他高阶单元。
 
-4. **三维体积具有方向符号**  
+4. **三维体积具有方向符号**
+
    三维单元按照四面体拆分计算有符号体积。正常网格的单元顶点顺序应保持一致；若输入单元顶点顺序反转，体积和相应积分贡献可能为负。正负混杂通常表示网格单元方向不一致，应先检查输入数据。
 
-5. **除以总测度选项只作用于 Cell Data**  
+5. **除以总测度选项只作用于 Cell Data**
+
    Point Data 不会被再次除以总体积，这是与 ParaView 选项语义一致的行为。总测度为零时不会执行除法。
 
-6. **结果应在数据表中查看**  
+6. **结果应在数据表中查看**
+
    Filter 输出只有一个点，三维窗口中通常看不出明显几何变化。应在“查找信息”面板中切换 Point Data 和 Cell Data 查看积分数值。
 
-7. **重复执行前重新选择原模型**  
+7. **重复执行前重新选择原模型**
+
    每次执行都会创建新的结果节点。如果需要比较不同选项，应先在模型树中重新选中原始模型，再次打开 Filter；不要将上一次的单点积分结果作为下一次输入。
 
-8. **输入属性要求**  
-   Point Data 元素数应不少于输入点数，Cell Data 元素数应不少于输入单元数；不满足要求的属性不会进入积分输出。
+8. **输入属性要求**
 
+   Point Data 元素数应不少于输入点数，Cell Data 元素数应不少于输入单元数；不满足要求的属性不会进入积分输出。
