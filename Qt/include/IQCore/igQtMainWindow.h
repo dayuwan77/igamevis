@@ -64,6 +64,7 @@ public:
         ContourExtract,
         ExtractEdges,
         CountCellVertices,
+        TextureMapToCylinder,
         Slice,
         Deformation,
         Selection,
