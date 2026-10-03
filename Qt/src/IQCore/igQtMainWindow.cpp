@@ -4677,30 +4677,59 @@ void igQtMainWindow::initAllFilters() {
             return;
         }
 
-        IntegrateVariablesFilter::Pointer filter = IntegrateVariablesFilter::New();
-        filter->SetInput(data);
-        if (filter->Execute()) {
-            auto output = filter->GetOutput();
-            if (output) {
-                modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
-                if (auto item = modelTreeWidget->getItemFromObject(output)) {
-                    item->setExpanded(true);
-                }
+        auto* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("积分变量 (Integrate Variables)"));
+        dialog->setFilterDescription(QStringLiteral(
+                "对最高维度单元的点属性和单元属性进行积分。输出为一个点，并保存积分结果及总长度、总面积或总体积。"));
+        dialog->setParameterColumnStretch(0, 1);
+
+        dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                             QStringLiteral("积分策略"),
+                             std::vector<QString>{QStringLiteral("Linear Strategy")});
+        const int divideCellDataId = dialog->addParameter(
+                igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                QStringLiteral("单元数据除以总测度"),
+                QStringLiteral("false"));
+
+        dialog->setApplyFunctor([this, dialog, data, divideCellDataId]() {
+            bool optionOk = false;
+            const bool divideCellData = dialog->getChecked(divideCellDataId, optionOk);
+            if (!optionOk) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("无法读取积分选项。"));
+                return;
             }
+
+            IntegrateVariablesFilter::Pointer filter = IntegrateVariablesFilter::New();
+            filter->SetInput(data);
+            filter->SetDivideAllCellDataByMeasure(divideCellData);
+            if (!filter->Execute()) {
+                std::string message = filter->GetMessage();
+                if (message.empty()) message = "IntegrateVariablesFilter execute failed";
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QString::fromStdString(message));
+                return;
+            }
+
+            auto output = filter->GetOutput();
+            if (!output) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("积分算法没有生成有效输出。"));
+                return;
+            }
+
+            modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+            if (auto item = modelTreeWidget->getItemFromObject(output)) item->setExpanded(true);
             rendererWidget->update();
-            showDarkFramelessMessage(
-                    QStringLiteral("Success"),
-                    QStringLiteral("Integrated %1 cells; total %2 = %3.")
-                            .arg(filter->GetIntegratedCellCount())
-                            .arg(QString::fromStdString(filter->GetMeasureName()))
-                            .arg(filter->GetIntegratedMeasure(), 0, 'g', 12),
-                    true);
-        } else {
-            std::string message = filter->GetMessage();
-            if (message.empty()) message = "IntegrateVariablesFilter execute failed";
-            showDarkFramelessMessage(QStringLiteral("Warning"),
-                                     QString::fromStdString(message));
-        }
+            dialog->hide();
+            dialog->deleteLater();
+
+            ui->dockWidget_SearchInfo->show();
+            ui->dockWidget_SearchInfo->raise();
+            ui->widget_SearchInfo->setCurrentModel(rendererWidget->GetScene()->GetCurrentModel());
+        });
+        dialog->resize(480, 320);
+        dialog->show();
     });
 
     QAction* vortex = view->addAction(QStringLiteral("计算涡量 (ComputeVorticity)"));

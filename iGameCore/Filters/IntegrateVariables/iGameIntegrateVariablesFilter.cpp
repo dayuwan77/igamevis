@@ -1,7 +1,7 @@
 #include "iGameIntegrateVariablesFilter.h"
 
-#include "CellSize/iGameCellSizeFilter.h"
 #include "iGameAttributeSet.h"
+#include "iGameCell.h"
 #include "iGameCellType.h"
 #include "iGameStructuredMesh.h"
 #include "iGameSurfaceMesh.h"
@@ -21,52 +21,31 @@ struct AttributeAccumulator {
     IGenum type{IG_NONE};
     IGenum attachment{IG_NONE};
     std::vector<double> values;
-};
+}; // 用于累加点属性或单元属性的积分结果
 
+struct GeometryView {
+    Points::Pointer points;
+    CellArray::Pointer cells;
+    UnstructuredMesh::Pointer unstructured;
+    int fixedDimension{0};
+}; // 统一保存输入网格的几何数据和维度信息
+
+// 计算三个空间点构成的三角形面积。
 double TriangleArea(const Point& p0, const Point& p1, const Point& p2) {
-    const double e10 = static_cast<double>(p1[0]) - p0[0];
-    const double e11 = static_cast<double>(p1[1]) - p0[1];
-    const double e12 = static_cast<double>(p1[2]) - p0[2];
-    const double e20 = static_cast<double>(p2[0]) - p0[0];
-    const double e21 = static_cast<double>(p2[1]) - p0[1];
-    const double e22 = static_cast<double>(p2[2]) - p0[2];
-    const double cx = e11 * e22 - e12 * e21;
-    const double cy = e12 * e20 - e10 * e22;
-    const double cz = e10 * e21 - e11 * e20;
-    return std::sqrt(cx * cx + cy * cy + cz * cz) * 0.5;
+    return (p1 - p0).cross(p2 - p0).norm() * 0.5;
 }
 
+// 计算四个空间点构成的四面体有符号体积。
 double SignedTetraVolume(const Point& p0, const Point& p1,
                          const Point& p2, const Point& p3) {
-    // vtkIntegrationLinearStrategy intentionally keeps the sign here.  It is
-    // part of Integrate Variables semantics for inverted 3-D cells.
-    const double e10 = static_cast<double>(p1[0]) - p0[0];
-    const double e11 = static_cast<double>(p1[1]) - p0[1];
-    const double e12 = static_cast<double>(p1[2]) - p0[2];
-    const double e20 = static_cast<double>(p2[0]) - p0[0];
-    const double e21 = static_cast<double>(p2[1]) - p0[1];
-    const double e22 = static_cast<double>(p2[2]) - p0[2];
-    const double e30 = static_cast<double>(p3[0]) - p0[0];
-    const double e31 = static_cast<double>(p3[1]) - p0[1];
-    const double e32 = static_cast<double>(p3[2]) - p0[2];
-    const double cx = e11 * e22 - e12 * e21;
-    const double cy = e12 * e20 - e10 * e22;
-    const double cz = e10 * e21 - e11 * e20;
-    return (cx * e30 + cy * e31 + cz * e32) / 6.0;
+    return (p1 - p0).cross(p2 - p0).dot(p3 - p0) / 6.0;
 }
 
-double SquaredDistance(const Point& p0, const Point& p1) {
-    const double dx = static_cast<double>(p1[0]) - p0[0];
-    const double dy = static_cast<double>(p1[1]) - p0[1];
-    const double dz = static_cast<double>(p1[2]) - p0[2];
-    return dx * dx + dy * dy + dz * dz;
-}
-
-double AddLineWeights(const std::vector<Point>& points,
-                      std::vector<double>& weights) {
+// 累加折线各线段的长度，并将每段长度的一半分配给两个端点作为积分权重。
+double AddLineWeights(const std::vector<Point>& points, std::vector<double>& weights) {
     double measure = 0.0;
     for (size_t i = 0; i + 1 < points.size(); ++i) {
-        const double length = std::sqrt(SquaredDistance(points[i], points[i + 1]));
+        const double length = (points[i + 1] - points[i]).norm();
         weights[i] += length * 0.5;
         weights[i + 1] += length * 0.5;
         measure += length;
@@ -74,74 +53,74 @@ double AddLineWeights(const std::vector<Point>& points,
     return measure;
 }
 
+// 累加指定三角形的面积，并将面积均分给三个顶点作为积分权重。
 double AddTriangleWeights(const std::vector<Point>& points,
                           size_t i0, size_t i1, size_t i2,
                           std::vector<double>& weights) {
     const double area = TriangleArea(points[i0], points[i1], points[i2]);
     const double share = area / 3.0;
-    weights[i0] += share;
-    weights[i1] += share;
-    weights[i2] += share;
+    for (const size_t id : {i0, i1, i2}) weights[id] += share;
     return area;
 }
 
+// 累加指定四面体的有符号体积，并将体积均分给四个顶点作为积分权重。
 double AddTetraWeights(const std::vector<Point>& points,
                        size_t i0, size_t i1, size_t i2, size_t i3,
                        std::vector<double>& weights) {
-    const double volume =
-            SignedTetraVolume(points[i0], points[i1], points[i2], points[i3]);
+    const double volume = SignedTetraVolume(
+            points[i0], points[i1], points[i2], points[i3]);
     const double share = volume * 0.25;
-    weights[i0] += share;
-    weights[i1] += share;
-    weights[i2] += share;
-    weights[i3] += share;
+    for (const size_t id : {i0, i1, i2, i3}) weights[id] += share;
     return volume;
 }
 
-// Build the same linear-integration weights and measure used by ParaView's
-// vtkIntegrationLinearStrategy.  The measure must come from this very same
-// decomposition: normalizing these weights to CellSize's independently
-// computed volume changes point integrals on warped 3-D cells.
+// 按照 ParaView 的线性策略计算单元测度及各顶点的积分权重。
 bool ComputeIntegrationWeights(int dimension, const std::vector<Point>& points,
                                std::vector<double>& weights, double& measure) {
     weights.assign(points.size(), 0.0);
     measure = 0.0;
     if (points.empty()) return false;
 
+    const auto addTriangle = [&](size_t i0, size_t i1, size_t i2) {
+        measure += AddTriangleWeights(points, i0, i1, i2, weights);
+    };
+    const auto addTetra = [&](size_t i0, size_t i1, size_t i2, size_t i3) {
+        measure += AddTetraWeights(points, i0, i1, i2, i3, weights);
+    };
+
     if (dimension == 1 && points.size() >= 2) {
         measure = AddLineWeights(points, weights);
     } else if (dimension == 2 && points.size() >= 3) {
-        for (size_t i = 1; i + 1 < points.size(); ++i) {
-            measure += AddTriangleWeights(points, 0, i, i + 1, weights);
-        }
+        for (size_t i = 1; i + 1 < points.size(); ++i)
+            addTriangle(0, i, i + 1);
     } else if (dimension == 3) {
         switch (points.size()) {
             case 4:
-                measure = AddTetraWeights(points, 0, 1, 2, 3, weights);
+                addTetra(0, 1, 2, 3);
                 break;
-            case 5: { // pyramid: ParaView splits across the shorter base diagonal
-                const double diagonal02 = SquaredDistance(points[0], points[2]);
-                const double diagonal13 = SquaredDistance(points[1], points[3]);
+            case 5: { // 金字塔：ParaView 沿底面较短的对角线进行拆分
+                const double diagonal02 = points[0].distance2(points[2]);
+                const double diagonal13 = points[1].distance2(points[3]);
                 if (diagonal02 < diagonal13) {
-                    measure += AddTetraWeights(points, 0, 1, 2, 4, weights);
-                    measure += AddTetraWeights(points, 0, 2, 3, 4, weights);
+                    addTetra(0, 1, 2, 4);
+                    addTetra(0, 2, 3, 4);
                 } else {
-                    measure += AddTetraWeights(points, 0, 1, 3, 4, weights);
-                    measure += AddTetraWeights(points, 1, 2, 3, 4, weights);
+                    addTetra(0, 1, 3, 4);
+                    addTetra(1, 2, 3, 4);
                 }
                 break;
             }
-            case 6: // prism: 0,1,2 and 3,4,5
-                measure += AddTetraWeights(points, 0, 1, 2, 3, weights);
-                measure += AddTetraWeights(points, 1, 4, 5, 3, weights);
-                measure += AddTetraWeights(points, 1, 3, 5, 2, weights);
+            case 6: // 三棱柱：底面为 0、1、2，顶面为 3、4、5
+                addTetra(0, 1, 2, 3);
+                addTetra(1, 4, 5, 3);
+                addTetra(1, 3, 5, 2);
                 break;
-            case 8: // hexahedron
-                measure += AddTetraWeights(points, 0, 1, 3, 4, weights);
-                measure += AddTetraWeights(points, 1, 4, 5, 6, weights);
-                measure += AddTetraWeights(points, 1, 4, 6, 3, weights);
-                measure += AddTetraWeights(points, 1, 3, 6, 2, weights);
-                measure += AddTetraWeights(points, 3, 6, 7, 4, weights);
+            case 8: // 六面体
+                addTetra(0, 1, 3, 4);
+                addTetra(1, 4, 5, 6);
+                addTetra(1, 4, 6, 3);
+                addTetra(1, 3, 6, 2);
+                addTetra(3, 6, 7, 4);
                 break;
             default:
                 return false;
@@ -155,145 +134,83 @@ bool ComputeIntegrationWeights(int dimension, const std::vector<Point>& points,
                        [](double value) { return std::isfinite(value); });
 }
 
-bool ReuseCellSizeLengthOrArea(int dimension, bool hasCellSizeMeasure,
-                               double cellSizeMeasure,
-                               std::vector<double>& weights,
-                               double& integrationMeasure) {
-    if (!hasCellSizeMeasure || !std::isfinite(cellSizeMeasure)) return false;
-
-    // Length and area use the same segment/fan formulas in both filters, so
-    // CellSize is authoritative for 1-D/2-D. ParaView always computes 3-D
-    // integration from its signed tetrahedralization; never mix CellSize
-    // volumes with VTK weights on a per-cell tolerance test.
-    if (dimension > 2) return false;
-
-    if (integrationMeasure == 0.0) {
-        if (cellSizeMeasure != 0.0) return false;
-        return true;
-    }
-    const double weightScale = cellSizeMeasure / integrationMeasure;
-    for (double& weight : weights) weight *= weightScale;
-    integrationMeasure = cellSizeMeasure;
-    return true;
-}
-
-bool ResolveGeometry(const DataObject::Pointer& input,
-                     Points::Pointer& points, CellArray::Pointer& cells,
-                     bool& isLineOnlySurface) {
-    isLineOnlySurface = false;
+// 从受支持的数据对象中取得点、单元连接关系和维度信息。
+bool ResolveGeometry(const DataObject::Pointer& input, GeometryView& geometry) {
+    geometry = {};
+    geometry.points = input->GetPoints();
     switch (input->GetDataObjectType()) {
         case IG_SURFACE_MESH: {
             auto mesh = DynamicCast<SurfaceMesh>(input);
             if (!mesh) return false;
-            points = mesh->GetPoints();
-            auto faces = mesh->GetFaces();
-            if (faces && faces->GetNumberOfCells() > 0) {
-                cells = faces;
+            geometry.cells = mesh->GetCellArray();
+            if (geometry.cells && geometry.cells->GetNumberOfCells() > 0) {
+                geometry.fixedDimension = 2;
             } else {
-                // Legacy VTK POLYDATA LINES are represented as SurfaceMesh
-                // edges by iGame's reader. CellSize intentionally operates on
-                // SurfaceMesh faces, so keep that filter unchanged and use the
-                // edge connectivity as a local 1-D compatibility path.
-                cells = mesh->GetEdges();
-                isLineOnlySurface = cells && cells->GetNumberOfCells() > 0;
+                // 旧版 VTK POLYDATA LINES 在 iGame 中保存为 SurfaceMesh 的边。
+                geometry.cells = mesh->GetEdges();
+                geometry.fixedDimension = 1;
             }
-            return true;
+            break;
         }
-        case IG_VOLUME_MESH: {
-            auto mesh = DynamicCast<VolumeMesh>(input);
-            if (!mesh) return false;
-            points = mesh->GetPoints();
-            cells = mesh->GetCells();
-            return true;
-        }
-        case IG_UNSTRUCTURED_MESH: {
-            auto mesh = DynamicCast<UnstructuredMesh>(input);
-            if (!mesh) return false;
-            points = mesh->GetPoints();
-            cells = mesh->GetCells();
-            return true;
-        }
+        case IG_VOLUME_MESH:
+            geometry.cells = input->GetCellArray();
+            geometry.fixedDimension = 3;
+            break;
+        case IG_UNSTRUCTURED_MESH:
+            geometry.unstructured = DynamicCast<UnstructuredMesh>(input);
+            if (!geometry.unstructured) return false;
+            geometry.cells = geometry.unstructured->GetCells();
+            break;
         case IG_STRUCTURED_MESH: {
             auto mesh = DynamicCast<StructuredMesh>(input);
             if (!mesh) return false;
             mesh->GenStructuredCellConnectivities();
-            points = mesh->GetPoints();
-            cells = mesh->GetCells();
-            return true;
+            geometry.cells = mesh->GetCells();
+            geometry.fixedDimension = static_cast<int>(mesh->GetDimension());
+            break;
         }
         default:
             return false;
     }
+    return geometry.points && geometry.cells;
 }
 
-void FindMeasureArrays(AttributeSet* attributes,
-                       ArrayObject::Pointer& length,
-                       ArrayObject::Pointer& area,
-                       ArrayObject::Pointer& volume) {
-    if (!attributes) return;
-    // Search backwards because CellSizeFilter appends its three result arrays
-    // after copying input attributes, which may themselves use these names.
-    for (int i = static_cast<int>(attributes->GetNumberOfAttributes()) - 1;
-         i >= 0; --i) {
-        auto& attr = attributes->GetAttribute(i);
-        if (attr.IsNone() || attr.attachmentType != IG_CELL || !attr.pointer) continue;
-        const std::string& name = attr.pointer->GetName();
-        if (!length && name == "Length") length = attr.pointer;
-        else if (!area && name == "Area") area = attr.pointer;
-        else if (!volume && name == "Volume") volume = attr.pointer;
+// 读取指定单元的顶点编号和坐标。
+int LoadCellPoints(const GeometryView& geometry, IGsize cellId,
+                   const igIndex*& pointIds, std::vector<Point>& cellPoints) {
+    const int pointCount = geometry.cells->GetCellIds(cellId, pointIds);
+    if (pointCount <= 0 || !pointIds) return 0;
+
+    cellPoints.clear();
+    cellPoints.reserve(static_cast<size_t>(pointCount));
+    const IGsize totalPointCount = geometry.points->GetNumberOfPoints();
+    for (int i = 0; i < pointCount; ++i) {
+        if (pointIds[i] < 0 ||
+            static_cast<IGsize>(pointIds[i]) >= totalPointCount) return 0;
+        cellPoints.push_back(geometry.points->GetPoint(pointIds[i]));
     }
+    return pointCount;
 }
 
-bool GetCellMeasure(IGsize cellId,
-                    const ArrayObject::Pointer& length,
-                    const ArrayObject::Pointer& area,
-                    const ArrayObject::Pointer& volume,
-                    int& dimension, double& measure) {
-    const ArrayObject::Pointer arrays[3] = {length, area, volume};
-    for (int i = 2; i >= 0; --i) {
-        if (!arrays[i] || cellId >= arrays[i]->GetNumberOfElements()) continue;
-        const double value = arrays[i]->GetElementValue(cellId, 0);
-        if (std::isfinite(value)) {
-            dimension = i + 1;
-            measure = value;
-            return true;
-        }
+// 根据网格类型、单元类型和顶点数确定可支持的积分维度。
+int ResolveIntegrationDimension(const GeometryView& geometry, IGsize cellId,
+                                const std::vector<Point>& cellPoints) {
+    int dimension = geometry.fixedDimension;
+    if (geometry.unstructured) {
+        const IGenum cellType = geometry.unstructured->GetCellType(cellId);
+        dimension = cellType == IG_POLY_LINE
+                ? 1 : static_cast<int>(Cell::GetCellDimension(cellType));
     }
-    return false;
+    const size_t pointCount = cellPoints.size();
+    if (dimension == 1 && pointCount >= 2) return 1;
+    if (dimension == 2 && pointCount >= 3) return 2;
+    if (dimension == 3 &&
+        (pointCount == 4 || pointCount == 5 ||
+         pointCount == 6 || pointCount == 8)) return 3;
+    return 0;
 }
 
-bool ResolveIntegrationDimension(const DataObject::Pointer& input, IGsize cellId,
-                                 const ArrayObject::Pointer& length,
-                                 const ArrayObject::Pointer& area,
-                                 const ArrayObject::Pointer& volume,
-                                 bool isLineOnlySurface,
-                                 int& dimension, double& cellSizeMeasure,
-                                 bool& hasCellSizeMeasure) {
-    hasCellSizeMeasure = false;
-    cellSizeMeasure = 0.0;
-    if (isLineOnlySurface) {
-        dimension = 1;
-        return true;
-    }
-    if (GetCellMeasure(cellId, length, area, volume,
-                       dimension, cellSizeMeasure)) {
-        hasCellSizeMeasure = true;
-        return true;
-    }
-
-    // CellSize currently has no IG_POLY_LINE dispatch. Keep that reusable
-    // filter untouched and handle ParaView's piecewise-linear integration
-    // locally in IntegrateVariables.
-    if (input->GetDataObjectType() == IG_UNSTRUCTURED_MESH) {
-        auto mesh = DynamicCast<UnstructuredMesh>(input);
-        if (mesh && mesh->GetCellType(cellId) == IG_POLY_LINE) {
-            dimension = 1;
-            return true;
-        }
-    }
-    return false;
-}
-
+// 收集可参与积分的点属性和单元属性，并为每个属性创建累加器。
 void CollectAttributes(AttributeSet* attributes, IGsize pointCount, IGsize cellCount,
                        const std::string& measureName,
                        std::vector<AttributeAccumulator>& pointAttributes,
@@ -318,13 +235,13 @@ void CollectAttributes(AttributeSet* attributes, IGsize pointCount, IGsize cellC
         } else if (attr.attachmentType == IG_CELL &&
                    attr.pointer->GetNumberOfElements() >= cellCount &&
                    attr.pointer->GetName() != measureName) {
-            // ParaView's generated geometry measure replaces a same-named
-            // cell array in the output.
+            // ParaView 会用新生成的几何测度替换输出中同名的单元属性数组。
             cellAttributes.push_back(std::move(accumulator));
         }
     }
 }
 
+// 将属性累加结果发布到输出数据，并按需将单元属性除以总测度。
 void PublishAttributes(const std::vector<AttributeAccumulator>& accumulators,
                        AttributeSet* outputAttributes, bool divide,
                        double measure) {
@@ -343,13 +260,15 @@ void PublishAttributes(const std::vector<AttributeAccumulator>& accumulators,
     }
 }
 
-} // namespace
+} // 匿名命名空间
 
+// 初始化过滤器的输入和输出端口数量。
 IntegrateVariablesFilter::IntegrateVariablesFilter() {
     SetNumberOfInputs(1);
     SetNumberOfOutputs(1);
 }
 
+// 根据当前最高积分维度返回对应的几何测度名称。
 std::string IntegrateVariablesFilter::GetMeasureName() const {
     switch (m_IntegrationDimension) {
         case 1: return "Length";
@@ -359,6 +278,7 @@ std::string IntegrateVariablesFilter::GetMeasureName() const {
     }
 }
 
+// 执行变量积分，生成包含积分属性、总测度和积分中心的单点输出。
 bool IntegrateVariablesFilter::Execute() {
     m_Message.clear();
     m_IntegrationDimension = 0;
@@ -371,59 +291,22 @@ bool IntegrateVariablesFilter::Execute() {
         return false;
     }
 
-    Points::Pointer points;
-    CellArray::Pointer cells;
-    bool isLineOnlySurface = false;
-    if (!ResolveGeometry(input, points, cells, isLineOnlySurface) ||
-        !points || !cells) {
+    GeometryView geometry;
+    if (!ResolveGeometry(input, geometry)) {
         m_Message = "Unsupported input. Integrate Variables requires a surface, volume, unstructured, or structured mesh.";
         return false;
     }
-    const IGsize pointCount = points->GetNumberOfPoints();
-    const IGsize cellCount = cells->GetNumberOfCells();
-    if (pointCount == 0 || cellCount == 0) {
-        m_Message = "The input mesh has no points or cells to integrate.";
-        return false;
-    }
-
-    ArrayObject::Pointer length;
-    ArrayObject::Pointer area;
-    ArrayObject::Pointer volume;
-    if (!isLineOnlySurface) {
-        // Reuse CellSizeFilter for supported-cell discovery, dimensions, and
-        // final 1-D/2-D measures. Volume integration always uses ParaView's
-        // signed tetrahedralization; mixing CellSize and VTK volume definitions
-        // across cells produces accumulated errors on distorted hexahedra.
-        auto cellSize = CellSizeFilter::New();
-        cellSize->SetInput(input);
-        if (!cellSize->Execute()) {
-            m_Message = "CellSizeFilter failed: " + cellSize->GetMessage();
-            return false;
-        }
-        auto measuredData = cellSize->GetOutput();
-        if (!measuredData) {
-            m_Message = "CellSizeFilter did not produce an output.";
-            return false;
-        }
-
-        FindMeasureArrays(measuredData->GetAttributeSet(), length, area, volume);
-        if (!length || !area || !volume) {
-            m_Message = "CellSizeFilter output is missing Length, Area, or Volume.";
-            return false;
-        }
-    }
-
-    // ParaView integrates only the highest-dimensional cells in a mixed mesh.
+    const IGsize pointCount = geometry.points->GetNumberOfPoints();
+    const IGsize cellCount = geometry.cells->GetNumberOfCells();
+    // 与 ParaView 一致，混合维度网格只积分其中最高维度的单元。
+    std::vector<int> cellDimensions(static_cast<size_t>(cellCount), 0);
+    const igIndex* pointIds = nullptr;
+    std::vector<Point> cellPoints;
     for (IGsize cellId = 0; cellId < cellCount; ++cellId) {
-        int dimension = 0;
-        double cellSizeMeasure = 0.0;
-        bool hasCellSizeMeasure = false;
-        if (ResolveIntegrationDimension(input, cellId, length, area, volume,
-                                        isLineOnlySurface,
-                                        dimension, cellSizeMeasure,
-                                        hasCellSizeMeasure)) {
-            m_IntegrationDimension = std::max(m_IntegrationDimension, dimension);
-        }
+        if (LoadCellPoints(geometry, cellId, pointIds, cellPoints) == 0) continue;
+        const int dimension = ResolveIntegrationDimension(geometry, cellId, cellPoints);
+        cellDimensions[static_cast<size_t>(cellId)] = dimension;
+        m_IntegrationDimension = std::max(m_IntegrationDimension, dimension);
     }
     if (m_IntegrationDimension == 0) {
         m_Message = "No supported 1D, 2D, or 3D cells were found.";
@@ -436,57 +319,33 @@ bool IntegrateVariablesFilter::Execute() {
     CollectAttributes(input->GetAttributeSet(), pointCount, cellCount, measureName,
                       pointAttributes, cellAttributes);
 
-    double weightedCenter[3] = {0.0, 0.0, 0.0};
-    const igIndex* pointIds = nullptr;
-    std::vector<Point> cellPoints;
+    Vector3d weightedCenter(0.0, 0.0, 0.0); // 累加积分中心的分子部分，最后除以总测度得到积分中心坐标
     std::vector<double> pointWeights;
 
     for (IGsize cellId = 0; cellId < cellCount; ++cellId) {
-        int dimension = 0;
-        double cellSizeMeasure = 0.0;
-        bool hasCellSizeMeasure = false;
-        if (!ResolveIntegrationDimension(input, cellId, length, area, volume,
-                                         isLineOnlySurface,
-                                         dimension, cellSizeMeasure,
-                                         hasCellSizeMeasure) ||
-            dimension != m_IntegrationDimension) {
+        const int dimension = cellDimensions[static_cast<size_t>(cellId)];
+        if (dimension != m_IntegrationDimension) {
             continue;
         }
 
-        const int cellPointCount = cells->GetCellIds(cellId, pointIds);
-        if (cellPointCount <= 0 || !pointIds) continue;
-        cellPoints.clear();
-        cellPoints.reserve(static_cast<size_t>(cellPointCount));
-        bool validIds = true;
-        for (int j = 0; j < cellPointCount; ++j) {
-            if (pointIds[j] < 0 || static_cast<IGsize>(pointIds[j]) >= pointCount) {
-                validIds = false;
-                break;
-            }
-            cellPoints.push_back(points->GetPoint(pointIds[j]));
-        }
+        const int cellPointCount = LoadCellPoints(geometry, cellId, pointIds, cellPoints);
+        if (cellPointCount == 0) continue;
         double measure = 0.0;
-        if (!validIds || !ComputeIntegrationWeights(
-                dimension, cellPoints, pointWeights, measure)) {
+        if (!ComputeIntegrationWeights(dimension, cellPoints, pointWeights, measure)) {
             continue;
         }
-        ReuseCellSizeLengthOrArea(dimension, hasCellSizeMeasure,
-                                  cellSizeMeasure, pointWeights, measure);
 
         ++m_IntegratedCellCount;
         m_IntegratedMeasure += measure;
         for (int localId = 0; localId < cellPointCount; ++localId) {
             const double weight = pointWeights[static_cast<size_t>(localId)];
             const Point& point = cellPoints[static_cast<size_t>(localId)];
-            weightedCenter[0] += static_cast<double>(point[0]) * weight;
-            weightedCenter[1] += static_cast<double>(point[1]) * weight;
-            weightedCenter[2] += static_cast<double>(point[2]) * weight;
+            weightedCenter += Vector3d(point) * weight;
 
             for (auto& accumulator : pointAttributes) {
                 for (size_t component = 0; component < accumulator.values.size(); ++component) {
                     accumulator.values[component] +=
-                            accumulator.input->GetElementValue(pointIds[localId],
-                                                               static_cast<int>(component)) * weight;
+                            accumulator.input->GetElementValue(pointIds[localId], static_cast<int>(component)) * weight;
                 }
             }
         }
@@ -494,8 +353,7 @@ bool IntegrateVariablesFilter::Execute() {
         for (auto& accumulator : cellAttributes) {
             for (size_t component = 0; component < accumulator.values.size(); ++component) {
                 accumulator.values[component] +=
-                        accumulator.input->GetElementValue(cellId,
-                                                           static_cast<int>(component)) * measure;
+                        accumulator.input->GetElementValue(cellId, static_cast<int>(component)) * measure;
             }
         }
     }
@@ -507,9 +365,7 @@ bool IntegrateVariablesFilter::Execute() {
 
     Point outputPoint(0.0f, 0.0f, 0.0f);
     if (m_IntegratedMeasure != 0.0) {
-        outputPoint[0] = static_cast<float>(weightedCenter[0] / m_IntegratedMeasure);
-        outputPoint[1] = static_cast<float>(weightedCenter[1] / m_IntegratedMeasure);
-        outputPoint[2] = static_cast<float>(weightedCenter[2] / m_IntegratedMeasure);
+        outputPoint = Point(weightedCenter / m_IntegratedMeasure);
     }
 
     auto output = UnstructuredMesh::New();

@@ -7,23 +7,6 @@
 
 IGAME_NAMESPACE_BEGIN
 
-/**
- * Integrate point and cell attributes over the highest-dimensional cells.
- *
- * The filter follows ParaView/vtkIntegrateAttributes semantics:
- * - only the highest cell dimension present is integrated;
- * - point attributes are integrated with linear interpolation;
- * - cell attributes are multiplied by Length, Area, or Volume;
- * - the output is one vertex located at the measure-weighted centroid;
- * - point and cell results keep their original associations and are stored as
- *   double arrays with one tuple.
- *
- * CellSizeFilter is reused for supported-cell discovery and final Length/Area
- * measurements. A local line path covers legacy POLYDATA LINES, which iGame
- * stores as SurfaceMesh edges outside CellSize's face-based input. Volume
- * integration always uses ParaView's signed linear-cell decomposition,
- * preserving VTK semantics without changing CellSize.
- */
 class IntegrateVariablesFilter : public Filter {
 public:
     I_OBJECT(IntegrateVariablesFilter);
