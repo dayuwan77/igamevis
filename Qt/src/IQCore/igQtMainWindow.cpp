@@ -835,6 +835,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_GenerateProcessIds);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_ExtractEdges);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_CountCellVertices);
+    this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_TensorPrincipalInvariants);
     this->addDockWidget(Qt::LeftDockWidgetArea, ui->dockWidget_MergeVectorComponents);
 
     // 禁止所有 dock 悬浮：去掉 DockWidgetFloatable
@@ -858,6 +859,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     ui->dockWidget_ContourExtract->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_ExtractEdges->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_CountCellVertices->setFeatures(QDockWidget::DockWidgetClosable);
+    ui->dockWidget_TensorPrincipalInvariants->setFeatures(QDockWidget::DockWidgetClosable);
     ui->dockWidget_MergeVectorComponents->setFeatures(QDockWidget::DockWidgetClosable);
 
     QDockWidget* dockWidget_null = new QDockWidget("", this);
@@ -882,6 +884,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     ui->dockWidget_GenerateProcessIds->hide();
     ui->dockWidget_ExtractEdges->hide();
     ui->dockWidget_CountCellVertices->hide();
+    ui->dockWidget_TensorPrincipalInvariants->hide();
 
     ui->dockWidget_MergeVectorComponents->hide();
 
@@ -1056,6 +1059,7 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     makeDockWidgetScrollable(ui->dockWidget_GenerateProcessIds);
     makeDockWidgetScrollable(ui->dockWidget_ExtractEdges);
     makeDockWidgetScrollable(ui->dockWidget_CountCellVertices);
+    makeDockWidgetScrollable(ui->dockWidget_TensorPrincipalInvariants);
     makeDockWidgetScrollable(ui->dockWidget_MergeVectorComponents);
     makeDockWidgetScrollable(modelTreeWidget->getPropertiesDock());
 
@@ -6819,6 +6823,19 @@ void igQtMainWindow::initAllDockWidgetConnectWithAction() {
                 if (!dataObject) return;
                 ui->widget_CountCellVertices->SetOriginDataObject(dataObject);
             });
+
+    /* 张量主值：同样是「算法处理」下的一级菜单项。 */
+    connect(ui->menu_filters->addAction(QStringLiteral("张量主值 (Tensor Principal Invariants)")),
+            &QAction::triggered, this, [this](bool) {
+                openLeftToolPanel(LeftToolPanelId::TensorPrincipalInvariants);
+                auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+                if (!scene) return;
+                auto CurrentModel = scene->GetCurrentModel();
+                if (!CurrentModel) return;
+                auto dataObject = CurrentModel->GetDataObject();
+                if (!dataObject) return;
+                ui->widget_TensorPrincipalInvariants->SetOriginDataObject(dataObject);
+            });
     connect(ui->action_MergeVectorComponents, &QAction::triggered, this, [this](bool) {
         openLeftToolPanel(LeftToolPanelId::MergeVectorComponents);
         auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
@@ -7148,6 +7165,8 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
             return ui->dockWidget_ExtractEdges;
         case LeftToolPanelId::CountCellVertices:
             return ui->dockWidget_CountCellVertices;
+        case LeftToolPanelId::TensorPrincipalInvariants:
+            return ui->dockWidget_TensorPrincipalInvariants;
         case LeftToolPanelId::Slice:
             return SliceDockWidget;
         case LeftToolPanelId::ResampleToLine: 
@@ -7293,6 +7312,11 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
             relocateContentToLeftTab(ui->dockWidget_CountCellVertices, ui->widget_CountCellVertices,
                                      QStringLiteral("统计单元顶点数"), id, false);
             break;
+        case LeftToolPanelId::TensorPrincipalInvariants:
+            relocateContentToLeftTab(ui->dockWidget_TensorPrincipalInvariants,
+                                     ui->widget_TensorPrincipalInvariants,
+                                     QStringLiteral("张量主值"), id, false);
+            break;
         case LeftToolPanelId::Slice:
             relocateContentToLeftTab(SliceDockWidget, SliceWidget, QStringLiteral("网格切面"), id, false);
             break;
@@ -7424,6 +7448,17 @@ void igQtMainWindow::initAllMySignalConnections() {
                 modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
             });
     connect(ui->widget_CountCellVertices, &igQtCountCellVerticesWidget::UpdateCountModel, this,
+            [&](DataObject::Pointer res) {
+                modelTreeWidget->updateCurrentModelInfo();
+                rendererWidget->update();
+            });
+
+    // —— 张量主值：结果作为独立节点加入模型树 ——
+    connect(ui->widget_TensorPrincipalInvariants, &igQtTensorPrincipalInvariantsWidget::DrawResultModel, this,
+            [&](iGame::DataObject::Pointer res) {
+                modelTreeWidget->addDataObjectToModelTree(res, ItemSource::Algorithm);
+            });
+    connect(ui->widget_TensorPrincipalInvariants, &igQtTensorPrincipalInvariantsWidget::UpdateResultModel, this,
             [&](DataObject::Pointer res) {
                 modelTreeWidget->updateCurrentModelInfo();
                 rendererWidget->update();

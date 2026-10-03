@@ -64,6 +64,7 @@ public:
         ContourExtract,
         ExtractEdges,
         CountCellVertices,
+        TensorPrincipalInvariants,
         Slice,
         Deformation,
         Selection,
