@@ -1549,6 +1549,21 @@ QLabel#CustomTitleLabel {
    </attribute>
    <widget class="igQtCountCellVerticesWidget" name="widget_CountCellVertices"/>
   </widget>
+  <widget class="QDockWidget" name="dockWidget_TextureMapToCylinder">
+   <property name="minimumSize">
+    <size>
+     <width>115</width>
+     <height>55</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>圆柱纹理坐标</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="igQtTextureMapToCylinderWidget" name="widget_TextureMapToCylinder"/>
+  </widget>
   <action name="action_SaveMesh">
    <property name="icon">
     <iconset>
@@ -2479,6 +2494,12 @@ QLabel#CustomTitleLabel {
    <class>igQtCountCellVerticesWidget</class>
    <extends>QWidget</extends>
    <header>IQWidgets/igQtCountCellVerticesWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>igQtTextureMapToCylinderWidget</class>
+   <extends>QWidget</extends>
+   <header>IQWidgets/igQtTextureMapToCylinderWidget.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
