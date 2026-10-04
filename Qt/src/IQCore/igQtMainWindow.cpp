@@ -170,6 +170,7 @@
 
 #include "ui_igQtVariableCorrelationWidget.h"
 
+#include "IQWidgets/igQtRenameArraysWidget.h"
 #include "ui_ResampleToLine.h"
 #include "ui_ResampleWithDataSet.h"
 
@@ -5432,6 +5433,14 @@ void igQtMainWindow::initAllFilters() {
         if (ResampleWithDataSetWidget != nullptr) { ResampleWithDataSetWidget->BindCurrentModel(); }
     });
 
+    QAction* RenameArraysAct1 = ui->menu_filters->addAction(QStringLiteral("重命名数组(RenameArrays)"));
+
+    connect(RenameArraysAct1, &QAction::triggered, this, [this](bool) {
+        ensureRenameArraysPanel();
+        openLeftToolPanel(LeftToolPanelId::RenameArrays);
+        if (RenameArraysWidget != nullptr) { RenameArraysWidget->BindCurrentModel(); }
+    });
+
     QAction* pointSetToOctree_action =
             ui->menu_filters->addAction(QStringLiteral("点集转八叉树 (Point Set To Octree)"));
     connect(pointSetToOctree_action, &QAction::triggered, this, [&](bool checked) {
@@ -6494,6 +6503,8 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
             return ResampleToLineDockWidget;
         case LeftToolPanelId::ResampleWithDataSet:
             return ResampleWithDataSetDockWidget;
+        case LeftToolPanelId::RenameArrays:
+            return RenameArraysDockWidget;
         case LeftToolPanelId::Deformation:
             return DeformationDockWidget;
         case LeftToolPanelId::Selection:
@@ -6574,6 +6585,27 @@ void igQtMainWindow::ensureResampleWithDataSetPanel() {
     addDockWidget(Qt::LeftDockWidgetArea, ResampleWithDataSetDockWidget);
     // 面板内容会在 openLeftToolPanel() 里迁入左侧工具 Tab，这里先把壳 Dock 收起来
     ResampleWithDataSetDockWidget->hide();
+}
+
+void igQtMainWindow::ensureRenameArraysPanel() {
+    if (RenameArraysWidget != nullptr) { return; }
+
+    RenameArraysDockWidget = new QDockWidget(this);
+    RenameArraysDockWidget->setObjectName(QStringLiteral("dockWidget_RenameArrays"));
+    RenameArraysDockWidget->setWindowTitle(QStringLiteral("重命名函数"));
+    RenameArraysDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
+    RenameArraysDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
+
+    // 第一个参数是模型树控件（igQtModelDialogWidget 派生自 QObject，不是 QWidget），
+    // 第二个参数才是 Dock 父窗口
+    RenameArraysWidget = new igQtRenameArrays(modelTreeWidget, RenameArraysDockWidget);
+    RenameArraysWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    RenameArraysWidget->setMinimumWidth(300);
+
+    RenameArraysDockWidget->setWidget(RenameArraysWidget);
+    addDockWidget(Qt::LeftDockWidgetArea, RenameArraysDockWidget);
+    // 面板内容会在 openLeftToolPanel() 里迁入左侧工具 Tab，这里先把壳 Dock 收起来
+    RenameArraysDockWidget->hide();
 }
 
 void igQtMainWindow::applyLeftToolStackVerticalSplit() {
@@ -6696,6 +6728,10 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
         case LeftToolPanelId::ResampleWithDataSet:
             relocateContentToLeftTab(ResampleWithDataSetDockWidget, ResampleWithDataSetWidget,
                                      QStringLiteral("重采样至数据集"), id, false);
+            break;
+        case LeftToolPanelId::RenameArrays:
+            relocateContentToLeftTab(RenameArraysDockWidget, RenameArraysWidget, QStringLiteral("重命名数组"), id,
+                                     false);
             break;
         case LeftToolPanelId::Count:
             break;

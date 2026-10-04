@@ -24,6 +24,7 @@
 #include "ParallelCoordinates/iGameGenerateParallelCoordinatesData.h"
 #include "Periodic/iGameAngularPeriodicFilter.h"
 #include "PlotLine/iGameGeneratePlotLineDataFilter.h"
+#include "RenameArrays/iGameRenameArrays.h"
 #include "Selection/iGameGetCellsInFrustumFilter.h"
 #include "Selection/iGameExtractCellsByRegionFilter.h"
 #include "Selection/iGameGetClosestCellsInLineFilter.h"
