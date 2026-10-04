@@ -39,6 +39,7 @@
 #include "MeshQuality/iGameMeshQualityFilter.h"
 
 #include "Transformation/iGameTransformFilter.h"
+#include "TimeSeries/iGameTemporalShiftScaleFilter.h"
 
 #include "FeatureExtraction/iGameFeatureEdgesFilter.h"
 #include "Selection/iGameExtractCellsByRegionFilter.h"
@@ -4513,6 +4514,76 @@ void igQtMainWindow::initAllFilters() {
                 return;
             }
             auto outObj = filter->GetOutput();
+            modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
+            rendererWidget->update();
+        });
+    });
+
+
+    // 新增「时间平移/缩放」菜单项
+    QAction* temporalShiftScaleAction =
+            ui->menu_filters->addAction(QStringLiteral("时间平移/缩放 (TemporalShiftScale)"));
+    connect(temporalShiftScaleAction, &QAction::triggered, this, [this](bool) {
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        if (model == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("当前没有打开模型。"));
+            return;
+        }
+        auto data = model->GetDataObject();
+        if (data == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("当前模型没有数据。"));
+            return;
+        }
+        auto frames = data->PeekTimeFrames();
+        if (frames == nullptr || frames->GetTimeNum() == 0) {
+            showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("当前模型没有时间序列。"));
+            return;
+        }
+
+        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("TemporalShiftScale - 时间平移/缩放"));
+        dialog->setFilterDescription(QStringLiteral("t' = (t + Pre Shift) × Scale + Post Shift"));
+        const int preShiftId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                    QStringLiteral("Pre Shift"), "0.0");
+        const int scaleId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                 QStringLiteral("Scale"), "1.0");
+        const int postShiftId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                     QStringLiteral("Post Shift"), "0.0");
+        dialog->show();
+
+        dialog->setApplyFunctor([=, this]() {
+            bool ok = false;
+            const float preShift = static_cast<float>(dialog->getDouble(preShiftId, ok));
+            if (!ok) {
+                showDarkFramelessMessage(QStringLiteral("参数错误"), QStringLiteral("Pre Shift 不是有效数字。"));
+                return;
+            }
+            const float scale = static_cast<float>(dialog->getDouble(scaleId, ok));
+            if (!ok) {
+                showDarkFramelessMessage(QStringLiteral("参数错误"), QStringLiteral("Scale 不是有效数字。"));
+                return;
+            }
+            const float postShift = static_cast<float>(dialog->getDouble(postShiftId, ok));
+            if (!ok) {
+                showDarkFramelessMessage(QStringLiteral("参数错误"), QStringLiteral("Post Shift 不是有效数字。"));
+                return;
+            }
+
+            auto filter = iGame::TemporalShiftScaleFilter::New();
+            filter->SetPreShift(preShift);
+            filter->SetScale(scale);
+            filter->SetPostShift(postShift);
+            filter->SetInput(data);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("执行失败：Scale 不能为 0，或输入没有时间序列。"));
+                return;
+            }
+            auto outObj = filter->GetOutput();
+            if (!outObj) {
+                showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("输出对象为空。"));
+                return;
+            }
             modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
             rendererWidget->update();
         });
