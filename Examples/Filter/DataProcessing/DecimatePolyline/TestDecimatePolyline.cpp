@@ -46,7 +46,24 @@ int main() {
         }
     }
 
+    auto chainedFilter = iGame::DecimatePolylineFilter::New();
+    chainedFilter->SetInput(output);
+    chainedFilter->SetTargetReduction(0.5);
+    if (!iGame::DecimatePolylineFilter::CanProcessInput(output) || !chainedFilter->Execute()) {
+        std::cerr << "The filter cannot process its own output.\n";
+        return 1;
+    }
+
+    auto chainedOutput = iGame::DynamicCast<iGame::UnstructuredMesh>(chainedFilter->GetOutput());
+    if (!chainedOutput || chainedOutput->GetNumberOfPoints() != 7 ||
+        chainedOutput->GetNumberOfCells() != 1 ||
+        chainedOutput->GetCellType(0) != iGame::IG_POLY_LINE) {
+        std::cerr << "Unexpected chained output topology.\n";
+        return 1;
+    }
+
     std::cout << "DecimatePolyline: 151 points -> " << output->GetNumberOfPoints()
-              << " points; ParaView reference matched.\n";
+              << " -> " << chainedOutput->GetNumberOfPoints()
+              << " points; ParaView reference matched and output is reusable.\n";
     return 0;
 }

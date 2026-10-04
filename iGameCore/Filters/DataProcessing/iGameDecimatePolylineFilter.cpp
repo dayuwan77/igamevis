@@ -94,12 +94,6 @@ public:
         }
     }
 
-    // 清空队列状态并将所有元素位置标记为无效。
-    void Reset() {
-        m_MaxId = -1;
-        std::fill(m_Locations.begin(), m_Locations.end(), -1);
-    }
-
 private:
     struct Item {
         double priority;
@@ -289,26 +283,42 @@ void CopyAttributes(DataObject::Pointer input,
     output->SetAttributeSet(outputAttributes);
 }
 
-// 从输入 SurfaceMesh 中提取显式折线，并验证折线点编号的有效性。
+// 从 SurfaceMesh 的显式折线或 UnstructuredMesh 的线单元中提取折线。
 bool CollectInputPolylines(DataObject::Pointer input,
                            PointSet::Pointer& pointSet,
                            std::vector<InputPolyline>& polylines) {
-    auto surface = DynamicCast<SurfaceMesh>(input);
-    if (!surface || !surface->GetPoints() || surface->GetNumberOfPoints() == 0) return false;
+    pointSet = DynamicCast<PointSet>(input);
+    if (!pointSet || !pointSet->GetPoints() || pointSet->GetNumberOfPoints() == 0) return false;
 
-    auto edges = surface->GetEdges();
-    if (!edges) return false;
+    CellArray* cells = nullptr;
+    UnstructuredMesh::Pointer mesh;
+    if (auto surface = DynamicCast<SurfaceMesh>(input)) {
+        cells = surface->GetEdges();
+        if (!cells || cells == surface->GetFaces() || EdgesMatchFaceTopology(surface, cells)) {
+            return false;
+        }
+    } else if ((mesh = DynamicCast<UnstructuredMesh>(input))) {
+        cells = mesh->GetCells();
+        if (!cells || !mesh->GetCellTypes() ||
+            mesh->GetCellTypes()->GetNumberOfElements() < mesh->GetNumberOfCells()) {
+            return false;
+        }
+    } else {
+        return false;
+    }
 
-    if (EdgesMatchFaceTopology(surface, edges)) return false;
+    polylines.reserve(cells->GetNumberOfCells());
+    for (IGsize cellId = 0; cellId < cells->GetNumberOfCells(); ++cellId) {
+        if (mesh) {
+            const IGenum type = mesh->GetCellType(cellId);
+            if (type != IG_LINE && type != IG_POLY_LINE) continue;
+        }
 
-    pointSet = surface;
-    const IGsize numberOfEdges = edges->GetNumberOfCells();
-    polylines.reserve(numberOfEdges);
-    for (IGsize cellId = 0; cellId < numberOfEdges; ++cellId) {
         const igIndex* ids = nullptr;
-        const int size = edges->GetCellIds(cellId, ids);
-        if (size < 2 || !ids) continue;
-        polylines.push_back({std::vector<igIndex>(ids, ids + size), cellId});
+        const int size = cells->GetCellIds(cellId, ids);
+        if (ids && size >= 2) {
+            polylines.push_back({std::vector<igIndex>(ids, ids + size), cellId});
+        }
     }
 
     if (polylines.empty()) return false;
@@ -500,9 +510,8 @@ bool DecimatePolylineFilter::Execute() {
         auto attributes = input ? input->GetAttributeSet() : nullptr;
         if (!attributes || m_CustomFieldName.empty()) return false;
         const auto& attribute = attributes->GetAttribute(m_CustomFieldName);
-        if (attribute.IsNone() || attribute.isDeleted || attribute.attachmentType != IG_POINT ||
-            !attribute.pointer || !CreateArrayLike(attribute.pointer) ||
-            attribute.pointer->GetDimension() < 1 ||
+        if (attribute.IsNone() || attribute.attachmentType != IG_POINT ||
+            !CreateArrayLike(attribute.pointer) ||
             attribute.pointer->GetNumberOfElements() < inputPointSet->GetNumberOfPoints()) {
             return false;
         }
