@@ -5138,10 +5138,46 @@ void igQtMainWindow::initAllFilters() {
                         dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
                                              QStringLiteral("目标顶点数量（非必填，0表示不指定）"), "0");
                 int PreserveBoundaryId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
-                                                              QStringLiteral("是否保护边界"), "true");
+                                                              QStringLiteral("边界处理"), "true");
                 int UseAllPointAttributesId =
                         dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
                                              QStringLiteral("是否使用所有点属性参与简化误差计算"), "true");
+
+                auto* methodCombo =
+                        qobject_cast<QComboBox*>(dialog->getWidget(SimplificationMethodId));
+                auto* preserveBoundaryCheck =
+                        qobject_cast<QCheckBox*>(dialog->getWidget(PreserveBoundaryId));
+
+                // 两种简化方法对“保护边界”的处理不同，因此在用户切换方法时同步更新说明：
+                // 四面体坍缩一次合并四个顶点，保护模式下只能锁定边界；边坍缩一次只合并
+                // 一条边的两个端点，所以真实边界边仍可在几何约束下参与简化。
+                auto updateBoundaryDescription = [=](int method) {
+                    if (!preserveBoundaryCheck) return;
+
+                    if (method == 0) {
+                        preserveBoundaryCheck->setText(QStringLiteral("锁定边界点"));
+                        preserveBoundaryCheck->setToolTip(
+                                QStringLiteral("开启后，包含边界点的四面体不参与坍缩，边界保持不动。"));
+                        dialog->setFilterDescription(
+                                QStringLiteral("四面体坍缩：开启边界保护后锁定边界点，"
+                                               "所有接触边界的四面体都不会被坍缩。"));
+                    } else {
+                        preserveBoundaryCheck->setText(QStringLiteral("约束边界边坍缩"));
+                        preserveBoundaryCheck->setToolTip(
+                                QStringLiteral("开启后，禁止边界点与内部点合并；"
+                                               "真实边界边仍可在几何约束下坍缩。"));
+                        dialog->setFilterDescription(
+                                QStringLiteral("边坍缩：开启边界保护后，边界不会完全锁死；"
+                                               "真实边界边仍可在位置、法向和原始边界误差约束下坍缩。"));
+                    }
+                };
+
+                if (methodCombo) {
+                    connect(methodCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog,
+                            updateBoundaryDescription);
+                    // 对话框第一次显示前，也要按照默认选中的方法设置正确说明。
+                    updateBoundaryDescription(methodCombo->currentIndex());
+                }
 
                 dialog->show();
 
