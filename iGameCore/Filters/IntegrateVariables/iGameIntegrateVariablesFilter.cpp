@@ -30,22 +30,50 @@ struct GeometryView {
     int fixedDimension{0};
 }; // 统一保存输入网格的几何数据和维度信息
 
-// 计算三个空间点构成的三角形面积。
-double TriangleArea(const Point& p0, const Point& p1, const Point& p2) {
-    return (p1 - p0).cross(p2 - p0).norm() * 0.5;
+// 使用 double 精度计算两个空间点之间的距离平方。
+double SquaredDistance(const Point& p0, const Point& p1) {
+    const double dx = static_cast<double>(p1[0]) - p0[0];
+    const double dy = static_cast<double>(p1[1]) - p0[1];
+    const double dz = static_cast<double>(p1[2]) - p0[2];
+    return dx * dx + dy * dy + dz * dz;
 }
 
-// 计算四个空间点构成的四面体有符号体积。
+// 使用 double 精度计算三个空间点构成的三角形面积。
+double TriangleArea(const Point& p0, const Point& p1, const Point& p2) {
+    const double e10 = static_cast<double>(p1[0]) - p0[0];
+    const double e11 = static_cast<double>(p1[1]) - p0[1];
+    const double e12 = static_cast<double>(p1[2]) - p0[2];
+    const double e20 = static_cast<double>(p2[0]) - p0[0];
+    const double e21 = static_cast<double>(p2[1]) - p0[1];
+    const double e22 = static_cast<double>(p2[2]) - p0[2];
+    const double cx = e11 * e22 - e12 * e21;
+    const double cy = e12 * e20 - e10 * e22;
+    const double cz = e10 * e21 - e11 * e20;
+    return std::sqrt(cx * cx + cy * cy + cz * cz) * 0.5;
+}
+
+// 使用 double 精度计算四个空间点构成的四面体有符号体积。
 double SignedTetraVolume(const Point& p0, const Point& p1,
                          const Point& p2, const Point& p3) {
-    return (p1 - p0).cross(p2 - p0).dot(p3 - p0) / 6.0;
+    const double ax = static_cast<double>(p1[0]) - p0[0];
+    const double ay = static_cast<double>(p1[1]) - p0[1];
+    const double az = static_cast<double>(p1[2]) - p0[2];
+    const double bx = static_cast<double>(p2[0]) - p0[0];
+    const double by = static_cast<double>(p2[1]) - p0[1];
+    const double bz = static_cast<double>(p2[2]) - p0[2];
+    const double cx = static_cast<double>(p3[0]) - p0[0];
+    const double cy = static_cast<double>(p3[1]) - p0[1];
+    const double cz = static_cast<double>(p3[2]) - p0[2];
+    return (cx * (ay * bz - az * by) +
+            cy * (az * bx - ax * bz) +
+            cz * (ax * by - ay * bx)) / 6.0;
 }
 
 // 累加折线各线段的长度，并将每段长度的一半分配给两个端点作为积分权重。
 double AddLineWeights(const std::vector<Point>& points, std::vector<double>& weights) {
     double measure = 0.0;
     for (size_t i = 0; i + 1 < points.size(); ++i) {
-        const double length = (points[i + 1] - points[i]).norm();
+        const double length = std::sqrt(SquaredDistance(points[i], points[i + 1]));
         weights[i] += length * 0.5;
         weights[i + 1] += length * 0.5;
         measure += length;
@@ -99,8 +127,8 @@ bool ComputeIntegrationWeights(int dimension, const std::vector<Point>& points,
                 addTetra(0, 1, 2, 3);
                 break;
             case 5: { // 金字塔：ParaView 沿底面较短的对角线进行拆分
-                const double diagonal02 = points[0].distance2(points[2]);
-                const double diagonal13 = points[1].distance2(points[3]);
+                const double diagonal02 = SquaredDistance(points[0], points[2]);
+                const double diagonal13 = SquaredDistance(points[1], points[3]);
                 if (diagonal02 < diagonal13) {
                     addTetra(0, 1, 2, 4);
                     addTetra(0, 2, 3, 4);

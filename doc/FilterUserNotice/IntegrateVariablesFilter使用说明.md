@@ -60,6 +60,8 @@ Filter 不修改输入模型，而是生成一个新的 `UnstructuredMesh`：
 - 额外生成一个 `Length`、`Area` 或 `Volume` Cell Data 数组；
 - 输出属性统一使用双精度数组保存。
 
+长度、面积和体积的中间计算使用 `double` 精度，避免在几何向量运算阶段提前丢失精度。
+
 ---
 
 ## 二、调用方式
@@ -130,10 +132,10 @@ Examples/Filter/FeatureExtraction/IntegrateVariables.cpp
 编译与运行：
 
 ```powershell
-cd D:\igame\igamevis-dev
+# 在 iGameVis 仓库根目录中执行
 cmake --build build --config Release --target testIntegrateVariables -- /m
 
-cd D:\igame\igamevis-dev\build\Examples
+Set-Location .\build\Examples
 .\Release\testIntegrateVariables.exe
 ```
 
@@ -155,16 +157,16 @@ cd D:\igame\igamevis-dev\build\Examples
 
 ```text
 Divide Cell Data By Volume: Off
-Center: 0.618550956249 0 1.96484804153
-Point Data: height = 16.9246727876
-Cell Data:  segment_id = 38.7800007901
-Cell Data:  Length = 10.1386895703
+Center: 0.618550956249 0 1.96484792233
+Point Data: height = 16.9246727451
+Cell Data:  segment_id = 38.7800007126
+Cell Data:  Length = 10.1386895554
 
 Divide Cell Data By Volume: On
-Center: 0.618550956249 0 1.96484804153
-Point Data: height = 16.9246727876
-Cell Data:  segment_id = 3.82495198429
-Cell Data:  Length = 10.1386895703
+Center: 0.618550956249 0 1.96484792233
+Point Data: height = 16.9246727451
+Cell Data:  segment_id = 3.82495198227
+Cell Data:  Length = 10.1386895554
 ```
 
 ### 2. 面积分示例
@@ -196,24 +198,24 @@ Cell Data:  Area = 6.41421356237
 
 ```text
 Divide Cell Data By Volume: Off
-Center: -0.135519579053 -0.418100446463 2.99306607246
-Point Data: Temperature = 54.5537109394
-Point Data: Pressure = 68.2730147515
-Cell Data:  MaterialID = 2.00847412025
-Cell Data:  CellEnergy = 3.15911466213
-Cell Data:  Volume = 0.741240893801
+Center: -0.135519579053 -0.418100506067 2.99306607246
+Point Data: Temperature = 54.5537092266
+Point Data: Pressure = 68.2730114901
+Cell Data:  MaterialID = 2.00847404893
+Cell Data:  CellEnergy = 3.15911429152
+Cell Data:  Volume = 0.741240861809
 ```
 
 开启该选项后：
 
 ```text
 Divide Cell Data By Volume: On
-Center: -0.135519579053 -0.418100446463 2.99306607246
-Point Data: Temperature = 54.5537109394
-Point Data: Pressure = 68.2730147515
-Cell Data:  MaterialID = 2.70961051535
-Cell Data:  CellEnergy = 4.26192711243
-Cell Data:  Volume = 0.741240893801
+Center: -0.135519579053 -0.418100506067 2.99306607246
+Point Data: Temperature = 54.5537092266
+Point Data: Pressure = 68.2730114901
+Cell Data:  MaterialID = 2.70961053607
+Cell Data:  CellEnergy = 4.26192679639
+Cell Data:  Volume = 0.741240861809
 ```
 
 可以看到：
