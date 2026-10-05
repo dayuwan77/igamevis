@@ -262,6 +262,8 @@ igame_add_example(testExtractCellsByRegion Filter/Selection/TestExtractCellsByRe
 igame_add_example(testExtractLocation Filter/DataProcessing/ExtractLocation/TestExtractLocation.cpp)
 igame_add_example(testOverlappingCellsDetector
     Filter/DataProcessing/OverlappingCellsDetector/TestOverlappingCellsDetector.cpp)
+igame_add_example(testConnectedSurfaceProperties
+    Filter/DataProcessing/ConnectedSurfaceProperties/TestConnectedSurfaceProperties.cpp)
 igame_add_example(testRandomAttributes Filter/TestRandomAttributes.cpp)
 igame_add_example(testDeflectNormals Filter/TestDeflectNormals.cpp)
 
