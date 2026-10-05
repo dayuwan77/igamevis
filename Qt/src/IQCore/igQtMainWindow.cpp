@@ -89,6 +89,7 @@
 #include <IQWidgets/igQtPointAndCellIdsWidget.h>
 #include <IQWidgets/igQtProbeWidget.h>
 #include <IQWidgets/igQtTensorWidget.h>
+#include <IQWidgets/igQtTextureMapToPlaneWidget.h>
 #include <IQWidgets/igQtTriangleStripWidget.h>
 #include <IQWidgets/igQtVariableCorrelationWidget.h>
 #include <IQWidgets/igQtVolumeInterpolatorWidget.h>
@@ -2352,6 +2353,26 @@ void igQtMainWindow::initAllFilters() {
         if (!panel->isReady()) {
             showDarkFramelessMessage(QStringLiteral("提取指定位置数据"),
                                      QStringLiteral("当前仅支持非结构网格（UnstructuredMesh）；操作已取消。"));
+            panel->deleteLater();
+            return;
+        }
+        panel->show();
+        panel->raise();
+        panel->activateWindow();
+    });
+    QAction* textureMapToPlaneAction =
+            ui->menu_filters->addAction(QStringLiteral("生成平面纹理坐标 (Texture Map to Plane)"));
+    connect(textureMapToPlaneAction, &QAction::triggered, this, [this]() {
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        if (!model) {
+            showDarkFramelessMessage(QStringLiteral("生成平面纹理坐标"),
+                                     QStringLiteral("请先在模型树中选择一个包含点数据的网格模型。"));
+            return;
+        }
+        auto* panel = new igQtTextureMapToPlaneWidget(rendererWidget, modelTreeWidget, model, this);
+        if (!panel->isReady()) {
+            showDarkFramelessMessage(QStringLiteral("生成平面纹理坐标"),
+                                     QStringLiteral("当前模型不属于 PointSet 网格体系，或模型中没有点；操作已取消。"));
             panel->deleteLater();
             return;
         }
