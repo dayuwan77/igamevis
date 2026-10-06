@@ -1457,6 +1457,82 @@ void igQtMainWindow::initAllFilters() {
         });
     });
 
+    // 向量形变 (WarpByVector):对应 ParaView 的 WarpByVector,参数为 Vectors + Scale Factor
+    connect(ui->menu_filters->addAction(QStringLiteral("向量形变 (WarpByVector)")), &QAction::triggered, this, [this](bool) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+        if (!obj) return;
+
+        // 收集可作为形变向量的数组:优先点关联的三维向量
+        std::vector<QString> vectorItems;
+        std::vector<std::string> vectorNames;
+        if (auto attrs = obj->GetAttributeSet()) {
+            for (IGsize i = 0; i < static_cast<IGsize>(attrs->GetNumberOfAttributes()); ++i) {
+                auto& attr = attrs->GetAttribute(i);
+                if (attr.isDeleted || !attr.pointer) continue;
+                if (attr.attachmentType != IG_POINT) continue;
+                if (attr.type != IG_VECTOR && attr.pointer->GetDimension() < 3) continue;
+                const std::string name = attr.pointer->GetName();
+                vectorNames.push_back(name);
+                vectorItems.push_back(QStringLiteral("%1 (dim=%2)")
+                                              .arg(QString::fromStdString(name))
+                                              .arg(attr.pointer->GetDimension()));
+            }
+        }
+        if (vectorItems.empty()) {
+            showDarkFramelessMessage(QStringLiteral("Warning"),
+                                     QStringLiteral("当前模型没有点关联的三维向量数组，无法进行向量形变。"));
+            return;
+        }
+
+        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("向量形变"));
+        int vectorId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                            QStringLiteral("向量 (Vectors)"), vectorItems);
+        int scaleId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                           QStringLiteral("缩放系数 (Scale Factor)"), "1");
+        int autoScaleId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                               QStringLiteral("自动缩放(按模型尺度)"), "false");
+        int limitId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                           QStringLiteral("最大位移比例 (0 = 不限)"), "0");
+        dialog->show();
+        dialog->setApplyFunctor([=, this]() {
+            bool ok = false;
+            const int choice = dialog->getComboIndex(vectorId, ok);
+            if (!ok || choice < 0 || choice >= static_cast<int>(vectorNames.size())) {
+                showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("请选择有效的向量数组。"));
+                return;
+            }
+            const double scale = dialog->getDouble(scaleId, ok);
+            const bool autoScale = dialog->getChecked(autoScaleId, ok);
+            const double limit = dialog->getDouble(limitId, ok);
+
+            auto filter = WarpByVectorFilter::New();
+            filter->SetInput(obj);
+            filter->SetVectorArrayName(vectorNames[static_cast<size_t>(choice)]);
+            filter->SetScaleFactor(scale);
+            filter->SetAutoScale(autoScale);
+            filter->SetMaxDisplacementRatio(limit > 0.0 ? limit : 0.0);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("向量形变失败，请检查向量数组与缩放系数。"));
+                return;
+            }
+
+            // 输出为独立的新数据对象,原模型保持不变
+            auto warpOutput = filter->GetOutput();
+            if (!warpOutput) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("向量形变未产生有效结果。"));
+                return;
+            }
+            warpOutput->SetName(obj->GetName() + "_warp");
+            modelTreeWidget->addDataObjectToModelTree(warpOutput, Algorithm);
+            rendererWidget->update();
+            dialog->close();
+        });
+    });
+
     QMenu* mesh_processing = ui->menu_filters->addMenu(QStringLiteral("数据处理 (Data Processing)"));
     connect(mesh_processing->addAction(QStringLiteral("表面网格简化 (Surface Simplification)")), &QAction::triggered, this, [&](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
