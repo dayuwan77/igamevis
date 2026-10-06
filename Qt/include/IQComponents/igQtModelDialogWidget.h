@@ -16,6 +16,7 @@
 #include <QString>
 #include <QTreeWidget>
 #include <iostream>
+#include <vector>
 
 class QDockWidget;
 class QSizeGrip;
@@ -49,6 +50,33 @@ public slots:
         if (modelTreeWidget) modelTreeWidget->setCurrentItem(item);
     }
     void positionTreeDockToRendererCorner(QWidget* rendererWidget);
+
+    /**
+     * 【单输入 filter 用】当前选中的单个数据对象。
+     *
+     * - 选中顶层模型  -> 该模型的 DataObject
+     * - 选中多块子块  -> 该子块的 DataObject（不是父模型）
+     * - 无任何选中    -> 回退为当前模型的 DataObject（保持既有行为）
+     */
+    iGame::DataObject::Pointer GetCurrentDataObject();
+
+    /**
+     * 【多输入 filter 用】当前选中的一组数据对象（如多选合组）。
+     *
+     * - 顶层模型行与多块子块行都会被映射为各自的 DataObject
+     * - 属性行会被忽略
+     * - 未多选时最多返回 1 个；需 Ctrl / Shift 配合多选
+     */
+    std::vector<iGame::DataObject::Pointer> GetSelectedDataObjects();
+
+    /**
+     * 刷新模型树所有节点的眼睛图标，使其与各自数据的【真实可见性】一致。
+     *
+     * 适用场景：同一个 DataObject 可能同时挂在「顶层模型节点」和
+     * 「某个组合模型的子块节点」下（如 GroupDatasets 的输出），
+     * 两处共享同一份可见性 —— 任一处变化后调用本方法即可消除图标不一致。
+     */
+    void RefreshModelTreeVisibilityIcons();
 
 protected:
     /** 悬浮无边框窗口：让右下角尺寸手柄跟随窗口大小（可自由缩放） */

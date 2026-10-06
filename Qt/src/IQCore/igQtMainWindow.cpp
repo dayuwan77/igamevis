@@ -179,6 +179,45 @@
 
 #include "IQWidgets/igQtResampleToLineWidget.h"
 
+#include "GroupDatasets/iGameGroupDatasetsFilter.h"
+
+#include <set>
+
+// GroupDatasets 结果节点的唯一命名：
+// 扫描场景中形如 "GroupDatasets_<数字>" 的模型名，取【最小空缺序号】（删除后可复用）。
+// 两处判定要点：
+//   1) 必须以 "GroupDatasets_" 【开头】—— 用 rfind(prefix, 0) == 0 表达，
+//      避免把 "X_GroupDatasets_1" 这类名字误算进来；
+//   2) 后缀必须【全是数字】—— 用 find_first_not_of("0123456789") == npos 表达，
+//      避免把用户自定义的 "GroupDatasets_test" 拿去 std::stoi 抛异常。
+static std::string UniqueGroupDatasetsName() {
+    const std::string prefix = "GroupDatasets_";
+    std::set<int> used;
+
+    auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+    if (scene != nullptr) {
+        auto modelList = scene->GetModelList();
+        if (modelList != nullptr) {
+            for (auto it = modelList->Begin(); it != modelList->End(); ++it) {
+                if (it->second == nullptr || it->second->GetDataObject() == nullptr) { continue; }
+                const std::string& name = it->second->GetDataObject()->GetName();
+
+                if (name.rfind(prefix, 0) != 0) { continue; } // 必须以 prefix 开头
+                const std::string suffix = name.substr(prefix.size());
+                if (suffix.empty() ||
+                    suffix.find_first_not_of("0123456789") != std::string::npos) {
+                    continue; // 后缀必须全是数字
+                }
+                used.insert(std::stoi(suffix));
+            }
+        }
+    }
+
+    int n = 1;
+    while (used.count(n) != 0) { ++n; }
+    return prefix + std::to_string(n);
+}
+
 namespace {
 struct ToolbarSpacingMetrics {
     int btnGap;
@@ -5644,6 +5683,77 @@ void igQtMainWindow::initAllFilters() {
             }
         });
     });
+
+    // ===== GroupDatasets: 合并数据集（多选合组，对齐 ParaView Group Datasets）=====
+    connect(ui->menu_filters->addAction(QStringLiteral("合并数据集 (Group Datasets)")), &QAction::triggered, this,
+            [this](bool) {
+                // 1) 读取模型树中当前选中的数据对象（支持多选，也支持多块装配体的子块）
+                auto inputs = modelTreeWidget->GetSelectedDataObjects();
+                if (inputs.empty()) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("合并数据集"),
+                            QStringLiteral("请先在左侧模型树中选中对象。\n\n"
+                                           "• 多选：按住 Ctrl 或 Shift 点击\n"
+                                           "• 支持选中多块装配体的子块"));
+                    return;
+                }
+
+                // 2) 唯一命名。必须在注册进场景【之前】算，因为它扫描的是场景的模型列表。
+                const std::string groupName = UniqueGroupDatasetsName();
+
+                // 3) 执行组合（只做容器组合，不合并几何）
+                auto filter = iGame::GroupDatasetsFilter::New();
+                filter->SetInputs(inputs);
+                filter->SetOutputName(groupName);
+                if (!filter->Execute()) {
+                    showDarkFramelessMessage(QStringLiteral("合并数据集失败"),
+                                             QString::fromStdString(filter->GetMessage()));
+                    return;
+                }
+
+                auto group = filter->GetOutput(0);
+                if (!group) {
+                    showDarkFramelessMessage(QStringLiteral("合并数据集失败"),
+                                             QStringLiteral("未生成结果节点。"));
+                    return;
+                }
+
+                // 4) 挂到场景 + 模型树。
+                //    注意：addDataObjectToModelTree 内部已经调用 scene->AddModel()，
+                //    这里不要再单独 AddModel，否则会重复注册出冗余节点。
+                modelTreeWidget->addDataObjectToModelTree(group, ItemSource::Algorithm);
+
+                // 5) 【不隐藏原始输入】。
+                //
+                //    组的子块就是原模型对象本身（共享指针），而可见性存在 DataObject 上 ——
+                //    "隐藏原模型"会连带把组的内容一起隐藏，导致场景空白。
+                //    按「共享指针 = 共享显隐」的默认逻辑：原模型保持原状，
+                //    组只是多一层组织节点；在任意一处切换显隐，另一处的眼睛图标
+                //    由 syncVisibilityIcons() 保持一致。
+                modelTreeWidget->RefreshModelTreeVisibilityIcons();
+
+                rendererWidget->update();
+
+                // 6) 汇报结果（子块按序号列出，重名也能区分）
+                QString blockList;
+                const auto& blockNames = filter->GetBlockNames();
+                for (size_t i = 0; i < blockNames.size(); ++i) {
+                    blockList += QStringLiteral("\n    [%1] %2")
+                                         .arg(static_cast<int>(i) + 1)
+                                         .arg(QString::fromStdString(blockNames[i]));
+                }
+                const QString report =
+                        QStringLiteral("合并完成。\n\n"
+                                       "• 已合并对象数：%1 个\n"
+                                       "• 输出节点：%2\n"
+                                       "• 子块清单：%3\n\n"
+                                       "组的子块与原模型是同一份数据，显隐天然联动：\n"
+                                       "在任意一处切换，另一处的眼睛图标会同步更新。")
+                                .arg(filter->GetGroupedCount())
+                                .arg(QString::fromStdString(groupName))
+                                .arg(blockList);
+                showDarkFramelessMessage(QStringLiteral("合并数据集"), report, true);
+            });
 
     connect(ui->menu_filters->addAction(QStringLiteral("点体积插值 (Point Volume Interpolator)")), &QAction::triggered, this,
             [this](bool) {
