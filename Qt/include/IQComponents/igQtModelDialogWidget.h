@@ -69,6 +69,15 @@ public slots:
      */
     std::vector<iGame::DataObject::Pointer> GetSelectedDataObjects();
 
+    /**
+     * 刷新模型树所有节点的眼睛图标，使其与各自数据的【真实可见性】一致。
+     *
+     * 适用场景：同一个 DataObject 可能同时挂在「顶层模型节点」和
+     * 「某个组合模型的子块节点」下（如 GroupDatasets 的输出），
+     * 两处共享同一份可见性 —— 任一处变化后调用本方法即可消除图标不一致。
+     */
+    void RefreshModelTreeVisibilityIcons();
+
 protected:
     /** 悬浮无边框窗口：让右下角尺寸手柄跟随窗口大小（可自由缩放） */
     bool eventFilter(QObject* watched, QEvent* event) override;

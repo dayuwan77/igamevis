@@ -627,6 +627,11 @@ std::vector<iGame::DataObject::Pointer> igQtModelDialogWidget::GetSelectedDataOb
     return modelTreeWidget->getSelectedDataObjects();
 }
 
+void igQtModelDialogWidget::RefreshModelTreeVisibilityIcons() {
+    if (!modelTreeWidget) { return; }
+    modelTreeWidget->syncVisibilityIcons();
+}
+
 
 // 悬浮无边框窗口没有系统边框：让右下角的尺寸手柄跟随窗口大小，用户可自由缩放
 bool igQtModelDialogWidget::eventFilter(QObject* watched, QEvent* event) {

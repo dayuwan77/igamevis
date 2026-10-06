@@ -91,7 +91,53 @@ void ModelTreeWidgetItem::viewAttribute(int index, int dim) {
 void ModelTreeWidgetItem::setCurrentChild(QTreeWidgetItem* child) { current_child = child; }
 QTreeWidgetItem* ModelTreeWidgetItem::getCurrentChild() { return current_child; }
 
-bool ModelTreeWidgetItem::getVisibility() const { return visibility; }
+namespace {
+/**
+ * 子树中是否存在【可见】的绘制对象。
+ *
+ * 用于容器模型（多块）的眼睛图标判定：Model::Draw() 对容器【只绘制子块、不绘制自身】
+ * （见 iGameModel.cpp 的 `if (!HasSubDataObject()) draw(自己) else for(子块) draw(子块)`），
+ * 所以容器"在画面上有没有东西"完全取决于它的子树，而不是它自己的可见性标志。
+ */
+bool AnySubDataObjectVisible(const iGame::DataObject::Pointer& obj) {
+    if (!obj) { return false; }
+    for (auto it = obj->SubDataObjectIteratorBegin(); it != obj->SubDataObjectIteratorEnd(); ++it) {
+        auto sub = it->second;
+        if (!sub) { continue; }
+        auto draw = DynamicCast<iGame::DrawObject>(sub);
+        if (draw && draw->GetVisibility()) { return true; }
+        // 嵌套多块：继续向下找
+        if (sub->HasSubDataObject() && AnySubDataObjectVisible(sub)) { return true; }
+    }
+    return false;
+}
+} // namespace
+
+bool ModelTreeWidgetItem::getVisibility() const {
+    // 以「模型在画面上是否真的可见」为准，而不是本节点自己的 visibility 成员。
+    //
+    // 两层原因：
+    //  1) 同一个 DataObject 可能同时挂在顶层模型节点和某个容器模型的子块节点下，
+    //     两处共享同一份可见性。若这里读各自的成员变量就会状态漂移 ——
+    //     在子块节点处隐藏后，顶层节点仍以为自己是"亮"的，用户点它的眼睛得点两次才生效。
+    //  2) 容器模型（多块）不绘制自身，只绘制子块。因此它的图标必须看【子树】：
+    //     隐藏任一个子块后，容器的图标要跟着变，否则就会出现
+    //     "子块眼睛灭了、外层图标还亮着"的不一致。
+    if (model) {
+        if (auto root = DynamicCast<iGame::DrawObject>(model->GetDataObject())) {
+            if (root->HasSubDataObject()) {
+                // 容器：自身可见 且 子树中存在可见节点
+                return root->GetVisibility() && AnySubDataObjectVisible(model->GetDataObject());
+            }
+            return root->GetVisibility();
+        }
+    }
+    return visibility;
+}
+
+void ModelTreeWidgetItem::refreshVisibilityIcon() {
+    this->setIcon(0, getVisibility() ? igQtModelTreeIcons::EyeOpen() : igQtModelTreeIcons::EyeClose());
+}
 
 void ModelTreeWidgetItem::show() {
     visibility = true;
@@ -241,6 +287,22 @@ iGame::DataObject::Pointer igQtModelTreeWidget::getSingleSelectedDataObject() co
     return objs.empty() ? nullptr : objs.front();
 }
 
+void igQtModelTreeWidget::syncVisibilityIcons() {
+    // 顶层模型节点：每个都按自己 DataObject 的真实可见性刷新
+    for (int i = 0; i < topLevelItemCount(); ++i) {
+        auto* item = dynamic_cast<ModelTreeWidgetItem*>(topLevelItem(i));
+        if (!item) { continue; }
+        item->refreshVisibilityIcon();
+
+        // 该模型下的多块子块节点（SyncIconWithVisibility 会递归到更深层）
+        for (int j = 0; j < item->childCount(); ++j) {
+            if (auto* sub = dynamic_cast<SubObjectTreeWidgetItem*>(item->child(j))) {
+                sub->SyncIconWithVisibility(true);
+            }
+        }
+    }
+}
+
 //void igQtModelTreeWidget::setCurrentModelItem(ModelTreeWidgetItem* item) {
 //    currentModelItem = item;
 //    //std::cout << "change\n";
@@ -341,12 +403,9 @@ void igQtModelTreeWidget::mousePressEvent(QMouseEvent* event) {
         // Determine if the icon area has been clicked
         if (iconRect.contains(event->pos())) {
             item->changeVisibility();
-            // sync all sub-block icons under this model to reflect current visibility
-            for (int i = 0; i < item->childCount(); ++i) {
-                if (auto* sub = dynamic_cast<SubObjectTreeWidgetItem*>(item->child(i))) {
-                    sub->SyncIconWithVisibility(true);
-                }
-            }
+            // 同一个 DataObject 可能同时挂在【顶层模型节点】和【组合模型的子块节点】下，
+            // 两者共享同一份可见性 —— 因此每次切换后同步【全树】图标，避免两处自相矛盾。
+            syncVisibilityIcons();
             call = false;
         } else if (clickedOnIndicator) {
             // Clicked on expand/collapse indicator, only handle expand/collapse, don't change attribute display
@@ -395,6 +454,9 @@ void igQtModelTreeWidget::mousePressEvent(QMouseEvent* event) {
                                iconSize.width(), iconSize.height());
                 if (iconRect.contains(event->pos())) {
                     sub->changeVisibility();
+                    // 子块与顶层原模型往往指向同一个 DataObject（共享指针）——
+                    // 这里必须同步【全树】图标，否则会出现"子块眼睛灭了、原模型眼睛还亮着"。
+                    syncVisibilityIcons();
                     call = false;
                 } else {
                     if (auto* parent = dynamic_cast<ModelTreeWidgetItem*>(sub->parent())) {
