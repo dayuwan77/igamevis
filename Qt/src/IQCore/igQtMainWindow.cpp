@@ -60,6 +60,7 @@
 #include "Elevation/iGameElevationFilter.h"
 #include "GhostCell/iGameGhostCellFilter.h"
 #include "Shrink/iGameShrinkFilter.h"
+#include "GenerateSurfaceTangents/iGameGenerateSurfaceTangentsFilter.h"
 #include "iGameFileIO.h"
 #include "iGameFilterIncludes.h"
 #include <AttributeManipulation/iGameRandomVectorsFilter.h>
@@ -2664,7 +2665,7 @@ void igQtMainWindow::initAllFilters() {
     connect(shrinkAction, &QAction::triggered, this, [this](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
         auto model = rendererWidget->GetScene()->GetCurrentModel();
-        auto data = model->GetDataObject(); // 当前模型的数据对象（可能是别的 filter 的输出）
+        auto data = model->GetDataObject(); // 当前模型的数据对象
 
         igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
         dialog->setFilterTitle(QStringLiteral("单元收缩 (Shrink)"));
@@ -2697,6 +2698,107 @@ void igQtMainWindow::initAllFilters() {
         });
         dialog->show();
     });
+
+        QAction* generateSurfaceTangentsAction =
+            ui->menu_filters->addAction(QStringLiteral("表面切向量 (Generate Surface Tangents)"));
+    connect(generateSurfaceTangentsAction, &QAction::triggered, this, [this](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        auto data = model->GetDataObject();
+        if (data == nullptr || data->GetPoints() == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("Warning"),
+                                     QStringLiteral("当前模型没有点数据，无法计算表面切向量。"));
+            return;
+        }
+
+        // 先把模型里的纹理坐标点属性（IG_TCOORD，至少 2 个分量）列出来给用户选
+        auto attrs = data->GetAttributeSet();
+        std::vector<QString> texLabels;
+        std::vector<std::string> texNames;
+        if (attrs) {
+            for (IGsize i = 0; i < static_cast<IGsize>(attrs->GetNumberOfAttributes()); ++i) {
+                auto& attr = attrs->GetAttribute(i);
+                if (attr.isDeleted || !attr.pointer) continue;
+                if (attr.attachmentType != IG_POINT || attr.type != IG_TCOORD) continue;
+                if (attr.pointer->GetDimension() < 2) continue;
+                texNames.push_back(attr.pointer->GetName());
+                texLabels.push_back(QStringLiteral("%1（%2 个分量）")
+                                            .arg(QString::fromStdString(attr.pointer->GetName()))
+                                            .arg(attr.pointer->GetDimension()));
+            }
+        }
+        if (texLabels.empty()) {
+            showDarkFramelessMessage(
+                    QStringLiteral("Warning"),
+                    QStringLiteral("当前模型没有纹理坐标（IG_TCOORD 点属性），<br>"
+                                   "切向量必须由纹理坐标算出来。<br>"
+                                   "请先做一次「球面纹理坐标 (Texture Map To Sphere)」之类的 filter。"));
+            return;
+        }
+
+        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("表面切向量 (Generate Surface Tangents)"));
+        int texId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                         QStringLiteral("纹理坐标"), texLabels);
+        int pointId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                           QStringLiteral("输出点切向量 Tangents"), "true");
+        int cellId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                          QStringLiteral("输出单元切向量（不归一化）"), "false");
+        int bitangentId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                               QStringLiteral("输出副切向量 Bitangents"), "false");
+        dialog->setApplyFunctor([=, this]() {
+            bool okTex = false, okPoint = false, okCell = false, okBitangent = false;
+            const int texIndex = dialog->getComboIndex(texId, okTex);
+            const bool computePoint = dialog->getChecked(pointId, okPoint);
+            const bool computeCell = dialog->getChecked(cellId, okCell);
+            const bool computeBitangent = dialog->getChecked(bitangentId, okBitangent);
+            if (!okPoint || !okCell || !okBitangent) {
+                showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("参数读取失败"));
+                return;
+            }
+            if (!computePoint && !computeCell && !computeBitangent) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("至少勾选一种切向量输出"));
+                return;
+            }
+
+            auto filter = iGame::GenerateSurfaceTangentsFilter::New();
+            if (okTex && texIndex >= 0 && texIndex < static_cast<int>(texNames.size())) {
+                filter->SetTextureCoordinatesArrayName(texNames[texIndex]);
+            }
+            filter->SetComputePointTangents(computePoint);
+            filter->SetComputeCellTangents(computeCell);
+            filter->SetComputeBitangents(computeBitangent);
+            filter->SetInput(0, data);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(
+                        QStringLiteral("Warning"),
+                        QStringLiteral("表面切向量执行失败：<br>"
+                                       "模型需要有纹理坐标，以及三角形 / 四边形 / 多边形单元"
+                                       "（体网格请先「转换为表面网格」）。<br>"
+                                       "细节见日志。"));
+                return;
+            }
+            auto outObj = filter->GetOutput(); // 独立输出，原模型不变
+            if (auto drawObject = iGame::DynamicCast<iGame::DrawObject>(outObj)) {
+                drawObject->ForceReConvertToDrawableData();
+            }
+            modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
+            // 把新节点选成当前模型
+            if (auto item = modelTreeWidget->getItemFromObject(outObj)) {
+                modelTreeWidget->setCurrentItem(item);
+            }
+            rendererWidget->update();
+            showDarkFramelessMessage(
+                    QStringLiteral("表面切向量"),
+                    QStringLiteral("已生成点属性 Tangents（单位向量，方向沿纹理坐标 u 增大的方向）。<br>"),
+                    true);
+            dialog->close();
+        });
+        dialog->show();
+    });
+
+
 
     QAction* overlappingCellsDetectorAction =
             ui->menu_filters->addAction(QStringLiteral("检测重叠单元 (Overlapping Cells Detector)"));
