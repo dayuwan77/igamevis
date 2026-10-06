@@ -1262,6 +1262,11 @@ std::vector<iGame::DataObject::Pointer> igQtModelDialogWidget::GetSelectedDataOb
     return modelTreeWidget->getSelectedDataObjects();
 }
 
+void igQtModelDialogWidget::RefreshModelTreeVisibilityIcons() {
+    if (!modelTreeWidget) { return; }
+    modelTreeWidget->syncVisibilityIcons();
+}
+
 
 void igQtModelDialogWidget::positionTreeDockToRendererCorner(QWidget* rendererWidget) {
     if (!rendererWidget || !m_treeDock) return;

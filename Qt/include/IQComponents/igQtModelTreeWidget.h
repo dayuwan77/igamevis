@@ -62,6 +62,15 @@ public:
     void setCurrentChild(QTreeWidgetItem* child);
     QTreeWidgetItem* getCurrentChild();
 
+    /**
+     * 按模型的【实际可见性】刷新眼睛图标；只改图标，不改变任何状态。
+     *
+     * 存在的意义：同一个 DataObject 可能同时挂在「顶层模型节点」和
+     * 「某个组合模型的子块节点」下，两处共享同一份可见性 ——
+     * 在任一处切换后，另一处的图标必须跟着刷新才不会自相矛盾。
+     */
+    void refreshVisibilityIcon();
+
     int getModelId() const { return modelId; }
     void setModelId(int id) { modelId = id; }
 
@@ -300,6 +309,19 @@ public:
      * 供【单输入 filter】使用：选中多块子块时会返回该子块本身。
      */
     iGame::DataObject::Pointer getSingleSelectedDataObject() const;
+
+    /**
+     * 按【每个节点的真实可见性】刷新整棵树的眼睛图标。
+     *
+     * 为什么需要全树刷新：同一个 DataObject 可能同时出现在
+     *   · 顶层模型节点            ModelTreeWidgetItem
+     *   · 某个组合模型的子块节点   SubObjectTreeWidgetItem
+     * 两处指向同一个对象、共享同一份可见性。在任意一处切换显隐后，
+     * 另一处的图标如果不刷新，就会出现「这里隐藏了，那边眼睛还亮着」。
+     *
+     * 这是通用规则，不涉及任何「组合模型」的特殊语义。
+     */
+    void syncVisibilityIcons();
 
     //void setCurrentModelItem(ModelTreeWidgetItem* item);
     //ModelTreeWidgetItem* getCurrentModelItem();
