@@ -42,6 +42,7 @@
 
 #include "FeatureExtraction/iGameFeatureEdgesFilter.h"
 #include "Selection/iGameExtractCellsByRegionFilter.h"
+#include "TimeSeries/iGameExtractTimeStepsFilter.h"
 #include "MyFilter/iGameExtractCellsByTypeFilter.h"
 
 #include "Convert/iGameConvertToPointCloudFilter.h"
@@ -78,6 +79,7 @@
 #include <IQWidgets/igQtCharts.h>
 #include <IQWidgets/igQtDeformationWidget.h>
 #include <IQWidgets/igQtExtractCellsByTypeWidget.h>
+#include <IQWidgets/igQtExtractTimeStepsWidget.h>
 #include <IQWidgets/igQtExtractComponentWidget.h>
 #include <IQWidgets/igQtExtractLocationWidget.h>
 #include <IQWidgets/igQtGlobalIdWidget.h>
@@ -1109,6 +1111,20 @@ void igQtMainWindow::initAllUnDefinedComponents() {
     this->addDockWidget(Qt::LeftDockWidgetArea, m_extractCellsByTypeShell);
     makeDockWidgetScrollable(m_extractCellsByTypeShell);
     m_extractCellsByTypeShell->hide();
+
+    // 保留指定时间步：左侧工具面板
+    m_extractTimeStepsShell = new QDockWidget(this);
+    m_extractTimeStepsShell->setObjectName("dockWidget_ExtractTimeSteps");
+    m_extractTimeStepsShell->setWindowTitle(QStringLiteral("保留指定时间步"));
+    m_extractTimeStepsWidget = new igQtExtractTimeStepsWidget(nullptr);
+    m_extractTimeStepsWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_extractTimeStepsWidget->setMinimumWidth(280);
+    m_extractTimeStepsShell->setWidget(m_extractTimeStepsWidget);
+    m_extractTimeStepsShell->setAllowedAreas(Qt::LeftDockWidgetArea);
+    m_extractTimeStepsShell->setFeatures(QDockWidget::DockWidgetClosable);
+    this->addDockWidget(Qt::LeftDockWidgetArea, m_extractTimeStepsShell);
+    makeDockWidgetScrollable(m_extractTimeStepsShell);
+    m_extractTimeStepsShell->hide();
 }
 void igQtMainWindow::initToolbarComponent() {
     // 为每个工具栏在下方添加居中文字标题（顺序：文件与输出、操作、选择与编辑、视图设置）
@@ -1550,6 +1566,39 @@ void igQtMainWindow::initAllFilters() {
                     rendererWidget->update();
                     dialog->close();
                 });
+            });
+
+    // 保留指定时间步：打开左侧面板；结果由面板的信号回到这里加入模型树
+    connect(ui->menu_filters->addAction(QStringLiteral("保留指定时间步 (Extract Time Steps)")),
+            &QAction::triggered, this, [this](bool) {
+                if (m_extractTimeStepsWidget == nullptr) return;
+
+                auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+                auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+                if (!currentModel) {
+                    showDarkFramelessMessage(QStringLiteral("保留指定时间步"), QStringLiteral("当前没有模型"));
+                    return;
+                }
+
+                auto object = currentModel->GetDataObject();
+                auto frames = object ? object->PeekTimeFrames() : nullptr;
+                if (!frames || frames->GetTimeNum() == 0) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("保留指定时间步"),
+                            QStringLiteral("当前模型没有时间序列。请选择带时间序列的模型（例如打开的 .pvd 序列）。"));
+                    return;
+                }
+
+                openLeftToolPanel(LeftToolPanelId::ExtractTimeSteps);
+                m_extractTimeStepsWidget->SetOriginDataObject(object);
+            });
+
+    // 面板执行成功：把独立输出节点加入模型树
+    connect(m_extractTimeStepsWidget, &igQtExtractTimeStepsWidget::ExtractTimeStepsApplied, this,
+            [this](iGame::DataObject::Pointer output) {
+                if (!output) return;
+                modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+                rendererWidget->update();
             });
 
     /* DIME #19：高程标量场（任意方向投影） */
@@ -7162,6 +7211,8 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
             return ui->dockWidget_DataChangeField;
         case LeftToolPanelId::ExtractCellsByType:
             return m_extractCellsByTypeShell;
+        case LeftToolPanelId::ExtractTimeSteps:
+            return m_extractTimeStepsShell;
         case LeftToolPanelId::MergeVectorComponents:
             return ui->dockWidget_MergeVectorComponents;
         case LeftToolPanelId::Count:
@@ -7314,6 +7365,10 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
         case LeftToolPanelId::ExtractCellsByType:
             relocateContentToLeftTab(m_extractCellsByTypeShell, m_extractCellsByTypeWidget,
                                      QStringLiteral("按单元类型提取"), id, false);
+            break;
+        case LeftToolPanelId::ExtractTimeSteps:
+            relocateContentToLeftTab(m_extractTimeStepsShell, m_extractTimeStepsWidget,
+                                     QStringLiteral("保留指定时间步"), id, false);
             break;
         case LeftToolPanelId::MergeVectorComponents:
             relocateContentToLeftTab(ui->dockWidget_MergeVectorComponents, ui->widget_MergeVectorComponents,

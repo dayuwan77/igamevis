@@ -301,6 +301,8 @@ igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
 igame_add_example(testTransform Filter/TestTransform.cpp)
 # MeshQuality
 igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
+# Time Series
+igame_add_example(testExtractTimeSteps Filter/TimeSeries/TestExtractTimeSteps.cpp)
 #Data Processing
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
 igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
