@@ -1,4 +1,5 @@
 #include <IQComponents/igQtModelTreeWidget.h>
+#include <QAbstractItemView>
 #include <QAction>
 #include <QMenu>
 #include <QHeaderView>
@@ -201,6 +202,10 @@ igQtModelTreeWidget::igQtModelTreeWidget(QWidget* parent) : QTreeWidget(parent) 
     // Keep eliding ("xxxx...") but show full name via tooltip.
     setTextElideMode(Qt::ElideRight);
 
+    // 允许 Ctrl / Shift 多选：供「多输入 filter」（如多选合组）通过
+    // getSelectedDataObjects() 取用。单选语义不变（普通点击仍会清掉其他选中）。
+    setSelectionMode(QAbstractItemView::ExtendedSelection);
+
     if (header()) {
         header()->setStretchLastSection(false);
         header()->setSectionResizeMode(QHeaderView::Interactive);
@@ -212,6 +217,28 @@ ModelTreeWidgetItem* igQtModelTreeWidget::getItem(const QPoint& p) const {
 }
 QTreeWidgetItem* igQtModelTreeWidget::getChild(const QPoint& p) const {
     return dynamic_cast<QTreeWidgetItem*>(itemAt(p));
+}
+
+std::vector<iGame::DataObject::Pointer> igQtModelTreeWidget::getSelectedDataObjects() const {
+    std::vector<iGame::DataObject::Pointer> result;
+    for (QTreeWidgetItem* it: selectedItems()) {
+        if (auto* modelItem = dynamic_cast<ModelTreeWidgetItem*>(it)) {
+            // 顶层模型行
+            if (modelItem->getModel() && modelItem->getModel()->GetDataObject()) {
+                result.push_back(modelItem->getModel()->GetDataObject());
+            }
+        } else if (auto* subItem = dynamic_cast<SubObjectTreeWidgetItem*>(it)) {
+            // 多块装配体的子块行：返回【子块本身】，而不是父模型
+            if (subItem->getDataObject()) { result.push_back(subItem->getDataObject()); }
+        }
+        // AttribTreeWidgetItem / SubAttribTreeWidgetItem 是属性行，不是数据对象，忽略
+    }
+    return result;
+}
+
+iGame::DataObject::Pointer igQtModelTreeWidget::getSingleSelectedDataObject() const {
+    auto objs = getSelectedDataObjects();
+    return objs.empty() ? nullptr : objs.front();
 }
 
 //void igQtModelTreeWidget::setCurrentModelItem(ModelTreeWidgetItem* item) {

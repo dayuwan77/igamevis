@@ -16,6 +16,7 @@
 #include <qboxlayout.h>
 
 #include <iostream>
+#include <vector>
 
 class igQtModelTreeWidget; // forward declaration for dynamic_cast in SubAttribTreeWidgetItem
 
@@ -270,6 +271,25 @@ public:
 
     ModelTreeWidgetItem* getItem(const QPoint& p) const;
     QTreeWidgetItem* getChild(const QPoint& p) const;
+
+    /**
+     * 当前选中的【一组】数据对象。
+     *
+     * 映射规则：
+     *   - 顶层模型行        -> model->GetDataObject()
+     *   - 多块装配体的子块行 -> sub->getDataObject()   （子块本身，而不是它的父模型）
+     *   - 属性行（Point/Cell 属性）-> 忽略
+     *
+     * 供【多输入 filter】（如多选合组）使用。需要 Ctrl / Shift 配合多选。
+     */
+    std::vector<iGame::DataObject::Pointer> getSelectedDataObjects() const;
+
+    /**
+     * 当前选中的【单个】数据对象（取选中集合的第一个）；无选中时返回 nullptr。
+     *
+     * 供【单输入 filter】使用：选中多块子块时会返回该子块本身。
+     */
+    iGame::DataObject::Pointer getSingleSelectedDataObject() const;
 
     //void setCurrentModelItem(ModelTreeWidgetItem* item);
     //ModelTreeWidgetItem* getCurrentModelItem();

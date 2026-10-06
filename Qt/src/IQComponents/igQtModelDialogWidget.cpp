@@ -607,6 +607,26 @@ iGame::Model* igQtModelDialogWidget::GetCurrentModel() {
     return scene->GetCurrentModel();
 }
 
+iGame::DataObject::Pointer igQtModelDialogWidget::GetCurrentDataObject() {
+    // 1) 优先取模型树中【当前选中】的数据对象：
+    //    选中多块装配体的子块时，返回的是子块本身，而不是它的父模型。
+    if (modelTreeWidget) {
+        auto selected = modelTreeWidget->getSingleSelectedDataObject();
+        if (selected) { return selected; }
+    }
+
+    // 2) 没有任何选中时，回退为"当前模型的 DataObject"，保持既有行为不变。
+    auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+    if (!scene) { return nullptr; }
+    auto model = scene->GetCurrentModel();
+    return model ? model->GetDataObject() : nullptr;
+}
+
+std::vector<iGame::DataObject::Pointer> igQtModelDialogWidget::GetSelectedDataObjects() {
+    if (!modelTreeWidget) { return {}; }
+    return modelTreeWidget->getSelectedDataObjects();
+}
+
 
 // 悬浮无边框窗口没有系统边框：让右下角的尺寸手柄跟随窗口大小，用户可自由缩放
 bool igQtModelDialogWidget::eventFilter(QObject* watched, QEvent* event) {
