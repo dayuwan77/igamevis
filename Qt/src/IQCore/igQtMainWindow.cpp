@@ -1940,6 +1940,63 @@ void igQtMainWindow::initAllFilters() {
                 });
             });
 
+    // 时域统计 (TemporalStatistics)：对标 ParaView 的 Temporal Statistics ——
+    // 把当前时序模型的**全部数组**逐元素统计平均 / 最小值 / 最大值，结果作为新模型加入
+    // 模型树，输入模型保持只读（几何共享、属性集全新）。
+    connect(ui->menu_filters->addAction(QStringLiteral("时域统计 (TemporalStatistics)")), &QAction::triggered, this,
+            [this](bool) {
+                auto currentModel = rendererWidget->GetScene()->GetCurrentModel();
+                if (!currentModel) {
+                    showDarkFramelessMessage(QStringLiteral("提示"), QStringLiteral("请先加载一个模型"));
+                    return;
+                }
+                auto obj = currentModel->GetDataObject();
+                if (!obj) {
+                    showDarkFramelessMessage(QStringLiteral("提示"), QStringLiteral("当前模型没有可用数据"));
+                    return;
+                }
+                auto frames = obj->PeekTimeFrames();
+                if (frames.IsNull() || frames->GetTimeNum() < 2) {
+                    showDarkFramelessMessage(QStringLiteral("提示"),
+                                             QStringLiteral("当前模型没有多帧时间序列（至少需要 2 帧）"));
+                    return;
+                }
+
+                auto filter = iGameTemporalStatistics::New();
+                filter->SetInput(obj);
+                if (!filter->Execute()) {
+                    showDarkFramelessMessage(QStringLiteral("Warning"),
+                                             QString::fromStdString(filter->GetMessage()));
+                    return;
+                }
+                auto output = filter->GetOutput(0);
+                if (!output) {
+                    showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("时域统计未产生有效结果。"));
+                    return;
+                }
+
+                modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+
+                // 选中第一个统计数组，便于直接着色查看（多块结果挂在子块上，这里只在根上选）
+                if (auto attributeSet = output->GetAttributeSet()) {
+                    if (attributeSet->GetNumberOfAttributes() > 0) {
+                        if (auto item = modelTreeWidget->getItemFromObject(output)) {
+                            item->setExpanded(true);
+                            if (item->childCount() > 0) {
+                                if (auto child = item->child(0)) {
+                                    item->setCurrentChild(child);
+                                    item->setSelected(false);
+                                    item->viewAttribute(0, -1);
+                                    child->setSelected(true);
+                                    modelTreeWidget->setCurrentItem(child);
+                                }
+                            }
+                        }
+                    }
+                }
+                rendererWidget->update();
+            });
+
    // 网格清理 (Clean to Grid)
     connect(ui->menu_filters->addAction(QStringLiteral("网格清理 (Clean to Grid)")), &QAction::triggered, this,
             [this](bool) {
