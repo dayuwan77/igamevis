@@ -583,6 +583,7 @@ igame_add_example(testGhostDemo Filter/GhostCell/TestGhostDemo.cpp)
 igame_add_example(testGhostCellModel Filter/GhostCell/TestGhostCellModel.cpp)
 igame_add_example(testBoundaryMeshQuality Filter/TestBoundaryMeshQuality.cpp)
 igame_add_example(testPlaneSamplingFilter Filter/TestPlaneSampling.cpp)
+igame_add_example(testGroupDatasets Filter/TestGroupDatasets.cpp)
 
 #        #5 +  е      #28    ײ       
 igame_add_example(testContourExtraction Filter/TestContourExtraction.cpp)
