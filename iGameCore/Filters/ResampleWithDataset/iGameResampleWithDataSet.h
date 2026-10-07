@@ -95,7 +95,14 @@ public:
      * 吸附半径（相对被采样网格包围盒对角线长度）。r <= 0 表示关闭吸附（默认）。
      * 开启后，未被任何单元包含、但在半径内存在单元的采样点会吸附到最近单元边界最近点取值。
      */
-    void SetSnappingRadius(double r) { m_SnappingRadius = (r > 0.0) ? r : -1.0; }
+    /** 有效采样点 id 列表（等价 VTK vtkProbeFilter::GetValidPoints()） */
+    std::vector<igIndex> GetValidPoints() const;
+    /** validpointmask 数组名；传空串恢复默认 "validpointmask" */
+    void SetValidPointMaskArrayName(const std::string& maskName) {
+        m_ValidPointMaskArrayName = maskName.empty() ? std::string("validpointmask") : maskName;
+    }
+    const std::string& GetValidPointMaskArrayName() const { return m_ValidPointMaskArrayName; }
+    void SetSnappingRadius(double r = 0) { m_SnappingRadius = (r > 0.0) ? r : -1.0; }
     double GetSnappingRadius() const { return m_SnappingRadius; }
     /** 上一次 Execute() 实际使用的吸附半径（绝对长度）；< 0 表示未启用 */
     double GetEffectiveSnappingRadius() const { return m_EffectiveSnappingRadius; }
@@ -181,6 +188,7 @@ private:
     double m_EffectiveTolerance{0.0};
 
     // 吸附半径：默认关闭（相对包围盒对角线长度，<= 0 表示关闭）
+    std::string m_ValidPointMaskArrayName{"validpointmask"};
     double m_SnappingRadius{-1.0};
     double m_EffectiveSnappingRadius{-1.0};
 

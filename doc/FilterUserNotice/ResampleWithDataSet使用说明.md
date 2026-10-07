@@ -54,6 +54,9 @@
 | `GetOutput(0)` / `GetResampledData()` | 输出：采样点网格的同类型深拷贝 + 采样属性 | — |
 | `GetSampleCellIds()` | 每个采样点命中的单元 id，`-1` = 无效 | — |
 | `GetSampleValidMask()` | 每个采样点是否有效（与 `validpointmask` 属性一致） | — |
+| `GetValidPoints()` | 有效采样点 id 列表（等价 `vtkProbeFilter::GetValidPoints()`） | — |
+| `SetValidPointMaskArrayName(name)` | 有效点掩膜数组名；传空串恢复默认；设为 `vtkValidPointMask` 与 VTK 默认命名一致 | `validpointmask` |
+| `GetValidPointMaskArrayName()` | 读取当前掩膜数组名 | `validpointmask` |
 | `GetSnappedPointCount()` | 本次依靠吸附才命中的采样点数量 | `0` |
 | `GetUnsupportedQuadraticCellCount()` | 本次退化为线性角点处理的二次 / 高次单元数量 | `0` |
 | `GetMessage()` | 最近一次执行的消息（含采样数、有效数、容差、退化提示） | `未执行` |
@@ -147,13 +150,15 @@ Examples/Filter/TestResampleWithDataSet.cpp
 2. 体单元使用均值坐标，VTK 使用等参形函数；线性场一致，非线性场在单元内部会有差异；
 3. 无效点同样填 `0`；
 4. 不支持复合 / 多块数据集（VTK 的 executive 会逐块展开）；
-5. 没有 field 数据（框架的 `AttributeSet` 只有 `IG_POINT` / `IG_CELL` 两种附着），也没有 `vtkOriginalPointIds` / `vtkOriginalCellIds` 这类附加数组。
+5. 没有 field 数据（框架的 `AttributeSet` 只有 `IG_POINT` / `IG_CELL` 两种附着），也没有 `vtkOriginalPointIds` / `vtkOriginalCellIds` 这类附加数组；
+6. 整型 / 字符型点数据数组按**原类型**承载插值结果（由数组自身截断），不再统一转成 `float`，与 `vtkProbeFilter` 的数组类型行为一致；
+7. 单元包含判定的参数域容差与 VTK 一致（`pcoords ∈ [-0.001, 1.001]`），贴单元边界的采样点与 VTK 得到相同的有效 / 无效判定。
 
 ## 注意事项
 
 1. 两个输入的语义不要弄反：**提供数据的是「被采样网格」（输入 0）**，输出几何来自「采样点网格」（输入 1）。
 2. 输出几何是「采样点网格」的**深拷贝**，不是共享；输入 1 后续被修改不会影响已生成的结果。
-3. `GetSampleValidMask()` 与输出属性 `validpointmask` 完全一致；`GetSampleCellIds()` 给出每个采样点命中的单元 id（`-1` = 无效）。无效点的插值属性为 `0`，下游统计务必先用 mask 过滤。
+3. `GetSampleValidMask()` 与输出属性（默认名 `validpointmask`，可用 `SetValidPointMaskArrayName()` 改为 `vtkValidPointMask`）完全一致，`GetValidPoints()` 给出有效采样点 id；`GetSampleCellIds()` 给出每个采样点命中的单元 id（`-1` = 无效）。无效点的插值属性为 `0`，下游统计务必先用 mask 过滤。
 4. 手动容差是**相对值**（乘包围盒对角线），要拿实际使用的绝对长度请用 `GetEffectiveTolerance()`；吸附半径同理（`GetEffectiveSnappingRadius()`）。
 5. 吸附半径默认关闭，且**没有在面板中暴露**，只提供 API；开启后不会移动采样点坐标。
 6. 「被采样网格」若不是 `UnstructuredMesh`（例如 `SurfaceMesh` / `VolumeMesh` / `StructuredMesh`），会先转换成 `UnstructuredMesh` 再参与定位与插值；转换会复制一份数据。

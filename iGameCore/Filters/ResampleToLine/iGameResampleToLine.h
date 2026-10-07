@@ -55,8 +55,14 @@ IGAME_NAMESPACE_BEGIN
  * cells 数量提示。
  *
  * 采样点不在任何单元内（超出容差）时不再吸附最近单元，而是标记为无效：
- * 新增点数据属性 "validpointmask"（UnsignedCharArray），1 = 该采样点可插值，0 = 无效；
- * 无效采样点各插值属性填 0（与 VTK vtkProbeFilter 行为一致）。
+ * 新增点数据属性 validpointmask（UnsignedCharArray），1 = 该采样点可插值，0 = 无效；数组名可用
+ * SetValidPointMaskArrayName() 修改：默认 "validpointmask"（与本工程 ResampleWithDataSet 一致），
+ * 设为 "vtkValidPointMask" 即与 VTK 默认命名一致。
+ * 无效采样点各插值属性填 0（与 VTK vtkProbeFilter 行为一致），有效点 id 可用 GetValidPoints() 取出。
+ *
+ * 单元包含判定的参数域容差与 VTK 一致：VTK EvaluatePosition 允许 pcoords ∈ [-0.001, 1.001]
+ * （[0,1] 参数），因此贴单元边界的采样点与 VTK 得到相同的有效 / 无效判定。
+ * 插值结果保留源数组的数据类型与分量数（整型 / 字符型数组同样按原类型承载并截断）。
  *
  * 容差默认自动计算（包围盒对角线 × 1e-6，紧容差），也可用 SetTolerance() 手动指定。
  *
@@ -121,6 +127,13 @@ public:
     const std::vector<igIndex>& GetSampleCellIds() const { return m_SampleCellIds; }
     /** 每个采样点是否有效（1 = 可插值，0 = 无效），与 validpointmask 属性一致 */
     const std::vector<unsigned char>& GetSampleValidMask() const { return m_SampleValidMask; }
+    /** 有效采样点 id 列表（等价 VTK vtkProbeFilter::GetValidPoints()） */
+    std::vector<igIndex> GetValidPoints() const;
+    /** validpointmask 数组名；传空串恢复默认 "validpointmask" */
+    void SetValidPointMaskArrayName(const std::string& maskName) {
+        m_ValidPointMaskArrayName = maskName.empty() ? std::string("validpointmask") : maskName;
+    }
+    const std::string& GetValidPointMaskArrayName() const { return m_ValidPointMaskArrayName; }
     /** 本次执行中退化为线性角点处理的二次/高次单元数量 */
     IGsize GetUnsupportedQuadraticCellCount() const { return m_UnsupportedQuadraticCellCount; }
     /** 上一次 Execute() 的输入数据对象类型（IG_*，见 iGameType.h） */
@@ -196,6 +209,7 @@ private:
     UnstructuredMesh::Pointer m_LineMesh{};
     std::vector<igIndex> m_SampleCellIds;
     std::vector<unsigned char> m_SampleValidMask;
+    std::string m_ValidPointMaskArrayName{"validpointmask"};
 };
 
 IGAME_NAMESPACE_END

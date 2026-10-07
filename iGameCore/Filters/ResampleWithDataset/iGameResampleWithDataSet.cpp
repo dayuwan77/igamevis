@@ -19,6 +19,8 @@ namespace {
 constexpr double kAutoToleranceRatio = 1e-6;
 // 形函数参数坐标容差
 constexpr double kParamTol = 1e-6;
+// 单元包含判定的参数域容差，对齐 VTK EvaluatePosition：pcoords ∈ [-0.001, 1.001]（[0,1] 参数）
+constexpr double kVTKParamDomainTol = 1e-3;
 // 支持插值的最大单元点数
 constexpr int kMaxCellPointNum = 32;
 
@@ -858,7 +860,23 @@ void ShapeInitParams(ShapeKind kind, double pc[3]) {
     // SHAPE_QUADRATIC_HEX 中心为 (0,0,0)
 }
 
-/** 参数坐标是否落在单元自然域内 */
+/**
+ * VTK 的参数域接受容差：EvaluatePosition 判定 pcoords ∈ [-0.001, 1.001]（[0,1] 参数），
+ * 即允许 1e-3 的越界；[-1,1] 参数化的单元域长为 2，等价容差为 2e-3。
+ */
+inline double ParamDomainTol(ShapeKind kind) {
+    switch (kind) {
+        case SHAPE_QUADRATIC_HEX:
+        case SHAPE_BIQUADRATIC_QUAD:
+        case SHAPE_QUADRATIC_LINEAR_QUAD:
+        case SHAPE_TRIQUADRATIC_HEX:
+        case SHAPE_QUADRATIC_LINEAR_WEDGE:
+            return 2.0 * kVTKParamDomainTol;
+        default:
+            return kVTKParamDomainTol;
+    }
+}
+
 bool ShapeDomainOk(ShapeKind kind, const double pc[3], double tol) {
     switch (kind) {
         case SHAPE_LINEAR_QUAD:
@@ -1580,6 +1598,7 @@ bool ResampleWithDataSet::Execute() {
 
         igIndex snapCellId = -1;
         Point closest;
+        // 半径内找不到单元 → 保持无效（validpointmask = 0，各属性填 0）
         if (!LocateNearestCell(mesh, p, bbox, grid, nx, ny, nz, m_EffectiveSnappingRadius, snapCellId, closest)) {
             continue;
         }
@@ -1817,7 +1836,7 @@ bool ResampleWithDataSet::ComputeLinearFaceWeights(const UnstructuredMesh::Point
         double planeDist = 0.0;
         if (!TriangleBarycentric(p, pts[0], pts[1], pts[2], w, planeDist)) { return false; }
         if (planeDist > distTol) { return false; }
-        if (w[0] < -kParamTol || w[1] < -kParamTol || w[2] < -kParamTol) { return false; }
+        if (w[0] < -kVTKParamDomainTol || w[1] < -kVTKParamDomainTol || w[2] < -kVTKParamDomainTol) { return false; }
         local.assign(w, w + 3);
         NormalizeWeights(local);
     } else if (used == 4) {
@@ -1825,7 +1844,7 @@ bool ResampleWithDataSet::ComputeLinearFaceWeights(const UnstructuredMesh::Point
         double residual = 0.0;
         if (!NewtonParametric2D(SHAPE_LINEAR_QUAD, pts, p, pc, local, residual)) { return false; }
         if (residual > distTol) { return false; }
-        if (pc[0] < -kParamTol || pc[0] > 1.0 + kParamTol || pc[1] < -kParamTol || pc[1] > 1.0 + kParamTol) {
+        if (pc[0] < -kVTKParamDomainTol || pc[0] > 1.0 + kVTKParamDomainTol || pc[1] < -kVTKParamDomainTol || pc[1] > 1.0 + kVTKParamDomainTol) {
             return false;
         }
         NormalizeWeights(local);
@@ -1839,7 +1858,7 @@ bool ResampleWithDataSet::ComputeLinearFaceWeights(const UnstructuredMesh::Point
                                      planeDist)) {
                 continue;
             }
-            if (planeDist <= distTol && w[0] >= -kParamTol && w[1] >= -kParamTol && w[2] >= -kParamTol) {
+            if (planeDist <= distTol && w[0] >= -kVTKParamDomainTol && w[1] >= -kVTKParamDomainTol && w[2] >= -kVTKParamDomainTol) {
                 local.assign(static_cast<size_t>(used), 0.0);
                 local[0] = w[0];
                 local[static_cast<size_t>(k)] = w[1];
@@ -1917,7 +1936,8 @@ bool ResampleWithDataSet::ComputeMeanValueWeights(const UnstructuredMesh::Pointe
 
         const double scale = std::max({1e-12, static_cast<double>((a - b).length()),
                                        static_cast<double>((a - c).length()), static_cast<double>((a - d).length())});
-        const double baryTol = std::max(kParamTol, distTol / scale);
+        // VTK 的接受域：重心坐标允许 ±1e-3 越界（pcoords ∈ [-0.001, 1.001]）
+        const double baryTol = std::max(kVTKParamDomainTol, distTol / scale);
         if (w[0] < -baryTol || w[1] < -baryTol || w[2] < -baryTol || w[3] < -baryTol) { return false; }
 
         weights.assign(static_cast<size_t>(npts), 0.0);
@@ -2000,7 +2020,7 @@ bool ResampleWithDataSet::ComputeQuadraticWeights(const UnstructuredMesh::Pointe
         std::vector<double> w;
         if (!NewtonParametric2D(kind, pts, p, pc, w, residual)) { return false; }
         const double pc3[3] = {pc[0], pc[1], 0.0};
-        if (!ShapeDomainOk(kind, pc3, kParamTol)) { return false; }
+        if (!ShapeDomainOk(kind, pc3, ParamDomainTol(kind))) { return false; }
         if (residual > distTol) { return false; }
         NormalizeWeights(w);
         weights = std::move(w);
@@ -2011,7 +2031,7 @@ bool ResampleWithDataSet::ComputeQuadraticWeights(const UnstructuredMesh::Pointe
     double residual = 0.0;
     std::vector<double> w;
     if (!NewtonQuadratic3D(kind, pts, p, pc, w, residual)) { return false; }
-    if (!ShapeDomainOk(kind, pc, kParamTol)) { return false; }
+    if (!ShapeDomainOk(kind, pc, ParamDomainTol(kind))) { return false; }
     if (residual > distTol) { return false; }
     NormalizeWeights(w);
     weights = std::move(w);
@@ -2090,11 +2110,12 @@ void ResampleWithDataSet::InterpolatePointData(AttributeSet* inSet, AttributeSet
         const int dim = src->GetDimension();
         if (dim <= 0) { continue; }
 
-        // 保留合理的数据类型：浮点数组沿用原类型，整型等插值后使用 float
+        // 保留数组数据类型（与 VTK vtkProbeFilter 一致：整型 / 字符型数组同样用原类型承载插值
+        // 结果，由数组自身截断），不再统一转成 float
         IGenum outArrayType = src->GetArrayType();
-        if (outArrayType != IG_FloatArray && outArrayType != IG_DoubleArray) { outArrayType = IG_FloatArray; }
 
         auto dst = CreateArrayObject(outArrayType);
+        if (dst == nullptr) { dst = CreateArrayObject(IG_FloatArray); } // 兜底：未知类型退化为 float
         if (dst == nullptr) { continue; }
         dst->SetName(src->GetName());
         dst->SetDimension(dim);
@@ -2171,12 +2192,22 @@ void ResampleWithDataSet::CopyCellData(AttributeSet* inSet, AttributeSet::Pointe
     }
 }
 
+/** 有效采样点 id 列表（等价 VTK vtkProbeFilter::GetValidPoints()） */
+std::vector<igIndex> ResampleWithDataSet::GetValidPoints() const {
+    std::vector<igIndex> ids;
+    ids.reserve(m_SampleValidMask.size());
+    for (size_t i = 0; i < m_SampleValidMask.size(); ++i) {
+        if (m_SampleValidMask[i] != 0) { ids.push_back(static_cast<igIndex>(i)); }
+    }
+    return ids;
+}
+
 void ResampleWithDataSet::AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum,
                                             std::vector<std::string>& producedPointNames) {
     if (outSet == nullptr) { return; }
 
     auto mask = UnsignedCharArray::New();
-    mask->SetName("validpointmask");
+    mask->SetName(m_ValidPointMaskArrayName);
     mask->SetDimension(1);
     mask->Resize(static_cast<IGsize>(sampleNum));
     for (int i = 0; i < sampleNum; ++i) {
@@ -2186,8 +2217,8 @@ void ResampleWithDataSet::AddValidPointMask(AttributeSet::Pointer outSet, int sa
         mask->SetValue(static_cast<IGsize>(i), static_cast<double>(v));
     }
 
-    // validpointmask 附着在采样点上：1 = 可插值，0 = 无效
-    producedPointNames.push_back("validpointmask");
+    // 掩膜附着在采样点上：1 = 可插值，0 = 无效。默认名 validpointmask（与 ResampleToLine 一致），可用 SetValidPointMaskArrayName("vtkValidPointMask") 对齐 VTK 默认命名。
+    producedPointNames.push_back(m_ValidPointMaskArrayName);
     outSet->AddAttribute(IG_SCALAR, IG_POINT, mask);
 }
 
