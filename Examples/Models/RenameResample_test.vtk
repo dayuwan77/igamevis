@@ -1,0 +1,28 @@
+# vtk DataFile Version 3.0
+ResampleWithDataSet / RenameArrays test mesh: unit hexahedron, POINT_DATA value & alpha, CELL_DATA cid
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+0 0 0
+1 0 0
+0 1 0
+1 1 0
+0 0 1
+1 0 1
+0 1 1
+1 1 1
+CELLS 1 9
+8 0 1 3 2 4 5 7 6
+CELL_TYPES 1
+12
+POINT_DATA 8
+SCALARS value float 1
+LOOKUP_TABLE default
+0 1 2 3 4 5 6 7
+SCALARS alpha float 1
+LOOKUP_TABLE default
+100 101 102 103 104 105 106 107
+CELL_DATA 1
+SCALARS cid int 1
+LOOKUP_TABLE default
+42
