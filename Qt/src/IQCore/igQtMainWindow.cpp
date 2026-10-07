@@ -60,6 +60,7 @@
 #include "Elevation/iGameElevationFilter.h"
 #include "GhostCell/iGameGhostCellFilter.h"
 #include "Shrink/iGameShrinkFilter.h"
+#include "TextureMapToSphere/iGameTextureMapToSphereFilter.h"
 #include "iGameFileIO.h"
 #include "iGameFilterIncludes.h"
 #include <AttributeManipulation/iGameRandomVectorsFilter.h>
@@ -2693,6 +2694,75 @@ void igQtMainWindow::initAllFilters() {
             }
             modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm); // 作为新节点加入模型树
             rendererWidget->update();
+            dialog->close();
+        });
+        dialog->show();
+    });
+
+    QAction* textureMapToSphereAction =
+            ui->menu_filters->addAction(QStringLiteral("球面纹理坐标 (Texture Map To Sphere)"));
+    connect(textureMapToSphereAction, &QAction::triggered, this, [this](bool checked) {
+        if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        auto data = model->GetDataObject();
+        if (data == nullptr || data->GetPoints() == nullptr) {
+            showDarkFramelessMessage(QStringLiteral("Warning"),
+                                     QStringLiteral("当前模型没有点数据，无法生成球面纹理坐标。"));
+            return;
+        }
+
+        // 输入框默认值 = 当前模型的包围盒中心（勾上“自动”就用它当球心）
+        const auto center = data->GetBoundingBox().center();
+        const QString defaultX = QString::number(center[0], 'g', 6);
+        const QString defaultY = QString::number(center[1], 'g', 6);
+        const QString defaultZ = QString::number(center[2], 'g', 6);
+
+        igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("球面纹理坐标 (Texture Map To Sphere)"));
+        int autoCenterId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                                QStringLiteral("自动使用包围盒中心"), "true");
+        int centerXId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("球心 X"),
+                                             defaultX);
+        int centerYId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("球心 Y"),
+                                             defaultY);
+        int centerZId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT, QStringLiteral("球心 Z"),
+                                             defaultZ);
+        int seamId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                          QStringLiteral("防止接缝 (PreventSeam)"), "true");
+        dialog->setApplyFunctor([=, this]() {
+            bool okAuto = false, okSeam = false;
+            const bool autoCenter = dialog->getChecked(autoCenterId, okAuto);
+            const bool preventSeam = dialog->getChecked(seamId, okSeam);
+
+            auto filter = iGame::TextureMapToSphereFilter::New();
+            filter->SetPreventSeam(preventSeam);
+            if (!autoCenter) {
+                bool okX = false, okY = false, okZ = false;
+                const double cx = dialog->getDouble(centerXId, okX);
+                const double cy = dialog->getDouble(centerYId, okY);
+                const double cz = dialog->getDouble(centerZId, okZ);
+                if (!okX || !okY || !okZ) {
+                    showDarkFramelessMessage(QStringLiteral("Warning"), QStringLiteral("球心坐标必须是数字"));
+                    return;
+                }
+                filter->SetCenter(cx, cy, cz);
+            }
+            filter->SetInput(0, data);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("Warning"),
+                                         QStringLiteral("球面纹理坐标执行失败：不支持的网格类型"));
+                return;
+            }
+            auto outObj = filter->GetOutput(); // 独立输出，原模型不变
+            if (auto drawObject = iGame::DynamicCast<iGame::DrawObject>(outObj)) {
+                drawObject->ForceReConvertToDrawableData();
+            }
+            modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
+            rendererWidget->update();
+            showDarkFramelessMessage(QStringLiteral("球面纹理坐标"),
+                                     QStringLiteral("已生成点属性 TextureCoordinates（2 分量：s、t）。<br>"
+                                                    "可在“查找信息”面板里查看数值；导出 VTK 后也能在 ParaView 里看到。"),
+                                     true);
             dialog->close();
         });
         dialog->show();

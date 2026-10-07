@@ -57,7 +57,7 @@ else ()
     add_custom_target(iGameDeployExampleRuntime)
 endif ()
 
-# ��������� iGameCore ʱһ�£����� Scene �����Ͳ��ֲ�ͬ���� GL_SUPPORT_MSAA����
+# ���������?iGameCore ʱһ�£����� Scene �����Ͳ��ֲ�ͬ���� GL_SUPPORT_MSAA����
 # Scene::New ����������ֱ�Ӷ��𻵱��������� ${IGAMEVIS_CORE_LIB_TARGETS} �����Զ�������Щ�ꡣ
 add_compile_definitions(
     IGAME_PLATFORM_WINDOWS
@@ -279,7 +279,7 @@ igame_add_example(testConvertToSurfaceMesh Filter/Convert/TestConvertToSurfaceMe
 igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConvertToLagrangeUnstructuredMesh.cpp)
 igame_add_example(testPointSetToOctree Filter/Convert/TestPointSetToOctree.cpp)
 igame_add_example(testResampleToImage Filter/Convert/TestResampleToImage.cpp)
-# 无窗口的数值/逻辑一致性回归检查（失败时返回非 0，可直接进 CI）
+# 无窗口的数�?逻辑一致性回归检查（失败时返回非 0，可直接�?CI�?
 igame_add_example(testResampleOctreeChecks Filter/Convert/TestResampleOctreeChecks.cpp)
 igame_add_example(testConvertToVertex Filter/Convert/TestConvertToVertex.cpp)
 
@@ -371,6 +371,7 @@ igame_add_example(testShrinkModel Filter/Shrink/TestShrinkModel.cpp)
 igame_add_example(testGenerateProcessIds Filter/TestGenerateProcessIds.cpp)
 igame_add_example(testCellMeshMetrics Filter/TestCellMeshMetrics.cpp)
 igame_add_example(testGhostDemo Filter/GhostCell/TestGhostDemo.cpp)
+igame_add_example(testTextureMapToSphere Filter/TextureMapToSphere/TestTextureMapToSphere.cpp)
 igame_add_example(testBoundaryMeshQuality Filter/TestBoundaryMeshQuality.cpp)
 igame_add_example(testCleanToGridFilter Filter/TestCleanToGridFilter.cpp)
 
