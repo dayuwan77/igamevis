@@ -11,7 +11,7 @@
 #include <string>
 
 // CellSize command-line test program
-// Run: testCellSizeExtraction [model file path]  (prompts for input if no argument)
+// Run: testCellSizeExtraction  (fixed relative model path, no input needed)
 // Prints the first 10 values of each per-cell Length(1D)/Area(2D)/Volume(3D) attribute to stdout
 // Return code: 0=success 1=read/compute failed
 
@@ -39,22 +39,9 @@ void PrintAttrStats(iGame::DataObject* data) {
     }
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    std::string fileName;
-    if (argc >= 2) {
-        fileName = argv[1];
-    }
-    // Prompt for input when no command-line argument is provided
-    if (fileName.empty()) {
-        std::cout << "Please enter the model file path: ";
-        std::getline(std::cin, fileName);
-    }
-    if (fileName.empty()) {
-        std::cerr << "[CellSize] no model path provided\n";
-        return 1;
-    }
+// Run the filter on one model and print the first values of each attribute.
+int RunOnModel(const std::string& fileName) {
+    std::cout << "\n===== " << fileName << " =====\n";
 
     // Read the file
     iGame::DataObject::Pointer dataObj = iGame::FileIO::ReadFile(fileName);
@@ -73,9 +60,28 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Print results
-    std::cout << "[CellSize] model=" << fileName << "\n";
-    PrintAttrStats(dataObj);
-    std::cout << "[CellSize] done\n";
+    // Print results from the independent output node
+    auto outModel = filter->GetOutput();
+    if (!outModel) {
+        std::cerr << "[CellSize] filter produced no output\n";
+        return 1;
+    }
+    PrintAttrStats(outModel);
+    std::cout << "[CellSize] done: " << fileName << "\n";
     return 0;
+}
+
+} // namespace
+
+int main() {
+    const std::string models[] = {
+        "./Models/CellSize_TetraCube.vtk",
+        "./Models/CellSize_MixedTypes.vtk",
+    };
+    int rc = 0;
+    for (const auto& fileName : models) {
+        rc |= RunOnModel(fileName);
+    }
+    std::cout << "\n[CellSize] all built-in tests " << (rc == 0 ? "PASSED" : "FAILED") << "\n";
+    return rc;
 }

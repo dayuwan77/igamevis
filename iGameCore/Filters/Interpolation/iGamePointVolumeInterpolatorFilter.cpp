@@ -1,281 +1,317 @@
 #include "Interpolation/iGamePointVolumeInterpolatorFilter.h"
 
+#include "Interpolation/iGamePointKdTree.h"
+
+#include "iGameAttributeSet.h"
+#include "iGameBoundingBox.h"
+#include "iGameFlatArray.h"
+#include "iGamePoints.h"
+#include "iGameStructuredMesh.h"
+#include "iGameType.h"
+
+#include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 IGAME_NAMESPACE_BEGIN
 
 namespace {
-// 数值容差
-constexpr double kEps = 1e-9;
-// 参考单元边界松弛量（仅提前终止无效 Newton 迭代）
-constexpr double kRefTol = 0.1;
-constexpr int kMaxNewtonIter = 40;
 
-// 有符号四面体体积：1/6 * dot(b-a, cross(c-a, d-a))
-double SignedTetVolume(const Vector3d& a, const Vector3d& b, const Vector3d& c, const Vector3d& d) {
-    return (b - a) * ((c - a).cross(d - a)) / 6.0;
-}
+// 输出格点数上限（防止误设超大分辨率导致内存爆炸）。
+constexpr IGsize kMaxGridPoints = 100000000; // 1e8
 
-// 求解 3x3 线性方程组 J * dx = b（克拉默法则）
-bool Solve3x3(const Vector3d& c0, const Vector3d& c1, const Vector3d& c2, const Vector3d& b, Vector3d& dx) {
-    double det = c0 * (c1.cross(c2));
-    if (std::abs(det) < kEps) return false;
-    dx[0] = b * (c1.cross(c2)) / det;
-    dx[1] = c0 * (b.cross(c2)) / det;
-    dx[2] = c0 * (c1.cross(b)) / det;
-    return true;
-}
+struct SourceArray {
+    ArrayObject::Pointer array;
+    IGenum type{IG_SCALAR};
+    int dim{1};
+    std::string name;
+};
+
 } // namespace
 
 PointVolumeInterpolatorFilter::PointVolumeInterpolatorFilter() {
-    SetNumberOfInputs(2);   // input[0]: 体网格, input[1]: 查询点集
+    SetNumberOfInputs(1); // input[0]: 数据点云/数据集（只用其点与点属性）
     SetNumberOfOutputs(1);
 }
 
+void PointVolumeInterpolatorFilter::SetSamplingBounds(const double bounds[6]) {
+    for (int i = 0; i < 6; ++i) { m_SamplingBounds[i] = bounds[i]; }
+}
+
+void PointVolumeInterpolatorFilter::SetSamplingBounds(double x0, double x1,
+                                                      double y0, double y1,
+                                                      double z0, double z1) {
+    m_SamplingBounds[0] = x0;
+    m_SamplingBounds[1] = x1;
+    m_SamplingBounds[2] = y0;
+    m_SamplingBounds[3] = y1;
+    m_SamplingBounds[4] = z0;
+    m_SamplingBounds[5] = z1;
+}
+
+void PointVolumeInterpolatorFilter::GetSamplingBounds(double bounds[6]) const {
+    for (int i = 0; i < 6; ++i) { bounds[i] = m_SamplingBounds[i]; }
+}
+
+void PointVolumeInterpolatorFilter::SetResolution(int i, int j, int k) {
+    m_Resolution[0] = i;
+    m_Resolution[1] = j;
+    m_Resolution[2] = k;
+}
+
+void PointVolumeInterpolatorFilter::SetResolution(int dims[3]) {
+    if (dims == nullptr) return;
+    m_Resolution[0] = dims[0];
+    m_Resolution[1] = dims[1];
+    m_Resolution[2] = dims[2];
+}
+
+void PointVolumeInterpolatorFilter::GetResolution(int dims[3]) const {
+    if (dims == nullptr) return;
+    dims[0] = m_Resolution[0];
+    dims[1] = m_Resolution[1];
+    dims[2] = m_Resolution[2];
+}
+
 bool PointVolumeInterpolatorFilter::Execute() {
-    // ==================== 输入获取 ====================
-    auto meshInput = GetInput(0);
-    auto queryInput = GetInput(1);
-    if (meshInput == nullptr || queryInput == nullptr) {
-        igError("PointVolumeInterpolatorFilter: input[0]/input[1] is null.");
+    m_Message.clear();
+
+    // ==================== 输入 ====================
+    auto input = DynamicCast<PointSet>(GetInput(0));
+    if (input == nullptr) {
+        m_Message = "input is not a point set";
+        igError("PointVolumeInterpolatorFilter: input is null or not a PointSet.");
+        return false;
+    }
+    Points* pts = input->GetPoints();
+    const IGsize numPoints = (pts != nullptr) ? pts->GetNumberOfPoints() : 0;
+    if (numPoints == 0) {
+        m_Message = "input has no points";
+        igError("PointVolumeInterpolatorFilter: input has no points.");
         return false;
     }
 
-    // 体网格：VolumeMesh 的单元 API 与 UnstructuredMesh 类似，直接遍历即可
-    VolumeMesh::Pointer volumeMesh = DynamicCast<VolumeMesh>(meshInput);
-    if (volumeMesh == nullptr) {
-        auto unstructuredMesh = DynamicCast<UnstructuredMesh>(meshInput);
-        if (unstructuredMesh == nullptr) {
-            igError("PointVolumeInterpolatorFilter: input[0] must be a VolumeMesh or UnstructuredMesh.");
-            return false;
-        }
-        volumeMesh = unstructuredMesh->TransferToVolumeMesh();
-        if (volumeMesh == nullptr) {
-            igError("PointVolumeInterpolatorFilter: cannot convert input[0] to VolumeMesh (contains non-3D cells?).");
-            return false;
-        }
-    }
-
-    // 查询点集
-    auto querySet = DynamicCast<PointSet>(queryInput);
-    if (querySet == nullptr) {
-        igError("PointVolumeInterpolatorFilter: input[1] must be a PointSet.");
-        return false;
-    }
-    Points::Pointer queryPts = querySet->GetPoints();
-
-    // ==================== 属性选取 ====================
-    // GUI 传入的 index/name 是"完整 AttributeSet"里的索引（PointData/CellData 可能交错，
-    // 不能在 PointData 子列表内重新解释，否则会选错属性/误报越界）。
-    // 因此保留完整索引语义，选中后校验 attachmentType == IG_POINT 并校验长度==点数，
-    // 防止以点 ID 访问 CellData 数组造成越界。
-    auto attrs = volumeMesh->GetAttributeSet();
-    if (attrs == nullptr) {
-        igError("PointVolumeInterpolatorFilter: input has no attribute set.");
-        return false;
-    }
-
-    int index = m_AttributeIndex;
-    if (index == -1 && !m_AttributeName.empty()) {
-        index = attrs->GetAttributeIndex(m_AttributeName);
-    }
-    const IGsize numAttributes = attrs->GetNumberOfAttributes();
-    if (index < 0 || static_cast<IGsize>(index) >= numAttributes) {
-        igError("PointVolumeInterpolatorFilter: attribute index {} is out of range "
-                "({} attributes in total).", index, numAttributes);
-        return false;
-    }
-
-    auto& chosen = attrs->GetAttribute(index);
-    if (chosen.IsNone() || !chosen.pointer) {
-        igError("PointVolumeInterpolatorFilter: attribute {} is empty.", index);
-        return false;
-    }
-    if (chosen.attachmentType != IG_POINT) {
-        igError("PointVolumeInterpolatorFilter: attribute '{}' is not PointData (attachment={}); "
-                "only point attributes can be interpolated.",
-                chosen.pointer->GetName(), chosen.attachmentType);
-        return false;
-    }
-    ArrayObject* data = chosen.pointer.get();
-    if (data->GetNumberOfElements() != volumeMesh->GetNumberOfPoints()) {
-        igError("PointVolumeInterpolatorFilter: point attribute '{}' length {} != point count {}; "
-                "refusing to interpolate non-point data.",
-                data->GetName(), data->GetNumberOfElements(), volumeMesh->GetNumberOfPoints());
-        return false;
-    }
-    int dim = data->GetDimension();
-
-    // ==================== 输出准备 ====================
-    auto output = PointSet::New();
-    output->SetPoints(queryPts);
-
-    FloatArray::Pointer result = FloatArray::New();
-    result->SetDimension(dim);
-    result->Resize(queryPts->GetNumberOfPoints());
-
-    // ==================== 空间加速：体单元包围盒 ====================
-    // 对每个体单元求轴对齐包围盒，查询点只测试包围盒包含它的单元。
-    const IGsize numVolumes = volumeMesh->GetNumberOfVolumes();
-    std::vector<Vector3d> boxMin(numVolumes), boxMax(numVolumes);
-    igIndex ptIds[IGAME_CELL_MAX_SIZE];
-    for (IGsize v = 0; v < numVolumes; ++v) {
-        int n = volumeMesh->GetVolumePointIds(v, ptIds);
-        Vector3d lo(1e30, 1e30, 1e30), hi(-1e30, -1e30, -1e30);
-        for (int j = 0; j < n; ++j) {
-            const Point& p = volumeMesh->GetPoint(ptIds[j]);
-            for (int d = 0; d < 3; ++d) {
-                lo[d] = std::min(lo[d], double(p[d]));
-                hi[d] = std::max(hi[d], double(p[d]));
-            }
-        }
-        boxMin[v] = lo;
-        boxMax[v] = hi;
-    }
-
-    // ==================== 插值主循环 ====================
-    std::vector<float> val(dim, 0.f);
-    std::vector<double> weights;
-    // 命中掩码：1=查询点落在体网格内，0=未命中
-    UnsignedCharArray::Pointer hitMask = UnsignedCharArray::New();
-    hitMask->SetDimension(1);
-    hitMask->Resize(queryPts->GetNumberOfPoints());
-
-    const IGsize numQuery = queryPts->GetNumberOfPoints();
-    for (IGsize i = 0; i < numQuery; ++i) {
-        Point q = queryPts->GetPoint(i);
-        std::fill(val.begin(), val.end(), 0.f);
-
-        bool hit = false;
-        for (IGsize v = 0; v < numVolumes; ++v) {
-            // 包围盒快速剔除
-            if (q[0] < boxMin[v][0] || q[0] > boxMax[v][0] ||
-                q[1] < boxMin[v][1] || q[1] > boxMax[v][1] ||
-                q[2] < boxMin[v][2] || q[2] > boxMax[v][2]) {
-                continue;
-            }
-            auto cell = volumeMesh->GetVolume(v);
-            if (ComputeBarycentric(q, cell, weights)) {
-                InterpolateAttribute(weights, data, cell, val.data());
-                hit = true;
-                break;
-            }
-        }
-        // 若查询点在所有单元之外，val 保持 0 且命中掩码为 0
-        hitMask->SetValue(i, hit ? 1 : 0);
-        result->SetElement(i, val);
-    }
-
-    // ==================== 挂属性并输出 ====================
-    if (dim == 1) {
-        output->GetAttributeSet()->AddScalar(IG_POINT, result);
+    // ==================== 采样区域 ====================
+    double bounds[6];
+    if (m_UseInputBounds) {
+        const BoundingBox& box = input->GetBoundingBox();
+        bounds[0] = box.min[0];
+        bounds[1] = box.max[0];
+        bounds[2] = box.min[1];
+        bounds[3] = box.max[1];
+        bounds[4] = box.min[2];
+        bounds[5] = box.max[2];
     } else {
-        output->GetAttributeSet()->AddVector(IG_POINT, result);
+        for (int i = 0; i < 6; ++i) { bounds[i] = m_SamplingBounds[i]; }
     }
-    hitMask->SetName(HitMaskName);
-    output->GetAttributeSet()->AddScalar(IG_POINT, hitMask);
+
+    int dims[3] = {
+            std::max(1, m_Resolution[0]),
+            std::max(1, m_Resolution[1]),
+            std::max(1, m_Resolution[2])};
+    const double origin[3] = {bounds[0], bounds[2], bounds[4]};
+    double spacing[3];
+    for (int i = 0; i < 3; ++i) {
+        spacing[i] = (dims[i] == 1)
+                         ? 0.0
+                         : (bounds[2 * i + 1] - bounds[2 * i]) /
+                                   static_cast<double>(dims[i] - 1);
+    }
+    const IGsize numberOfGridPoints =
+            static_cast<IGsize>(dims[0]) * dims[1] * dims[2];
+    if (numberOfGridPoints > kMaxGridPoints) {
+        m_Message = "resolution too large (grid points exceed limit)";
+        igError("PointVolumeInterpolatorFilter: resolution too large ({} grid points).",
+                numberOfGridPoints);
+        return false;
+    }
+
+    // ==================== 输入点属性 ====================
+    std::vector<SourceArray> sourceArrays;
+    if (AttributeSet* attrs = input->GetAttributeSet()) {
+        auto all = attrs->GetAllAttributes();
+        for (IGsize i = 0; i < all->GetNumberOfElements(); ++i) {
+            auto& a = all->GetElement(i);
+            if (a.isDeleted || a.pointer == nullptr) continue;
+            if (a.attachmentType != IG_POINT) continue;
+            if (a.pointer->GetNumberOfElements() != numPoints) continue;
+            if (!m_InterpolateArrayNames.empty()) {
+                const std::string& arrayName = a.pointer->GetName();
+                bool selected = false;
+                for (const auto& n : m_InterpolateArrayNames) {
+                    if (n == arrayName) { selected = true; break; }
+                }
+                if (!selected) continue;
+            }
+            sourceArrays.push_back({a.pointer, a.type,
+                                    a.pointer->GetDimension(),
+                                    a.pointer->GetName()});
+        }
+    }
+    if (sourceArrays.empty()) {
+        m_Message = "input has no point attribute to interpolate";
+        igError("PointVolumeInterpolatorFilter: no point attribute found.");
+        return false;
+    }
+
+    // ==================== 邻域检索 ====================
+    PointKdTree kdTree;
+    kdTree.Build(pts);
+
+    // ==================== 输出网格与数组 ====================
+    StructuredMesh::Pointer output = StructuredMesh::New();
+    output->SetName(input->GetName() + "_point_volume");
+    igIndex idims[3] = {static_cast<igIndex>(dims[0]),
+                        static_cast<igIndex>(dims[1]),
+                        static_cast<igIndex>(dims[2])};
+    output->SetDimensionSize(idims);
+
+    Points::Pointer gridPoints = Points::New();
+    gridPoints->Reserve(numberOfGridPoints);
+
+    std::vector<FloatArray::Pointer> outArrays(sourceArrays.size());
+    for (size_t s = 0; s < sourceArrays.size(); ++s) {
+        auto arr = FloatArray::New();
+        arr->SetName(sourceArrays[s].name);
+        arr->SetDimension(sourceArrays[s].dim);
+        arr->Resize(numberOfGridPoints);
+        outArrays[s] = arr;
+    }
+
+    CharArray::Pointer mask = CharArray::New();
+    mask->SetName(ValidPointsMaskName);
+    mask->SetDimension(1);
+    mask->Resize(numberOfGridPoints);
+    for (IGsize p = 0; p < numberOfGridPoints; ++p) { mask->ValueAt(p) = 0; }
+
+    // ==================== 逐格点插值 ====================
+    std::vector<igIndex> ids;
+    std::vector<double> distSq;
+    std::vector<double> weights;
+    std::vector<double> vals;
+
+    const int kNeighbors = std::max(1, m_NumberOfPoints);
+
+    for (int k = 0; k < dims[2]; ++k) {
+        for (int j = 0; j < dims[1]; ++j) {
+            for (int i = 0; i < dims[0]; ++i) {
+                const float x = static_cast<float>(origin[0] + i * spacing[0]);
+                const float y = static_cast<float>(origin[1] + j * spacing[1]);
+                const float z = static_cast<float>(origin[2] + k * spacing[2]);
+                gridPoints->AddPoint(x, y, z);
+                const IGsize ptId =
+                        static_cast<IGsize>(i) +
+                        static_cast<IGsize>(dims[0]) *
+                                (static_cast<IGsize>(j) +
+                                 static_cast<IGsize>(dims[1]) * k);
+
+                const Point q(x, y, z);
+                ids.clear();
+                distSq.clear();
+
+                if (m_KernelType == PointKernelType::Voronoi) {
+                    kdTree.QueryKNearest(q, 1, ids, distSq);
+                } else if (m_KernelFootprint == PointKernelFootprint::Radius) {
+                    kdTree.QueryRadius(q, m_Radius, ids, distSq);
+                    if (ids.empty() &&
+                        m_NullPointsStrategy == PointNullPointsStrategy::ClosestPoint) {
+                        kdTree.QueryKNearest(q, 1, ids, distSq);
+                    }
+                } else {
+                    kdTree.QueryKNearest(q, kNeighbors, ids, distSq);
+                }
+
+                // 空邻域：MaskPoints / NullValue 都把输出值置为 NullValue（掩码保持 0）
+                if (ids.empty()) {
+                    for (size_t s = 0; s < outArrays.size(); ++s) {
+                        const int dim = sourceArrays[s].dim;
+                        // 必须按 tuple 写(SetElement)：SetValue(pos,v) 的 pos 是标量值索引，
+                        // 对多分量数组会把 0 写到别的 tuple 上，冲掉已写好的命中点数据。
+                        std::vector<double> nullVals(static_cast<size_t>(dim), m_NullValue);
+                        outArrays[s]->SetElement(ptId, nullVals.data());
+                    }
+                    continue;
+                }
+
+                weights.assign(ids.size(), 0.0);
+
+                if (m_KernelType == PointKernelType::Voronoi) {
+                    // Voronoi：最近点（QueryKNearest 已按距离升序）
+                    weights[0] = 1.0;
+                } else {
+                    // 只有 Shepard 在 d=0 时有明确的极限（该点独占权重）；
+                    // 其余核按各自公式自然计算（对齐 VTK，不做全局"精确命中短路"）。
+                    bool exactHit = false;
+                    size_t exactIndex = 0;
+                    if (m_KernelType == PointKernelType::Shepard) {
+                        for (size_t n = 0; n < ids.size(); ++n) {
+                            if (distSq[n] <= PointKernelExactHitToleranceSq) {
+                                exactHit = true;
+                                exactIndex = n;
+                                break;
+                            }
+                        }
+                    }
+                    if (exactHit) {
+                        std::fill(weights.begin(), weights.end(), 0.0);
+                        weights[exactIndex] = 1.0;
+                    } else {
+                        for (size_t n = 0; n < ids.size(); ++n) {
+                            double w = 1.0; // Linear 等权
+                            if (m_KernelType == PointKernelType::Gaussian) {
+                                w = PointGaussianWeight(distSq[n], m_Radius, m_Sharpness);
+                            } else if (m_KernelType == PointKernelType::Shepard) {
+                                w = PointShepardWeight(distSq[n], m_PowerParameter);
+                            }
+                            weights[n] = w;
+                        }
+                    }
+                    double weightSum = 0.0;
+                    for (size_t n = 0; n < weights.size(); ++n) { weightSum += weights[n]; }
+                    if (weightSum <= 0.0) {
+                        std::fill(weights.begin(), weights.end(), 0.0);
+                        weights[0] = 1.0;
+                    }
+                }
+
+                double weightSum = 0.0;
+                for (size_t n = 0; n < weights.size(); ++n) { weightSum += weights[n]; }
+
+                for (size_t s = 0; s < sourceArrays.size(); ++s) {
+                    const int dim = sourceArrays[s].dim;
+                    vals.assign(static_cast<size_t>(dim), 0.0);
+                    for (size_t n = 0; n < ids.size(); ++n) {
+                        const double w = weights[n];
+                        if (w == 0.0) continue;
+                        for (int c = 0; c < dim; ++c) {
+                            vals[static_cast<size_t>(c)] +=
+                                    w * sourceArrays[s].array->GetElementValue(ids[n], c);
+                        }
+                    }
+                    if (weightSum > 0.0) {
+                        for (int c = 0; c < dim; ++c) {
+                            vals[static_cast<size_t>(c)] /= weightSum;
+                        }
+                    }
+                    outArrays[s]->SetElement(ptId, vals.data());
+                }
+                mask->ValueAt(ptId) = 1;
+            }
+        }
+    }
+
+    output->SetPoints(gridPoints);
+    output->GenStructuredCellConnectivities();
+
+    AttributeSet* outAttrs = output->GetAttributeSet();
+    for (size_t s = 0; s < sourceArrays.size(); ++s) {
+        outAttrs->AddAttribute(sourceArrays[s].type, IG_POINT, outArrays[s]);
+    }
+    outAttrs->AddAttribute(IG_SCALAR, IG_POINT, mask);
+
     SetOutput(output);
     return true;
-}
-
-bool PointVolumeInterpolatorFilter::ComputeBarycentric(const Point& p, Cell* cell, std::vector<double>& weights) {
-    const int n = cell->GetNumberOfPoints();
-    weights.assign(n, 0.0);
-
-    switch (cell->GetCellType()) {
-        case IG_TETRA: {
-            // 体积坐标：w_i = V(q, 其余三点) / V(四面体)
-            Vector3d p0 = cell->GetPoint(0);
-            Vector3d p1 = cell->GetPoint(1);
-            Vector3d p2 = cell->GetPoint(2);
-            Vector3d p3 = cell->GetPoint(3);
-            Vector3d q = p;
-            double detT = SignedTetVolume(p0, p1, p2, p3);
-            if (std::abs(detT) < kEps) return false;
-            weights[0] = SignedTetVolume(q, p1, p2, p3) / detT;
-            weights[1] = SignedTetVolume(p0, q, p2, p3) / detT;
-            weights[2] = SignedTetVolume(p0, p1, q, p3) / detT;
-            weights[3] = SignedTetVolume(p0, p1, p2, q) / detT;
-            break;
-        }
-        case IG_HEXAHEDRON: {
-            // 参考单元三线性坐标 (r,s,t) in [0,1]，Newton 迭代求解
-            Vector3d pts[8];
-            for (int i = 0; i < 8; ++i) pts[i] = cell->GetPoint(i);
-            Vector3d q = p;
-
-            Vector3d x(0.5, 0.5, 0.5);
-            double shape[8];
-            bool converged = false;
-            for (int iter = 0; iter < kMaxNewtonIter; ++iter) {
-                double r = x[0], s = x[1], t = x[2];
-                // 三线性形函数（VTK 顶点顺序）
-                shape[0] = (1 - r) * (1 - s) * (1 - t);
-                shape[1] = r * (1 - s) * (1 - t);
-                shape[2] = r * s * (1 - t);
-                shape[3] = (1 - r) * s * (1 - t);
-                shape[4] = (1 - r) * (1 - s) * t;
-                shape[5] = r * (1 - s) * t;
-                shape[6] = r * s * t;
-                shape[7] = (1 - r) * s * t;
-
-                // 当前位置及其与目标点的差
-                Vector3d pos(0, 0, 0), F(0, 0, 0);
-                for (int i = 0; i < 8; ++i) pos += pts[i] * shape[i];
-                F = pos - q;
-                if (F.length() < kEps) { converged = true; break; }
-
-                // Jacobian 列向量：d pos / d(r,s,t)
-                double dNdr[8] = {-(1 - s) * (1 - t), (1 - s) * (1 - t), s * (1 - t), -s * (1 - t),
-                                  -(1 - s) * t,        (1 - s) * t,        s * t,        -s * t};
-                double dNds[8] = {-(1 - r) * (1 - t), -r * (1 - t), r * (1 - t), (1 - r) * (1 - t),
-                                  -(1 - r) * t,        -r * t,        r * t,        (1 - r) * t};
-                double dNdt[8] = {-(1 - r) * (1 - s), -r * (1 - s), -r * s, -(1 - r) * s,
-                                  (1 - r) * (1 - s),  r * (1 - s),  r * s,  (1 - r) * s};
-                Vector3d Jr(0, 0, 0), Js(0, 0, 0), Jt(0, 0, 0);
-                for (int i = 0; i < 8; ++i) {
-                    Jr += pts[i] * dNdr[i];
-                    Js += pts[i] * dNds[i];
-                    Jt += pts[i] * dNdt[i];
-                }
-
-                // 解 J * dx = -F
-                Vector3d dx;
-                if (!Solve3x3(Jr, Js, Jt, -F, dx)) return false;
-                x += dx;
-
-                // 若偏离参考单元过远，直接判为单元外，提前终止
-                if (x[0] < -kRefTol || x[0] > 1.0 + kRefTol ||
-                    x[1] < -kRefTol || x[1] > 1.0 + kRefTol ||
-                    x[2] < -kRefTol || x[2] > 1.0 + kRefTol) {
-                    return false;
-                }
-            }
-            // 迭代未收敛时参考坐标不可靠，不能用于插值
-            if (!converged) return false;
-            for (int i = 0; i < 8; ++i) weights[i] = shape[i];
-            break;
-        }
-        default:
-            return false;
-    }
-
-    // 点必须在单元内：所有权重非负
-    for (double w : weights) {
-        if (w < -kEps) return false;
-    }
-    return true;
-}
-
-void PointVolumeInterpolatorFilter::InterpolateAttribute(const std::vector<double>& weights, ArrayObject* data, Cell* cell, float* result) {
-    const int dim = data->GetDimension();
-    for (int d = 0; d < dim; ++d) result[d] = 0.f;
-    for (size_t i = 0; i < weights.size(); ++i) {
-        igIndex pid = cell->GetPointId(int(i));
-        for (int d = 0; d < dim; ++d) {
-            result[d] += float(weights[i] * data->GetElementValue(pid, d));
-        }
-    }
 }
 
 IGAME_NAMESPACE_END

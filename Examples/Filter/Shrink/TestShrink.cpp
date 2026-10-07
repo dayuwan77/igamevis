@@ -33,6 +33,18 @@ bool Check(bool ok, const std::string& name) {
 
 void Step(const std::string& name) { std::cout << "  >> " << name << std::endl; }
 
+template <typename Mesh>
+typename Mesh::Pointer GetIndependentOutput(iGame::ShrinkFilter::Pointer filter,
+                                          typename Mesh::Pointer input, IGsize inputPointCount) {
+	auto output = iGame::DynamicCast<Mesh>(filter->GetOutput());
+	if (!Check(!output.IsNull(), "output has the expected mesh type")) return nullptr;
+	if (!Check(output != input && output->GetPoints() != input->GetPoints(),
+	           "output mesh and points are independent of input")) return nullptr;
+	if (!Check(input->GetPoints()->GetNumberOfPoints() == inputPointCount,
+	           "input point count remains unchanged")) return nullptr;
+	return output;
+}
+
 // 手工造一个正方形网格：4 个点、2 个三角形
 iGame::SurfaceMesh::Pointer MakeSquareMesh() {
 	auto mesh = iGame::SurfaceMesh::New();
@@ -72,6 +84,13 @@ bool TestShrinkHalf() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
+	for (int i = 0; i < 4; ++i) {
+		const auto& point = mesh->GetPoints()->GetPoint(i);
+		if (!Check(Dist(point[0], point[1], point[2], orig[i][0], orig[i][1], orig[i][2]) < 1e-5,
+		           "input vertex remains unchanged")) return false;
+	}
+	mesh = GetIndependentOutput<iGame::SurfaceMesh>(filter, mesh, 4);
+	if (mesh.IsNull()) return false;
 	auto pts = mesh->GetPoints();
 	if (!Check(pts->GetNumberOfPoints() == 6, "each cell got its own vertices (4 -> 6 points)")) {
 		return false;
@@ -137,6 +156,8 @@ bool TestNoShrink() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
+	mesh = GetIndependentOutput<iGame::SurfaceMesh>(filter, mesh, 4);
+	if (mesh.IsNull()) return false;
 	auto pts = mesh->GetPoints();
 	if (!Check(pts->GetNumberOfPoints() == 6, "vertices still duplicated (6 points)")) {
 		return false;
@@ -198,6 +219,8 @@ bool TestVolumeMesh() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
+	mesh = GetIndependentOutput<iGame::VolumeMesh>(filter, mesh, 5);
+	if (mesh.IsNull()) return false;
 	auto pts = mesh->GetPoints();
 	if (!Check(pts->GetNumberOfPoints() == 8, "each volume got its own vertices (5 -> 8 points)")) {
 		return false;
@@ -281,6 +304,8 @@ bool TestUnstructuredMesh() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
+	mesh = GetIndependentOutput<iGame::UnstructuredMesh>(filter, mesh, 4);
+	if (mesh.IsNull()) return false;
 	auto pts = mesh->GetPoints();
 	if (!Check(pts->GetNumberOfPoints() == 6, "each cell got its own vertices (4 -> 6 points)")) {
 		return false;
@@ -334,6 +359,14 @@ bool TestPointAttribute3Component() {
 	if (!Check(filter->Execute(), "filter Execute()")) return false;
 
 	Step("check result");
+	if (!Check(vec->GetNumberOfElements() == 4 && vec->GetNumberOfValues() == 12,
+	           "input Velocity array size remains unchanged")) return false;
+	for (IGsize i = 0; i < 12; ++i) {
+		if (!Check(std::fabs(vec->GetValue(i) - static_cast<double>(i + 1)) < 1e-5,
+		           "input Velocity value remains unchanged")) return false;
+	}
+	mesh = GetIndependentOutput<iGame::SurfaceMesh>(filter, mesh, 4);
+	if (mesh.IsNull()) return false;
 	auto attrs = mesh->GetAttributeSet();
 	int idx = attrs->GetAttributeIndex("Velocity");
 	if (!Check(idx >= 0, "Velocity array exists")) return false;

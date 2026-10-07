@@ -1,20 +1,14 @@
 // ============================================================================
-// TestProbe — ProbeFilter 命令行探测测试
+// TestProbe — ProbeFilter 自动探测测试（模型与参数写死，无需手动输入）
 //
-// 用法:
-//   testProbe.exe <模型相对路径> <centerX> <centerY> <centerZ> [radius] [n] [seed]
-//
-// 参数说明:
-//   <模型相对路径>  模型文件，例如 ./Models/SteadyFlowLaminarAndTurbulentInAnSBend1_final.ccm
-//   <centerX/Y/Z>   探测球心坐标（必填）
-//   [radius]        球体半径，默认 0：全部查询点生成在球心本身，方便测试
-//   [n]             球体内随机采样点数，默认 1
-//   [seed]          随机种子，默认 0（随机）；传 >0 固定种子便于复现
+// 模型与探测参数全部写死在代码中，运行后自动完成测试：
+//   模型:  ./Models/AIGen_Hex_PipeSegment.vtk   （六面体体网格）
+//   探测:  以管道壁内一个六面体单元中心附近为球心 (1.385819, 0.574025, 0.75)、
+//          0.1 为半径的球体内均匀随机采样 10 个查询点（seed 固定为 42）
 //
 // 流程:
-//   1. 读取模型，打印模型规模与点属性清单（帮助挑选探测中心坐标）。
-//   2. radius==0 时全部 n 个查询点都生成在球心；radius>0 时在球体内均匀随机
-//      采样 n 个点。
+//   1. 读取模型，打印模型规模与点属性清单。
+//   2. 在球心 (1.385819, 0.574025, 0.75)、半径 0.1 的球体内生成 10 个查询点。
 //   3. 执行 ProbeFilter：对查询点做单元定位 + 点属性线性插值，输出
 //      ValidPointMask（命中单元=1，未命中=0），结果原地写回查询点集。
 //   4. 逐点打印坐标、有效标记与各插值属性，终端输出 Result: PASS/FAIL。
@@ -28,7 +22,6 @@
 #include <iGamePointSet.h>
 #include <iGamePoints.h>
 
-#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -36,17 +29,6 @@
 using namespace iGame;
 
 namespace {
-
-void PrintUsage(const char* exeName) {
-    std::cout << "Usage: " << exeName
-              << " <model> <centerX> <centerY> <centerZ> [radius] [n] [seed]\n"
-                 "  <model>          model file relative path, "
-                 "e.g. ./Models/xxx.ccm\n"
-                 "  <centerX/Y/Z>    probe sphere center\n"
-                 "  [radius]         default 0 -> probe the center point only\n"
-                 "  [n]              sample count in sphere, default 1\n"
-                 "  [seed]           random seed, 0 = random (default)\n";
-}
 
 void PrintModelSummary(const DataObject::Pointer& model) {
     if (model.IsNull()) return;
@@ -190,30 +172,14 @@ bool RunProbe(const std::string& modelFile, const Point& center, float radius,
 
 }  // namespace
 
-int main(int argc, char** argv) {
-    if (argc < 2 || std::string(argv[1]) == "-h" ||
-        std::string(argv[1]) == "--help") {
-        PrintUsage(argv[0]);
-        return argc < 2 ? 2 : 0;
-    }
-    if (argc < 5) {
-        std::cerr << "Missing model path or center coordinates\n";
-        PrintUsage(argv[0]);
-        return 2;
-    }
+int main() {
+    // 写死的模型相对路径与探测参数：无需手动输入，运行即自动完成测试。
+    const std::string modelFile = "./Models/AIGen_Hex_PipeSegment.vtk";
+    const Point center(1.385819f, 0.574025f, 0.75f);  // 球心：管道壁内单元中心附近
+    const float radius = 0.1f;              // 球体半径
+    const int count = 10;                   // 球体内随机采样点数
+    const unsigned seed = 42u;              // 固定种子，保证结果可复现
 
-    const std::string modelFile = argv[1];
-    const Point center(static_cast<float>(std::atof(argv[2])),
-                       static_cast<float>(std::atof(argv[3])),
-                       static_cast<float>(std::atof(argv[4])));
-    const float radius =
-            argc > 5 ? static_cast<float>(std::atof(argv[5])) : 0.0f;
-    const int count = argc > 6 ? std::atoi(argv[6]) : 1;
-    const unsigned seed =
-            argc > 7 ? static_cast<unsigned>(std::atoi(argv[7])) : 0u;
-
-    std::cout << "Center=(" << center[0] << ", " << center[1] << ", "
-              << center[2] << ") radius=" << radius << " n=" << count
-              << " seed=" << seed << "\n";
+    std::cout << "Probe center=(1.385819, 0.574025, 0.75) radius=0.1 n=10 seed=42\n";
     return RunProbe(modelFile, center, radius, count, seed) ? 0 : 1;
 }

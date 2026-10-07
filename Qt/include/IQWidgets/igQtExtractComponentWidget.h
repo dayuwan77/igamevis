@@ -1,6 +1,6 @@
 /**
  * @class   igQtExtractComponentWidget
- * @brief   提取分量 filter 的工具面板（仿轮廓提取 / 生成进程ID 的交互模式）
+ * @brief   提取分量 filter 的参数面板（由主窗口以独立置顶弹窗承载，不占用左侧工具面板）
  */
 
 #pragma once

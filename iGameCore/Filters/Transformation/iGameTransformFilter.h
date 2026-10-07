@@ -7,6 +7,8 @@
 #include "iGameVolumeMesh.h"
 #include "iGameStructuredMesh.h"
 #include "iGameUnstructuredMesh.h"
+#include "iGameAttributeSet.h"
+#include "iGameFlatArray.h"
 
 #include "iGameCellArray.h"
 #include "iGameCellLinks.h"

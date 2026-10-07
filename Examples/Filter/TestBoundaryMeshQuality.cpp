@@ -4,6 +4,7 @@
 #include <iGameInteractor.h>
 #include <iGameMultiRenderWindowManager.h>
 #include <iGameRenderWindow.h>
+#include <iGameSurfaceMesh.h>
 #include <iostream>
 
 // 串行展示三个 BoundaryMeshQuality 指标：
@@ -11,13 +12,14 @@
 //   2. DistanceFromCellCenterToFacePlane
 //   3. AngleFaceNormalAndCellCenterToFaceCenterVector
 //
-// 每次跑一个 filter，往同一个 DrawObject 的 AttributeSet 追加一个新属性；
-// 然后弹一个独立窗口显示该属性云图。关闭当前窗口后才进入下一个指标。
+// 注意：BoundaryMeshQualityFilter 产生一个独立的 SurfaceMesh 输出节点，
+// 不修改输入对象本身。测试应从 filter->GetOutput() 获取结果，
+// 然后在那个输出 mesh 上调 ViewCloudPicture。
 
 int main() {
 
     auto baseScene = iGame::Scene::New();
-    const std::string fileName = "./Models/Tet_Plane.vtk";
+    const std::string fileName = "./Models/Boundary_Mesh_Quality_Test.vtk";
     iGame::DataObject::Pointer dataObj = iGame::FileIO::ReadFile(fileName);
     if (dataObj != nullptr) {
         baseScene->AddModel(dataObj);
@@ -31,8 +33,6 @@ int main() {
         std::cerr << "Loaded data is not a DrawObject\n";
         return -1;
     }
-
-    const int baseAttrCount = drawObj->GetAttributeSet()->GetNumberOfAttributes();
 
     iGame::BoundaryMeshQualityFilter::Pointer filter =
         iGame::BoundaryMeshQualityFilter::New();
@@ -61,15 +61,29 @@ int main() {
             return -1;
         }
 
-        // 与 Qt 路径一致: filter 跑完后重建 GPU 可绘制数据，
-        // 否则新增的属性不会上色，颜色映射保持上一次结果
-        drawObj->ConvertToDrawableData();
+        // 从 filter 输出中取出独立的 SurfaceMesh（包含边界面 + 对应属性）
+        iGame::DataObject::Pointer outputObj = filter->GetOutput();
+        auto outputMesh = DynamicCast<iGame::SurfaceMesh>(outputObj);
+        if (!outputMesh) {
+            std::cerr << "Filter output is not a SurfaceMesh\n";
+            return -1;
+        }
 
-        const int attrIndex = baseAttrCount + i;
+        auto outputDrawObj = DynamicCast<iGame::DrawObject>(outputMesh);
+        if (!outputDrawObj) {
+            std::cerr << "Output SurfaceMesh is not a DrawObject\n";
+            return -1;
+        }
+
+        // 对输出 mesh 本身调 ConvertToDrawableData，使新增属性上色
+        outputDrawObj->ConvertToDrawableData();
+
+        // 属性 index 0 即为本轮计算出的指标数组（每个边界面对应一个元素）
+        const int attrIndex = 0;
 
         // 每个窗口使用独立 Scene，避免共享状态相互污染
         auto scene = iGame::Scene::New();
-        scene->AddModel(drawObj);
+        scene->AddModel(outputDrawObj);
 
         iGame::RenderWindow::Pointer window = iGame::RenderWindow::New();
         window->SetSize(1920, 1080);
@@ -80,8 +94,8 @@ int main() {
         interactor->CreateDefaultStyle();
         window->SetInteractor(interactor);
 
-        // 切到第 i 个新属性 (-1 表示 magnitude / 自动维度)
-        drawObj->ViewCloudPicture(scene, attrIndex, -1);
+        // 在输出 mesh 上切到属性 index=0（即本指标数组）
+        outputDrawObj->ViewCloudPicture(scene, attrIndex, -1);
 
         // Show() 阻塞，直到用户关闭当前窗口
         window->Show();

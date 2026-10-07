@@ -4,6 +4,7 @@
 #include "IQWidgets/igQtProbeWidget.h"
 
 #include <IQComponents/igQtModelDialogWidget.h>
+#include <IQWidgets/igQtRenderWidget.h>
 
 #include <iGameBoundingBox.h>
 #include <iGameFlatArray.h>
@@ -20,6 +21,9 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHideEvent>
+#include <QEvent>
+#include <QMouseEvent>
+#include <QShowEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -28,6 +32,9 @@
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
 #include <QVector>
+#include <algorithm>
+#include <cmath>
+#include <vector>
 
 using namespace iGame;
 
@@ -66,6 +73,26 @@ QLineEdit* MakeLineEdit() {
     auto* edit = new QLineEdit;
     edit->setStyleSheet(kInputStyle);
     return edit;
+}
+
+// 点到线段的最短距离（屏幕像素空间），用于球体线框拾取。
+float DistToSegment(const igm::vec2& p, const igm::vec2& a,
+                    const igm::vec2& b) {
+    const float abx = b.x - a.x;
+    const float aby = b.y - a.y;
+    const float len2 = abx * abx + aby * aby;
+    if (len2 < 1e-12f) {
+        const float dx = p.x - a.x;
+        const float dy = p.y - a.y;
+        return std::sqrt(dx * dx + dy * dy);
+    }
+    float t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2;
+    t = std::max(0.0f, std::min(1.0f, t));
+    const float px = a.x + t * abx;
+    const float py = a.y + t * aby;
+    const float dx = p.x - px;
+    const float dy = p.y - py;
+    return std::sqrt(dx * dx + dy * dy);
 }
 
 }  // namespace
@@ -549,10 +576,301 @@ void igQtProbeWidget::updateResultTable() {
 
 void igQtProbeWidget::closeEvent(QCloseEvent* event) {
     clearOverlays();
+    resetDragState();
+    if (m_renderWidget && m_filterInstalled) {
+        m_renderWidget->removeEventFilter(this);
+        m_filterInstalled = false;
+    }
     QWidget::closeEvent(event);
 }
 
 void igQtProbeWidget::hideEvent(QHideEvent* event) {
     clearOverlays();
+    resetDragState();
+    if (m_renderWidget && m_filterInstalled) {
+        m_renderWidget->removeEventFilter(this);
+        m_filterInstalled = false;
+    }
     QWidget::hideEvent(event);
+}
+
+void igQtProbeWidget::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    // 面板显示时挂上事件过滤器，拖球交互才生效；隐藏时在 hideEvent 里卸载。
+    if (m_renderWidget && !m_filterInstalled) {
+        m_renderWidget->installEventFilter(this);
+        m_filterInstalled = true;
+    }
+}
+
+void igQtProbeWidget::setRenderWidget(igQtRenderWidget* renderWidget) {
+    m_renderWidget = renderWidget;
+}
+
+bool igQtProbeWidget::eventFilter(QObject* obj, QEvent* event) {
+    // 只过滤渲染视图自身的事件；没有球（或面板已隐藏）时完全放行，
+    // 不影响旋转/平移/缩放等原有交互。
+    if (obj != m_renderWidget) return false;
+    // 拖拽中即使球被删（如半径拖到 0）也要继续消费，避免拖拽脱钩。
+    if (m_sphereHandle == 0 && m_dragMode == DragMode::None) return false;
+
+    const QEvent::Type type = event->type();
+    if (type == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        const QPoint pos = me->pos();
+        // 拖拽进行中时新按键也消费掉，避免模式被意外切换。
+        if (m_dragging) return true;
+        if (me->button() == Qt::LeftButton &&
+            isPointOnSphereWireframe(pos, 10.0f)) {
+            return beginDrag(pos, DragMode::MoveCenter);
+        }
+        if (me->button() == Qt::RightButton && isPointOnSphereSurface(pos)) {
+            return beginDrag(pos, DragMode::ResizeRadius);
+        }
+        return false;
+    }
+
+    if (type == QEvent::MouseMove) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        const QPoint pos = me->pos();
+        if (m_dragMode != DragMode::None) {
+            updateDrag(pos);
+            return true; // 拖拽期间持续消费，即使鼠标移出球体。
+        }
+        updateHoverCursor(pos);
+        return false; // 未拖拽时放行，保持原有交互。
+    }
+
+    if (type == QEvent::MouseButtonRelease) {
+        if (m_dragMode != DragMode::None) {
+            endDrag();
+            return true;
+        }
+        return false;
+    }
+
+    if (type == QEvent::Leave) {
+        if (m_dragMode == DragMode::None && m_renderWidget) {
+            m_renderWidget->unsetCursor();
+        }
+        return false;
+    }
+
+    return false;
+}
+
+bool igQtProbeWidget::beginDrag(const QPoint& pos, DragMode mode) {
+    auto* scene = currentScene();
+    if (scene == nullptr) return false;
+    auto camera = scene->GetCamera();
+    if (camera == nullptr) return false;
+
+    Point center;
+    float radius = 0.0f;
+    int count = 0;
+    double tolerance = 0.0;
+    bool autoTolerance = false;
+    if (!parseParams(center, radius, count, tolerance, autoTolerance)) {
+        return false;
+    }
+
+    m_dragMode = mode;
+    m_dragging = true;
+    m_dragCenter = center;
+    m_dragRadius = radius;
+    m_lastDragPos = pos;
+
+    const igm::mat4 model = scene->GetModelMatrix();
+    m_dragMVP = camera->GetProjectionMatrix() * camera->GetViewMatrix() * model;
+    m_dragInvMVP = m_dragMVP.invert();
+
+    // 记录球心 NDC 深度：拖拽固定在按下时的深度平面上移动。
+    const igm::vec4 clip =
+            m_dragMVP * igm::vec4{center[0], center[1], center[2], 1.0f};
+    m_centerNDCZ = clip.z / clip.w;
+    return true;
+}
+
+void igQtProbeWidget::updateDrag(const QPoint& pos) {
+    if (!m_dragging) return;
+    if (m_dragMode == DragMode::MoveCenter) {
+        const igm::vec3 p = unproject(pos, m_centerNDCZ);
+        applySphereParams(Point{static_cast<float>(p.x), static_cast<float>(p.y),
+                                static_cast<float>(p.z)},
+                          m_dragRadius);
+    } else if (m_dragMode == DragMode::ResizeRadius) {
+        const igm::vec3 p = unproject(pos, m_centerNDCZ);
+        const igm::vec3 c{m_dragCenter[0], m_dragCenter[1], m_dragCenter[2]};
+        const igm::vec3 d = p - c;
+        const float r =
+                std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        applySphereParams(m_dragCenter, r);
+    }
+    m_lastDragPos = pos;
+}
+
+void igQtProbeWidget::endDrag() {
+    m_dragMode = DragMode::None;
+    m_dragging = false;
+}
+
+void igQtProbeWidget::resetDragState() {
+    m_dragMode = DragMode::None;
+    m_dragging = false;
+    if (m_renderWidget) m_renderWidget->unsetCursor();
+}
+
+void igQtProbeWidget::applySphereParams(const Point& center, float radius) {
+    m_updatingParams = true;
+    m_centerX->setText(QString::number(static_cast<double>(center[0])));
+    m_centerY->setText(QString::number(static_cast<double>(center[1])));
+    m_centerZ->setText(QString::number(static_cast<double>(center[2])));
+    m_radius->setText(QString::number(static_cast<double>(radius)));
+    m_updatingParams = false;
+
+    drawSphere(center, radius);
+    if (m_requestRender) m_requestRender();
+}
+
+igm::vec3 igQtProbeWidget::unproject(const QPoint& pos, float ndcZ) const {
+    if (m_renderWidget == nullptr) return igm::vec3{};
+    const float ndcX = 2.0f * pos.x() / m_renderWidget->width() - 1.0f;
+    const float ndcY = 1.0f - 2.0f * pos.y() / m_renderWidget->height();
+    igm::vec4 p = m_dragInvMVP * igm::vec4{ndcX, ndcY, ndcZ, 1.0f};
+    p /= p.w;
+    return igm::vec3{p.x, p.y, p.z};
+}
+
+bool igQtProbeWidget::isPointOnSphereWireframe(const QPoint& pos,
+                                               float tolerance) const {
+    auto* scene = currentScene();
+    if (scene == nullptr || m_renderWidget == nullptr) return false;
+    auto camera = scene->GetCamera();
+    if (camera == nullptr) return false;
+
+    Point center;
+    float radius = 0.0f;
+    int count = 0;
+    double dummyTolerance = 0.0;
+    bool autoTolerance = false;
+    if (!parseParams(center, radius, count, dummyTolerance, autoTolerance)) {
+        return false;
+    }
+    if (radius <= 0.0f) return false;
+
+    const igm::mat4 mvp = camera->GetProjectionMatrix() *
+                          camera->GetViewMatrix() * scene->GetModelMatrix();
+    const float w = static_cast<float>(m_renderWidget->width());
+    const float h = static_cast<float>(m_renderWidget->height());
+    if (w <= 0.0f || h <= 0.0f) return false;
+
+    // 与 drawSphere 相同的网格密度（9 个纬度层 × 8 条经线）。
+    const int stackCount = 9;
+    const int sectorCount = 8;
+    const float sectorStep = 2.0f * IGM_PI / sectorCount;
+    const float stackStep = IGM_PI / stackCount;
+
+    // 生成并投影全部线框顶点到屏幕空间。
+    std::vector<igm::vec2> screen;
+    screen.reserve(static_cast<size_t>((stackCount + 1) * (sectorCount + 1)));
+    for (int i = 0; i <= stackCount; ++i) {
+        const float stackAngle = IGM_PI / 2.0f - i * stackStep;
+        const float xy = radius * std::cos(stackAngle);
+        const float z = center[2] + radius * std::sin(stackAngle);
+        for (int j = 0; j <= sectorCount; ++j) {
+            const float sectorAngle = j * sectorStep;
+            igm::vec4 clip =
+                    mvp * igm::vec4{center[0] + xy * std::cos(sectorAngle),
+                                    center[1] + xy * std::sin(sectorAngle), z,
+                                    1.0f};
+            clip /= clip.w;
+            screen.emplace_back((clip.x + 1.0f) * 0.5f * w,
+                                (1.0f - clip.y) * 0.5f * h);
+        }
+    }
+
+    const auto at = [sectorCount, &screen](int i, int j) -> const igm::vec2& {
+        return screen[static_cast<size_t>(i * (sectorCount + 1) + j)];
+    };
+    const igm::vec2 p{static_cast<float>(pos.x()),
+                      static_cast<float>(pos.y())};
+
+    // 竖线（经线）：同一 sector 的相邻纬度层连线。
+    for (int i = 0; i < stackCount; ++i) {
+        for (int j = 0; j <= sectorCount; ++j) {
+            if (DistToSegment(p, at(i, j), at(i + 1, j)) <= tolerance) {
+                return true;
+            }
+        }
+    }
+    // 横线（纬线）：同一纬度层的相邻 sector 连线（最顶部一圈不画）。
+    for (int i = 1; i <= stackCount; ++i) {
+        for (int j = 0; j < sectorCount; ++j) {
+            if (DistToSegment(p, at(i, j), at(i, j + 1)) <= tolerance) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool igQtProbeWidget::isPointOnSphereSurface(const QPoint& pos) const {
+    auto* scene = currentScene();
+    if (scene == nullptr || m_renderWidget == nullptr) return false;
+    auto camera = scene->GetCamera();
+    if (camera == nullptr) return false;
+
+    Point center;
+    float radius = 0.0f;
+    int count = 0;
+    double dummyTolerance = 0.0;
+    bool autoTolerance = false;
+    if (!parseParams(center, radius, count, dummyTolerance, autoTolerance)) {
+        return false;
+    }
+    if (radius <= 0.0f) return false;
+
+    const igm::mat4 mvp = camera->GetProjectionMatrix() *
+                          camera->GetViewMatrix() * scene->GetModelMatrix();
+    const igm::mat4 invMVP = mvp.invert();
+    const float w = static_cast<float>(m_renderWidget->width());
+    const float h = static_cast<float>(m_renderWidget->height());
+    if (w <= 0.0f || h <= 0.0f) return false;
+
+    const float ndcX = 2.0f * pos.x() / w - 1.0f;
+    const float ndcY = 1.0f - 2.0f * pos.y() / h;
+    const auto unprojectLocal = [&](float ndcZ) {
+        igm::vec4 q = invMVP * igm::vec4{ndcX, ndcY, ndcZ, 1.0f};
+        q /= q.w;
+        return igm::vec3{q.x, q.y, q.z};
+    };
+
+    // 构造模型空间射线，与球面求交（取近根，即前半球）。
+    const igm::vec3 nearPoint = unprojectLocal(-1.0f);
+    const igm::vec3 farPoint = unprojectLocal(1.0f);
+    igm::vec3 dir = farPoint - nearPoint;
+    const float dirLen =
+            std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (dirLen < 1e-12f) return false;
+    dir /= dirLen;
+
+    const igm::vec3 oc =
+            nearPoint - igm::vec3{center[0], center[1], center[2]};
+    const float b = oc.x * dir.x + oc.y * dir.y + oc.z * dir.z;
+    const float c = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - radius * radius;
+    const float disc = b * b - c;
+    if (disc < 0.0f) return false;
+    const float t = -b - std::sqrt(disc);
+    return t >= 0.0f;
+}
+
+void igQtProbeWidget::updateHoverCursor(const QPoint& pos) {
+    if (m_renderWidget == nullptr) return;
+    if (isPointOnSphereWireframe(pos, 10.0f)) {
+        m_renderWidget->setCursor(Qt::SizeAllCursor);
+    } else if (isPointOnSphereSurface(pos)) {
+        m_renderWidget->setCursor(Qt::SizeHorCursor);
+    } else {
+        m_renderWidget->unsetCursor();
+    }
 }

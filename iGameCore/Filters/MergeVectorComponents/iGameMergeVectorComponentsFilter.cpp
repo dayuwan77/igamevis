@@ -1,5 +1,9 @@
 #include "iGameMergeVectorComponentsFilter.h"
 #include "iGameDataObject.h"
+#include "iGamePointSet.h"
+#include "iGameSurfaceMesh.h"
+#include "iGameVolumeMesh.h"
+#include "iGameUnstructuredMesh.h"
 
 #include <string>
 
@@ -99,19 +103,9 @@ bool MergeVectorComponentsFilter::Execute() {
         comps.push_back(attr.pointer);
     }
 
-    // Output vector name: default "vector"; delete any existing same-named attribute under
-    // the same attachment so re-running replaces it (point/cell vectors coexist independently)
+    // Output vector name: default "vector"
     std::string outName = m_OutputName.empty() ? std::string("vector") : m_OutputName;
-    for (int i = 0; i < static_cast<int>(attrSet->GetNumberOfAttributes()); ++i) {
-        auto& a = attrSet->GetAttribute(i);
-        if (!a.IsNone() && a.pointer
-            && a.attachmentType == m_AttachmentType
-            && a.pointer->GetName() == outName) {
-            attrSet->DeleteAttribute(i);
-        }
-    }
 
-    // Output type: keep original type if all components share the same type, else promote to DoubleArray
     constexpr int N = 3;
     ArrayObject::Pointer out = typeUniform ? CreateArrayOfType(commonType)
                                            : DoubleArray::New();
@@ -126,18 +120,78 @@ bool MergeVectorComponentsFilter::Execute() {
         out->SetValue(i * 3 + 2, comps[2]->GetValue(i));
     }
 
-    IGsize idx = attrSet->AddAttribute(IG_VECTOR, m_AttachmentType, out);
+    // Build an independent output node: a new mesh deep-copying the input (points / cells /
+    // attributes), with the merged vector registered on the copy. The original model is
+    // left untouched, and the model tree gains a new node carrying the merged vector.
+    DataObject::Pointer output;
+    if (auto um = DynamicCast<UnstructuredMesh>(input)) {
+        auto outMesh = UnstructuredMesh::New();
+        auto pts = Points::New();
+        pts->DeepCopy(um->GetPoints());
+        outMesh->SetPoints(pts);
+        auto cells = CellArray::New();
+        cells->DeepCopy(um->GetCells());
+        UnsignedIntArray::Pointer inTypes{ um->GetCellTypes() };
+        auto types = UnsignedIntArray::New();
+        types->DeepCopy(inTypes);
+        outMesh->SetCells(cells, types);
+        output = outMesh;
+    } else if (auto vm = DynamicCast<VolumeMesh>(input)) {
+        // Volume input: emit an UnstructuredMesh node carrying the volume cells
+        auto outMesh = UnstructuredMesh::New();
+        if (!outMesh->GenerateFromVolumeMesh(vm)) {
+            m_Message = "Failed to generate the output mesh from the volume mesh.";
+            return false;
+        }
+        output = outMesh;
+    } else if (auto sm = DynamicCast<SurfaceMesh>(input)) {
+        auto outMesh = SurfaceMesh::New();
+        auto pts = Points::New();
+        pts->DeepCopy(sm->GetPoints());
+        outMesh->SetPoints(pts);
+        CellArray::Pointer inFaces{ sm->GetFaces() };
+        auto faces = CellArray::New();
+        faces->DeepCopy(inFaces);
+        outMesh->SetFaces(faces);
+        output = outMesh;
+    } else {
+        m_Message = "Independent output node is not supported for this data type.";
+        return false;
+    }
+
+    auto outAttrs = output->GetAttributeSet();
+    if (!outAttrs) {
+        output->SetAttributeSet(AttributeSet::New());
+        outAttrs = output->GetAttributeSet();
+    }
+    // Drop same-named leftovers on the copy (defensive: user data may already use the name)
+    for (int i = 0; i < static_cast<int>(outAttrs->GetNumberOfAttributes()); ++i) {
+        auto& a = outAttrs->GetAttribute(i);
+        if (!a.IsNone() && a.pointer
+            && a.attachmentType == m_AttachmentType
+            && a.pointer->GetName() == outName) {
+            outAttrs->DeleteAttribute(i);
+        }
+    }
+
+    IGsize idx = outAttrs->AddAttribute(IG_VECTOR, m_AttachmentType, out);
     if (idx == static_cast<IGsize>(-1)) {
         m_Message = "Failed to add the merged vector attribute.";
         return false;
     }
-    auto& mergedAttr = attrSet->GetAttribute(idx);
+    auto& mergedAttr = outAttrs->GetAttribute(idx);
     if (mergedAttr.IsNone() || !mergedAttr.pointer) {
         m_Message = "Merged vector attribute is invalid after adding.";
         return false;
     }
     mergedAttr.UpdateAllDataRange();
-    this->SetOutput(input);
+
+    const std::string baseName = input->GetName();
+    // Output node name: <vectorName>_<modelName>_merged
+    output->SetName(baseName.empty() ? outName + "_merged"
+                                     : outName + "_" + baseName + "_merged");
+
+    this->SetOutput(output);
     return true;
 }
 

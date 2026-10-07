@@ -77,6 +77,12 @@ public:
     bool GetComputeMean() const { return m_ComputeMean; }
     //@}
 
+    //@{
+    /// 诊断信息（执行后填充）：输出图像维度、体素数量、参与统计的点属性与分量数等，
+    /// 供界面提示使用。
+    const std::string& GetMessage() const { return m_Message; }
+    //@}
+
 protected:
     PointSetToOctreeFilter();
     ~PointSetToOctreeFilter() override = default;
@@ -99,6 +105,7 @@ protected:
     bool m_ComputeSum{false};
     bool m_ComputeMean{true};
     std::string m_InputArrayName{};
+    std::string m_Message;
 
     // VTK vtkBoundingBox::ComputeDivisions / ClampDivisions 的等价实现。
     static void ComputeDivisions(igIndex64 totalBins, const double minPnt[3], const double maxPnt[3],

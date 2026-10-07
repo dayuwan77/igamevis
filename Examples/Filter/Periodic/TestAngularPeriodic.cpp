@@ -5,7 +5,8 @@
 #include "iGameScene.h"
 
 int main() {
-    const std::string fileName = "./Models/mazewheel.obj";
+    // AI 生成的环形扇区测试模型：120° 扇区绕 Z 轴 3 份 360° 可拼满整圈
+    const std::string fileName = "./Models/AIGen_Surface_RingSector.obj";
     auto dataObj = iGame::FileIO::ReadFile(fileName);
     if (dataObj == nullptr) {
         igError("Error reading the file");
@@ -21,7 +22,7 @@ int main() {
     iGame::Vector3d axisDir(0.0, 0.0, 1.0);
     filter->SetRotationAxis(axisOrigin, axisDir);
     filter->SetNumberOfCopies(3);
-    filter->SetAngle(360.0);
+    filter->SetAngle(120.0); // 周期角度：相邻两份间隔 120°（0/120/240，与 120° 扇区吻合）
     filter->Execute();
     scene->AddModel(filter->GetOutput());  
 

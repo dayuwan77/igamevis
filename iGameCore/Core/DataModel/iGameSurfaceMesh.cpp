@@ -1025,7 +1025,13 @@ void SurfaceMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArra
     // Previously: attrRange->SetValue(1, m_ColorMapper->GetRange()[1]);
 
     FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension);
-    if (colors == nullptr) { return; }
+    if (colors == nullptr) {
+        // 单元属性取色失败时不能保留上一个属性生成的逐点颜色，否则点样式会显示过期颜色
+        m_Colors = FloatArray::New();
+        m_Colors->SetDimension(3);
+        m_Colors->Modified();
+        return;
+    }
 
     FloatArray::Pointer newPositions = FloatArray::New();
     FloatArray::Pointer newColors = FloatArray::New();
@@ -1037,10 +1043,16 @@ void SurfaceMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArra
     IGsize faceIdNum = this->GetFaces()->GetNumberOfCellIds();
     newPositions->Reserve(faceIdNum - fcnt * 2);
     newColors->Reserve(faceIdNum - fcnt * 2);
+    // 点样式（IG_POINTS）绘制的是 m_Positions / m_Colors，单元属性的颜色却只在 m_CellColors 里，
+    // 渲染侧过去只好把点画成纯白。这里同时生成逐点颜色（cell->point 取入射单元颜色平均）。
+    CellToPointColorBuilder pointColors;
+    pointColors.Initialize(this->GetNumberOfPoints());
     float color[3]{};
     for (int i = 0; i < this->GetNumberOfFaces(); i++) {
         Face* face = this->GetFace(i);
         colors->GetElement(i, color);
+        const int faceSize = face->GetCellSize();
+        if (faceSize > 0) { pointColors.AddCell(face->m_PointIds->RawPointer(), faceSize, color); }
         for (int j = 1; j < face->GetCellSize() - 1; j++) {
             auto& p0 = face->m_Points->GetPoint(0);
             newPositions->AddElement3(p0[0], p0[1], p0[2]);
@@ -1067,6 +1079,9 @@ void SurfaceMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArra
 
     m_CellTriangleEdgeMasks = newEdgeMasks;
     m_CellTriangleEdgeMasks->Modified();
+
+    m_Colors = pointColors.Build(this->GetDefaultColor());
+    m_Colors->Modified();
 }
 
 

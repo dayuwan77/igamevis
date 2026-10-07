@@ -14,6 +14,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 using namespace iGame;
@@ -45,6 +46,33 @@ Vec3 Rodrigues(const Vec3& p, const Vec3& axis, const Vec3& origin, double angle
     return Vec3(origin.x + vx * cosA + cx * sinA + axis.x * k,
                 origin.y + vy * cosA + cy * sinA + axis.y * k,
                 origin.z + vz * cosA + cz * sinA + axis.z * k);
+}
+
+// 与过滤器一致的张量旋转：out = R·T·Rᵀ（R 由 Rodrigues 构造）。
+void RotateTensorMat(const Vec3& axisIn, double angleRad, const double T[3][3], double out[3][3]) {
+    double R[3][3];
+    for (int j = 0; j < 3; ++j) {
+        Vec3 e(j == 0 ? 1.0 : 0.0, j == 1 ? 1.0 : 0.0, j == 2 ? 1.0 : 0.0);
+        Vec3 col = Rodrigues(e, axisIn, Vec3(0, 0, 0), angleRad);
+        R[0][j] = col.x;
+        R[1][j] = col.y;
+        R[2][j] = col.z;
+    }
+    double tmp[3][3];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double s = 0.0;
+            for (int k = 0; k < 3; ++k) { s += R[i][k] * T[k][j]; }
+            tmp[i][j] = s;
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double s = 0.0;
+            for (int k = 0; k < 3; ++k) { s += tmp[i][k] * R[j][k]; }
+            out[i][j] = s;
+        }
+    }
 }
 
 void CheckPointOnCopy(const Points* pts,
@@ -103,6 +131,21 @@ UnstructuredMesh::Pointer MakeUnstructuredMixed() {
     std::vector<float> cvd;
     for (size_t i = 0; i < cs.size(); ++i) { cvd.push_back(float(i)); cvd.push_back(float(i + 1)); cvd.push_back(float(i + 2)); }
     attributes->AddAttribute(IG_VECTOR, IG_CELL, FillPointAttr("CV", 3, cvd));
+    std::vector<float> pt;
+    for (int i = 0; i < 12; ++i) {
+        for (int k = 0; k < 9; ++k) { pt.push_back(float(i * 9 + k)); }
+    }
+    attributes->AddAttribute(IG_TENSOR, IG_POINT, FillPointAttr("PT", 9, pt));
+    // 法向量（IG_NORMAL，3 分量）：应随几何旋转
+    std::vector<float> pn;
+    for (int i = 0; i < 12; ++i) { pn.push_back(float(i + 1)); pn.push_back(float(-i)); pn.push_back(float(i * i)); }
+    attributes->AddAttribute(IG_NORMAL, IG_POINT, FillPointAttr("PN", 3, pn));
+    // 6 分量对称张量（Voigt: xx,yy,zz,xy,yz,xz）：应做 R·T·Rᵀ
+    std::vector<float> pst;
+    for (int i = 0; i < 12; ++i) {
+        for (int k = 0; k < 6; ++k) { pst.push_back(float(i * 6 + k + 1)); }
+    }
+    attributes->AddAttribute(IG_TENSOR, IG_POINT, FillPointAttr("PS", 6, pst));
     mesh->SetAttributeSet(attributes);
     return mesh;
 }
@@ -247,8 +290,9 @@ void TestUnstructuredMixed() {
     std::printf("[case] unstructured mixed cell types + attributes\n");
     auto src = MakeUnstructuredMixed();
     const int copies = 3;
+    const float angleDeg = 120.f; // 周期角度：相邻两份间隔 120°（0/120/240）
     const Vec3 axis(0, 0, 1), origin(0, 0, 0);
-    auto r = RunFilter(src, axis, origin, copies, 360.f);
+    auto r = RunFilter(src, axis, origin, copies, angleDeg);
     Expect(r.ok, "Execute returns true");
     if (!r.ok) return;
 
@@ -275,35 +319,81 @@ void TestUnstructuredMixed() {
     auto outAttrs = r.out->GetAttributeSet();
     auto ps = DynamicCast<FloatArray>(outAttrs->GetAttribute("P").pointer);
     auto pv = DynamicCast<FloatArray>(outAttrs->GetAttribute("PV").pointer);
+    auto pt = DynamicCast<FloatArray>(outAttrs->GetAttribute("PT").pointer);
+    auto pn = DynamicCast<FloatArray>(outAttrs->GetAttribute("PN").pointer);
+    auto pst = DynamicCast<FloatArray>(outAttrs->GetAttribute("PS").pointer);
     auto csd = DynamicCast<FloatArray>(outAttrs->GetAttribute("C").pointer);
     auto cvd = DynamicCast<FloatArray>(outAttrs->GetAttribute("CV").pointer);
-    Expect(ps && pv && csd && cvd, "all point/cell attributes present");
-    if (!(ps && pv && csd && cvd)) return;
+    Expect(ps && pv && pt && pn && pst && csd && cvd, "all point/cell attributes present");
+    if (!(ps && pv && pt && pn && pst && csd && cvd)) return;
 
-    bool attrOk = true;
+    const double step = static_cast<double>(angleDeg) * 3.141592653589793 / 180.0;
+
+    bool scalarOk = true, vectorOk = true, tensorOk = true, normalOk = true, tensor6Ok = true;
     for (int c = 0; c < copies; ++c) {
+        const double angleRad = step * c;
         for (IGsize i = 0; i < srcNpts; ++i) {
             const int ival = static_cast<int>(i);
             const float* pp = ps->RawPointer(c * srcNpts + i);
+            if (pp[0] != float(ival)) scalarOk = false;
+
+            // 向量随几何旋转：v' = R·v
             const float* pvp = pv->RawPointer(c * srcNpts + i);
-            if (pp[0] != float(ival)) attrOk = false;
-            if (pvp[0] != float(ival) || pvp[1] != float(ival * 2) || pvp[2] != float(-ival)) {
-                attrOk = false;
+            const Vec3 v = Rodrigues(Vec3(ival, ival * 2, -ival), axis, origin, angleRad);
+            if (std::fabs(pvp[0] - v.x) > 1e-3 || std::fabs(pvp[1] - v.y) > 1e-3 ||
+                std::fabs(pvp[2] - v.z) > 1e-3) {
+                vectorOk = false;
+            }
+
+            // 法向量（IG_NORMAL）：同样随几何旋转
+            const float* pnp = pn->RawPointer(c * srcNpts + i);
+            const Vec3 n = Rodrigues(Vec3(float(ival + 1), float(-ival), float(ival * ival)), axis, origin, angleRad);
+            if (std::fabs(pnp[0] - n.x) > 1e-3 || std::fabs(pnp[1] - n.y) > 1e-3 ||
+                std::fabs(pnp[2] - n.z) > 1e-3) {
+                normalOk = false;
+            }
+
+            // 9 分量张量按 R·T·Rᵀ 旋转
+            const float* ptp = pt->RawPointer(c * srcNpts + i);
+            double T[3][3], Tt[3][3];
+            for (int m = 0; m < 3; ++m)
+                for (int n2 = 0; n2 < 3; ++n2) T[m][n2] = static_cast<double>(ival * 9 + m * 3 + n2);
+            RotateTensorMat(axis, angleRad, T, Tt);
+            for (int m = 0; m < 3; ++m)
+                for (int n2 = 0; n2 < 3; ++n2)
+                    if (std::fabs(ptp[m * 3 + n2] - Tt[m][n2]) > 1e-3) tensorOk = false;
+
+            // 6 分量对称张量（Voigt xx,yy,zz,xy,yz,xz）按 R·T·Rᵀ 旋转
+            const float* psp = pst->RawPointer(c * srcNpts + i);
+            const double s0 = ival * 6 + 1, s1 = ival * 6 + 2, s2 = ival * 6 + 3;
+            const double s3 = ival * 6 + 4, s4 = ival * 6 + 5, s5 = ival * 6 + 6;
+            double S[3][3] = {{s0, s3, s5}, {s3, s1, s4}, {s5, s4, s2}};
+            double St[3][3];
+            RotateTensorMat(axis, angleRad, S, St);
+            const double exp6[6] = {St[0][0], St[1][1], St[2][2], St[0][1], St[1][2], St[0][2]};
+            for (int k = 0; k < 6; ++k) {
+                if (std::fabs(psp[k] - exp6[k]) > 1e-3) tensor6Ok = false;
             }
         }
         for (IGsize k = 0; k < srcNc; ++k) {
             const int kval = static_cast<int>(k);
             const float* cpp = csd->RawPointer(c * srcNc + k);
+            if (cpp[0] != float(kval * 10)) scalarOk = false;
+
             const float* cvp = cvd->RawPointer(c * srcNc + k);
-            if (cpp[0] != float(kval * 10)) attrOk = false;
-            if (cvp[0] != float(kval) || cvp[1] != float(kval + 1) || cvp[2] != float(kval + 2)) {
-                attrOk = false;
+            const Vec3 v = Rodrigues(Vec3(kval, kval + 1, kval + 2), axis, origin, angleRad);
+            if (std::fabs(cvp[0] - v.x) > 1e-3 || std::fabs(cvp[1] - v.y) > 1e-3 ||
+                std::fabs(cvp[2] - v.z) > 1e-3) {
+                vectorOk = false;
             }
         }
     }
-    Expect(attrOk, "point/cell attribute values replicated identically per copy");
+    Expect(scalarOk, "scalar attributes replicated identically per copy");
+    Expect(vectorOk, "point/cell vector attributes rotate with geometry");
+    Expect(tensorOk, "point tensor attribute rotates as R*T*R^T");
+    Expect(normalOk, "IG_NORMAL attribute rotates with geometry");
+    Expect(tensor6Ok, "6-component symmetric tensor rotates as R*T*R^T");
 
-    const double step = 360.0 / copies * 3.141592653589793 / 180.0;
     for (int c = 0; c < copies; ++c) {
         CheckPointOnCopy(r.out->GetPoints(), 0, c, srcNpts, axis, origin, step);
         CheckPointOnCopy(r.out->GetPoints(), 11, c, srcNpts, axis, origin, step);
@@ -314,7 +404,7 @@ void TestUnstructuredBigPoly() {
     std::printf("[case] unstructured with >16-point polygon cell\n");
     auto src = MakeUnstructuredWithBigPoly();
     const int copies = 2;
-    auto r = RunFilter(src, Vec3(0, 0, 1), Vec3(0, 0, 0), copies, 360.f);
+    auto r = RunFilter(src, Vec3(0, 0, 1), Vec3(0, 0, 0), copies, 180.f);
     Expect(r.ok, "Execute returns true");
     if (!r.ok) return;
 
@@ -337,7 +427,7 @@ void TestUnstructuredBigPoly() {
 void TestSurfaceMixed() {
     std::printf("[case] surface faces -> correct mapped types\n");
     auto src = MakeSurfaceMixed();
-    auto r = RunFilter(src, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 360.f);
+    auto r = RunFilter(src, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 180.f);
     Expect(r.ok, "Execute returns true");
     if (!r.ok) return;
 
@@ -350,7 +440,7 @@ void TestSurfaceMixed() {
 void TestVolumeMesh() {
     std::printf("[case] VolumeMesh must NOT be rebuilt by face point count\n");
     auto src = MakeVolumeTetHex();
-    auto r = RunFilter(src, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 360.f);
+    auto r = RunFilter(src, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 180.f);
     Expect(r.ok, "Execute returns true");
     if (!r.ok) return;
 
@@ -372,7 +462,7 @@ void TestVolumeMesh() {
 void TestStructured() {
     std::printf("[case] StructuredMesh 3D (single hexa) + 2D (quad)\n");
     auto s3 = MakeStructured3D();
-    auto r3 = RunFilter(s3, Vec3(1, 0, 0), Vec3(0, 0, 0), 2, 360.f);
+    auto r3 = RunFilter(s3, Vec3(1, 0, 0), Vec3(0, 0, 0), 2, 180.f);
     Expect(r3.ok, "structured 3D Execute returns true");
     if (r3.ok) {
         Expect(r3.out->GetCells()->GetNumberOfCells() == 2, "1 hexa x 2 copies");
@@ -380,7 +470,7 @@ void TestStructured() {
     }
 
     auto s2 = MakeStructured2D();
-    auto r2 = RunFilter(s2, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 360.f);
+    auto r2 = RunFilter(s2, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 180.f);
     Expect(r2.ok, "structured 2D Execute returns true");
     if (r2.ok) {
         Expect(r2.out->GetCells()->GetNumberOfCells() == 2, "1 quad x 2 copies");
@@ -399,7 +489,7 @@ void TestPolyhedronCell() {
                                  4, 3, 4, 5, 6};        // 面 1：四边形 3-4-5-6
     mesh->AddCell(poly.data(), static_cast<int>(poly.size()), IG_POLYHEDRON);
 
-    auto r = RunFilter(mesh, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 360.f);
+    auto r = RunFilter(mesh, Vec3(0, 0, 1), Vec3(0, 0, 0), 2, 180.f);
     Expect(r.ok, "Execute returns true");
     if (!r.ok) return;
 
@@ -427,12 +517,84 @@ void TestPolyhedronCell() {
 void TestNonAlignedAxis() {
     std::printf("[case] non-axis-aligned rotation axis\n");
     auto src = MakeUnstructuredMixed();
-    auto r = RunFilter(src, Vec3(1, 1, 1), Vec3(0.2, -0.1, 0.4), 4, 360.f);
+    auto r = RunFilter(src, Vec3(1, 1, 1), Vec3(0.2, -0.1, 0.4), 4, 90.f);
     Expect(r.ok, "Execute returns true");
     if (!r.ok) return;
-    const double step = 360.0 / 4 * 3.141592653589793 / 180.0;
+    const double step = 90.0 * 3.141592653589793 / 180.0;
     for (int c = 0; c < 4; ++c) {
         CheckPointOnCopy(r.out->GetPoints(), 0, c, 12, Vec3(1, 1, 1), Vec3(0.2, -0.1, 0.4), step);
+    }
+}
+
+void TestIterationModeAndCoverage() {
+    std::printf("[case] iteration mode (Direct/Max) + coverage info\n");
+    auto src = MakeUnstructuredMixed();
+
+    auto run = [&](int mode, int copies, float angle, bool requireFull) {
+        struct R {
+            UnstructuredMesh::Pointer out;
+            bool ok = false;
+            int effective = 0;
+            std::string coverage;
+        };
+        R r;
+        auto filter = AngularPeriodicFilter::New();
+        filter->SetInput(src);
+        filter->SetRotationAxis(Point(0, 0, 0), Vector3d(0, 0, 1));
+        filter->SetIterationMode(mode);
+        filter->SetNumberOfCopies(copies);
+        filter->SetAngle(angle);
+        filter->SetRequireFullPeriod(requireFull);
+        r.ok = filter->Execute();
+        r.effective = filter->GetEffectiveNumberOfCopies();
+        r.coverage = filter->GetCoverageInfo();
+        if (r.ok) r.out = DynamicCast<UnstructuredMesh>(filter->GetOutput());
+        return r;
+    };
+
+    // MAX 90° -> 4 份，整周闭合
+    auto a = run(AngularPeriodicFilter::ITERATION_MODE_MAX, 0, 90.f, false);
+    Expect(a.ok, "MAX 90 deg Execute returns true");
+    if (a.ok) {
+        Expect(a.effective == 4, "MAX 90 deg -> 4 periods");
+        Expect(a.out->GetNumberOfPoints() == IGsize(12) * 4, "MAX 90 deg output has 4 copies");
+        Expect(a.coverage.find("整周闭合") != std::string::npos, "MAX 90 deg coverage = full period");
+        // 显式断言 ParaView 语义：90°/4 份 -> 0/90/180/270
+        const double step90 = 90.0 * 3.141592653589793 / 180.0;
+        for (int c = 0; c < 4; ++c) {
+            CheckPointOnCopy(a.out->GetPoints(), 0, c, 12, Vec3(0, 0, 1), Vec3(0, 0, 0), step90);
+        }
+    }
+
+    // MAX 100° -> floor(360/100)=3 份，缺口 60°
+    auto b = run(AngularPeriodicFilter::ITERATION_MODE_MAX, 999, 100.f, false);
+    Expect(b.ok, "MAX 100 deg Execute returns true");
+    if (b.ok) {
+        Expect(b.effective == 3, "MAX 100 deg -> 3 periods (floor)");
+        Expect(b.out->GetNumberOfPoints() == IGsize(12) * 3, "MAX 100 deg output has 3 copies");
+        Expect(b.coverage.find("缺口") != std::string::npos, "MAX 100 deg coverage = gap");
+    }
+
+    // DIRECT 3 x 100° -> 缺口
+    auto c = run(AngularPeriodicFilter::ITERATION_MODE_DIRECT_NB, 3, 100.f, false);
+    Expect(c.ok && c.effective == 3, "Direct 3x100 deg executed");
+    Expect(c.coverage.find("缺口") != std::string::npos, "Direct 3x100 deg coverage = gap");
+
+    // DIRECT 5 x 90° -> 重叠
+    auto d = run(AngularPeriodicFilter::ITERATION_MODE_DIRECT_NB, 5, 90.f, false);
+    Expect(d.ok && d.effective == 5, "Direct 5x90 deg executed");
+    Expect(d.out->GetNumberOfPoints() == IGsize(12) * 5, "Direct 5x90 deg output has 5 copies");
+    Expect(d.coverage.find("重叠") != std::string::npos, "Direct 5x90 deg coverage = overlap");
+
+    // RequireFullPeriod: 3 x 100° -> 失败
+    auto e = run(AngularPeriodicFilter::ITERATION_MODE_DIRECT_NB, 3, 100.f, true);
+    Expect(!e.ok, "RequireFullPeriod rejects 3x100 deg");
+
+    // RequireFullPeriod: 3 x 120° -> 成功
+    auto f = run(AngularPeriodicFilter::ITERATION_MODE_DIRECT_NB, 3, 120.f, true);
+    Expect(f.ok, "RequireFullPeriod accepts 3x120 deg");
+    if (f.ok) {
+        Expect(f.coverage.find("整周闭合") != std::string::npos, "3x120 deg coverage = full period");
     }
 }
 
@@ -446,6 +608,7 @@ int main() {
     TestStructured();
     TestPolyhedronCell();
     TestNonAlignedAxis();
+    TestIterationModeAndCoverage();
 
     std::printf("total checks: %d, failures: %d\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

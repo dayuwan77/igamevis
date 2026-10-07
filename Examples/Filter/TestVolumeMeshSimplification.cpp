@@ -10,7 +10,7 @@
 #include <limits>
 
 int main() {
-    const std::string fileName = "./Models/TetPlane_polyhedron.vtu";
+    const std::string fileName = "./Models/VolumeSimplification_FlangedTube.vtk";
     auto scene = iGame::Scene::New();
     auto input = iGame::FileIO::ReadFile(fileName);
 
@@ -19,6 +19,7 @@ int main() {
         return 1;
     }
 
+    // The input contains hexahedra; tetrahedralization must precede simplification.
     auto tetraFilter = iGame::MeshTetrahedralize::New();
     tetraFilter->SetInput(input);
     if (!tetraFilter->Execute()) {

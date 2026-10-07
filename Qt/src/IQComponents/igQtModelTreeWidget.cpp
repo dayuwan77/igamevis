@@ -325,10 +325,13 @@ void igQtModelTreeWidget::mousePressEvent(QMouseEvent* event) {
             // Clicked on expand/collapse indicator, only handle expand/collapse, don't change attribute display
             // Just let the base class handle the expand/collapse
         } else if (currentItem() != item) { // Check operation - only when clicking on the model itself
-            if (item->getModel() != iGame::SceneManager::Instance()->GetCurrentScene()->GetCurrentModel()) {
-                iGame::SceneManager::Instance()->GetCurrentScene()->SetCurrentModel(item->getModel());
-                emit ChangeCurrentModel(item->getModel());
+            auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+            if (item->getModel() != scene->GetCurrentModel()) {
+                scene->SetCurrentModel(item->getModel());
             }
+            // 无论是否与当前模型相同都要通知：删除模型后场景当前模型可能已被 Scene::RemoveModel
+            // 自动切到别的模型，此时若只在"模型不同"时发信号，左侧模型信息会一直停在被删模型上
+            emit ChangeCurrentModel(item->getModel());
 
             item->setSelected(true);
             item->getModel()->ViewCloudPicture(-1);

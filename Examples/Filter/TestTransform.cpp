@@ -9,7 +9,7 @@
 int main()
 {
     auto scene = iGame::Scene::New();
-    const std::string fileName = "./Models/Convert_Quad_Bicycle.vtk";
+    const std::string fileName = "./Models/Transform_Complex.vtk";
     auto input = iGame::FileIO::ReadFile(fileName);
 
     if (input == nullptr) {

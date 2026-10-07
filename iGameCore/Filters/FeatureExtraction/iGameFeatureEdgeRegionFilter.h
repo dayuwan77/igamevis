@@ -13,11 +13,14 @@ public:
 
     bool Execute() override;
 
+    void SetFeatureAngle(float angle) { m_featureAngle = angle; }
+
 protected:
     FeatureEdgeRegionFilter() { 
-        this->SetNumberOfInputs(2);
+        this->SetNumberOfInputs(1);
         this->SetNumberOfOutputs(1);
     }
+    float m_featureAngle = 0.0f;
 };
 IGAME_NAMESPACE_END
 #endif

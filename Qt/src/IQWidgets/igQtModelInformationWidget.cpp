@@ -163,43 +163,105 @@ void igQtModelInformationWidget::updateInformationFrame() {
         // 属性数组：名称 / 类型 / 范围（与 ParaView 的属性表格式一致）
         auto attrSet = obj->GetAttributeSet();
         if (attrSet != nullptr && attrSet->GetNumberOfAttributes() > 0) {
-            auto AppendAttributeRows = [&](auto attrs) {
+            // ParaView 的信息面板在统计数组范围时会跳过被 blank（幽灵）的元组，这里采用同一口径：
+            // 按 vtkGhostType 中的 HIDDENPOINT / HIDDENCELL 位跳过被隐藏的点或单元。
+            auto AppendAttributeRows = [&](auto attrs, unsigned char hiddenBit) {
                 if (attrs == nullptr || attrs->GetNumberOfElements() == 0) return;
+                iGame::ArrayObject::Pointer ghostArray = nullptr;
+                for (int g = 0; g < attrs->GetNumberOfElements(); g++) {
+                    auto& ghostAttr = attrs->GetElement(g);
+                    if (ghostAttr.IsNone() || ghostAttr.pointer == nullptr) continue;
+                    const std::string ghostName = ghostAttr.pointer->GetName();
+                    if (ghostName == "vtkGhostType" || ghostName == "GhostType") {
+                        ghostArray = ghostAttr.pointer;
+                        break;
+                    }
+                }
                 for (int i = 0; i < attrs->GetNumberOfElements(); i++) {
                     auto& attr = attrs->GetElement(i);
                     auto arr = attr.pointer;
                     if (arr == nullptr || attr.IsNone()) continue;
+                    // 数组类型名（与 ParaView 的属性表一致）：按 GetArrayType() 枚举完整映射，
+                    // 避免某些类型落进 unknown（例如八叉树过滤器输出的 UnsignedCharArray）
                     QString typeName = QStringLiteral("unknown");
-                    if (iGame::DynamicCast<iGame::LongLongArray>(arr)) {
-                        typeName = QStringLiteral("long long");
-                    } else if (iGame::DynamicCast<iGame::IntArray>(arr)) {
-                        typeName = QStringLiteral("int");
-                    } else if (iGame::DynamicCast<iGame::UnsignedIntArray>(arr)) {
-                        typeName = QStringLiteral("unsigned int");
-                    } else if (iGame::DynamicCast<iGame::FloatArray>(arr)) {
-                        typeName = QStringLiteral("float");
-                    } else if (iGame::DynamicCast<iGame::DoubleArray>(arr)) {
-                        typeName = QStringLiteral("double");
-                    } else if (iGame::DynamicCast<iGame::CharArray>(arr)) {
-                        typeName = QStringLiteral("char");
+                    switch (arr->GetArrayType()) {
+                        case IG_FloatArray:
+                            typeName = QStringLiteral("float");
+                            break;
+                        case IG_DoubleArray:
+                            typeName = QStringLiteral("double");
+                            break;
+                        case IG_IntArray:
+                            typeName = QStringLiteral("int");
+                            break;
+                        case IG_UnsignedIntArray:
+                            typeName = QStringLiteral("unsigned int");
+                            break;
+                        case IG_ShortArray:
+                            typeName = QStringLiteral("short");
+                            break;
+                        case IG_UnsignedShortArray:
+                            typeName = QStringLiteral("unsigned short");
+                            break;
+                        case IG_CharArray:
+                            typeName = QStringLiteral("char");
+                            break;
+                        case IG_UnsignedCharArray:
+                            typeName = QStringLiteral("unsigned char");
+                            break;
+                        case IG_LongLongArray:
+                            typeName = QStringLiteral("long long");
+                            break;
+                        case IG_UnsignedLongLongArray:
+                            typeName = QStringLiteral("unsigned long long");
+                            break;
+                        default:
+                            break;
                     }
                     QString rangeText = QStringLiteral("n/a");
                     if (arr->GetNumberOfElements() > 0) {
-                        double rmin = arr->GetValue(0);
-                        double rmax = arr->GetValue(0);
-                        for (IGsize k = 1; k < arr->GetNumberOfValues(); ++k) {
-                            double v = arr->GetValue(k);
-                            if (v < rmin) rmin = v;
-                            if (v > rmax) rmax = v;
+                        const int dim = arr->GetDimension() > 0 ? arr->GetDimension() : 1;
+                        double rmin = 0.0;
+                        double rmax = 0.0;
+                        bool hasValue = false;
+                        // 第一遍跳过被 blank 的元组；若全被 blank，第二遍回退为统计全部，避免显示 n/a
+                        for (int pass = 0; pass < 2 && !hasValue; ++pass) {
+                            const bool skipHidden = (pass == 0);
+                            for (IGsize t = 0; t < arr->GetNumberOfElements(); ++t) {
+                                if (skipHidden && ghostArray != nullptr &&
+                                    t < ghostArray->GetNumberOfElements() &&
+                                    (static_cast<unsigned char>(ghostArray->GetElementValue(t, 0)) & hiddenBit) !=
+                                            0) {
+                                    continue;
+                                }
+                                for (int c = 0; c < dim; ++c) {
+                                    const double v = arr->GetElementValue(t, c);
+                                    if (!hasValue) {
+                                        rmin = rmax = v;
+                                        hasValue = true;
+                                    } else if (v < rmin) {
+                                        rmin = v;
+                                    } else if (v > rmax) {
+                                        rmax = v;
+                                    }
+                                }
+                            }
                         }
-                        rangeText = QStringLiteral("[%1, %2]").arg(rmin).arg(rmax);
+                        if (hasValue) {
+                            // 与 ParaView / VTK 一致：double 按 17 位有效数字输出
+                            // （float 数组经提升后也能给出与 ParaView 相同的十进制形式）
+                            rangeText = QStringLiteral("[%1, %2]")
+                                            .arg(QString::number(rmin, 'g', 17),
+                                                 QString::number(rmax, 'g', 17));
+                        }
                     }
                     createPropertyLabel(statForm, QString::fromStdString(arr->GetName()),
                                         typeName + QStringLiteral(" | ") + rangeText);
                 }
             };
-            AppendAttributeRows(attrSet->GetAllPointAttributes());
-            AppendAttributeRows(attrSet->GetAllCellAttributes());
+            // 2 = vtkDataSetAttributes::HIDDENPOINT，32 = vtkDataSetAttributes::HIDDENCELL
+            AppendAttributeRows(attrSet->GetAllPointAttributes(), 2);
+            AppendAttributeRows(attrSet->GetAllCellAttributes(), 32);
         }
     }
 

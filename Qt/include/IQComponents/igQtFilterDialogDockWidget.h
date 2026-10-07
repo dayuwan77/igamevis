@@ -14,6 +14,7 @@
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QComboBox>
+#include <array>
 #include <functional>
 
 class QResizeEvent;
@@ -42,6 +43,18 @@ public:
                      const QString& defaultValue);
     int addParameter(WidgetType type, const QString& title,
         const std::vector<QString>& defaultValue);
+
+    // 三分量向量参数：一行内并排 X/Y/Z 三个输入框（避免每分量各占一行的臃肿比例）
+    int addVectorParameter(const QString& title,
+                           const QString& x, const QString& y, const QString& z);
+    double getVectorComponent(int i, int component, bool& ok) const;
+    void setVectorComponent(int i, int component, const QString& text) const;
+    // 获取向量某个分量的输入框（用于连接实时预览等）
+    QLineEdit* getVectorEdit(int i, int component) const;
+    // 启用/禁用整个向量输入（预设已决定方向时置灰，仅“自定义”时可编辑）
+    void setVectorEnabled(int i, bool enabled) const;
+    // 调整两列比例（标签列 : 输入列）；默认 1:1，建议表单用 0:1 让输入框占满剩余宽度
+    void setParameterColumnStretch(int labelStretch, int valueStretch);
 
     double getDouble(int i, bool& ok) {
         Item& item = itemMap[i];
@@ -138,6 +151,7 @@ private:
 
     std::function<void()> applyFunctor;
     std::map<int, Item> itemMap;
+    std::map<int, std::array<QLineEdit*, 3>> vectorItemMap;
     int index;
 };
 
