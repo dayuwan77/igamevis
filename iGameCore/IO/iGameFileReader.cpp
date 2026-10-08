@@ -4,6 +4,8 @@
 #include "iGameSurfaceMesh.h"
 #include "iGameVolumeMesh.h"
 
+#include <limits>
+
 IGAME_NAMESPACE_BEGIN
 FileReader::FileReader() {
     this->SetNumberOfInputs(0);
@@ -308,11 +310,21 @@ bool FileReader::CreateDataObject() {
 // Internal function to read in an integer value.
 // Returns zero if there was an error.
 int FileReader::Read(char* result) {
-    if (this->IS < this->FILEEND) {
-        *result = (char) *this->IS;
-        return 1;
+    if (m_FileType == IGAME_BINARY) {
+        if (this->IS < this->FILEEND) {
+            *result = (char) *this->IS;
+            ++this->IS;
+            return 1;
+        }
+        return 0;
     }
-    return 0;
+    // ASCII 里 char / unsigned char 数组存的是数值（例如 vtkGhostType 写的是 0 / 2 / 32），必须按数字解析。
+    // 按字符读会写入 ASCII 码（'0' = 48）并且只前进 1 字节，导致同一文件里 unsigned_char 数组之后的
+    // 段解析错位（CELL_DATA 段后面的 POINT_DATA 段整段丢失、nan/inf 之后的数值全部变 0 由此产生）。
+    int intData = 0;
+    this->IS = mAtoi(this->IS, intData);
+    *result = static_cast<char>(intData);
+    return 1;
 }
 //------------------------------------------------------------------------------
 int FileReader::Read(char* data, size_t n) {
@@ -326,11 +338,18 @@ int FileReader::Read(char* data, size_t n) {
 }
 //------------------------------------------------------------------------------
 int FileReader::Read(unsigned char* result) {
-    if (this->IS < this->FILEEND) {
-        *result = (unsigned char) *this->IS;
-        return 1;
+    if (m_FileType == IGAME_BINARY) {
+        if (this->IS < this->FILEEND) {
+            *result = (unsigned char) *this->IS;
+            ++this->IS;
+            return 1;
+        }
+        return 0;
     }
-    return 0;
+    int intData = 0;
+    this->IS = mAtoi(this->IS, intData);
+    *result = static_cast<unsigned char>(intData);
+    return 1;
 }
 
 //------------------------------------------------------------------------------
@@ -396,14 +415,66 @@ int FileReader::Read(unsigned long long* result) {
 }
 
 //------------------------------------------------------------------------------
+namespace {
+const char* SkipWhiteSpace(const char* p) {
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') { ++p; }
+    return p;
+}
+
+// VTK 的 ASCII 文件里会出现 nan / inf / infinity（例如 hist_nan.vtk 的 "1 nan 2 inf"）：
+// 核心的 mAtof 只认数字，遇到这两个词既读不出值，游标也会停在原地，导致该数组之后的所有数值
+// 都被读成 0。这里在调用 mAtof 之前先识别这两个词，识别成功就把游标越过整个词。
+bool TryReadNonFinite(const char* p, double& value, const char*& end) {
+    p = SkipWhiteSpace(p);
+    bool negative = false;
+    if (*p == '-') {
+        negative = true;
+        p = SkipWhiteSpace(p + 1);
+    } else if (*p == '+') {
+        p = SkipWhiteSpace(p + 1);
+    }
+    if ((p[0] == 'n' || p[0] == 'N') && (p[1] == 'a' || p[1] == 'A') && (p[2] == 'n' || p[2] == 'N')) {
+        value = negative ? -std::numeric_limits<double>::quiet_NaN() : std::numeric_limits<double>::quiet_NaN();
+        end = p + 3;
+        return true;
+    }
+    if ((p[0] == 'i' || p[0] == 'I') && (p[1] == 'n' || p[1] == 'N') && (p[2] == 'f' || p[2] == 'F')) {
+        const char* q = p + 3;
+        if ((q[0] == 'i' || q[0] == 'I') && (q[1] == 'n' || q[1] == 'N') && (q[2] == 'i' || q[2] == 'I') &&
+            (q[3] == 't' || q[3] == 'T') && (q[4] == 'y' || q[4] == 'Y')) {
+            q += 5;  // "infinity"
+        }
+        value = negative ? -std::numeric_limits<double>::infinity() : std::numeric_limits<double>::infinity();
+        end = q;
+        return true;
+    }
+    return false;
+}
+}  // namespace
+
+//------------------------------------------------------------------------------
 int FileReader::Read(float* result) {
-    this->IS = mAtof(this->IS, *result);
+    double value = 0.0;
+    const char* end = nullptr;
+    if (TryReadNonFinite(this->IS, value, end)) {
+        this->IS = end;
+    } else {
+        this->IS = mAtof(this->IS, value);
+    }
+    *result = static_cast<float>(value);
     return 1;
 }
 
 //------------------------------------------------------------------------------
 int FileReader::Read(double* result) {
-    this->IS = mAtof(this->IS, *result);
+    double value = 0.0;
+    const char* end = nullptr;
+    if (TryReadNonFinite(this->IS, value, end)) {
+        this->IS = end;
+    } else {
+        this->IS = mAtof(this->IS, value);
+    }
+    *result = value;
     return 1;
 }
 

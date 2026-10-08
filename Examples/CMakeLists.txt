@@ -281,6 +281,8 @@ igame_add_example(testPointSetToOctree Filter/Convert/TestPointSetToOctree.cpp)
 igame_add_example(testResampleToImage Filter/Convert/TestResampleToImage.cpp)
 # 无窗口的数值/逻辑一致性回归检查（失败时返回非 0，可直接进 CI）
 igame_add_example(testResampleOctreeChecks Filter/Convert/TestResampleOctreeChecks.cpp)
+igame_add_example(testHistogramChecks Filter/Histogram/TestHistogramChecks.cpp)
+igame_add_example(testAppendArcLengthChecks Filter/AppendArcLength/TestAppendArcLengthChecks.cpp)
 igame_add_example(testConvertToVertex Filter/Convert/TestConvertToVertex.cpp)
 
 # Axis aligned reflection

@@ -199,3 +199,37 @@ endif ()
 if (ENABLE_WASM)
     add_subdirectory(Examples/Wasm)
 endif ()
+
+# 无窗口的过滤器回归检查 exe（不依赖 Examples/HDF5，默认关闭；失败时返回非 0，可直接进 CI）
+option(IGAME_BUILD_FILTER_CHECKS "Build windowless filter regression check executables." OFF)
+if (IGAME_BUILD_FILTER_CHECKS)
+    add_executable(testHistogramChecks Examples/Filter/Histogram/TestHistogramChecks.cpp)
+    target_link_libraries(testHistogramChecks PRIVATE iGameCore)
+    target_compile_definitions(testHistogramChecks PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    add_executable(testAppendArcLengthChecks Examples/Filter/AppendArcLength/TestAppendArcLengthChecks.cpp)
+    target_link_libraries(testAppendArcLengthChecks PRIVATE iGameCore)
+    target_compile_definitions(testAppendArcLengthChecks PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    # 可视化测试：开 OpenGL 窗口显示过滤器结果（写法同 Examples/Filter/Convert/TestResampleToImage.cpp）
+    add_executable(testHistogram Examples/Filter/Histogram/TestHistogram.cpp)
+    target_link_libraries(testHistogram PRIVATE iGameCore)
+    target_compile_definitions(testHistogram PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    add_executable(testAppendArcLength Examples/Filter/AppendArcLength/TestAppendArcLength.cpp)
+    target_link_libraries(testAppendArcLength PRIVATE iGameCore)
+    target_compile_definitions(testAppendArcLength PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    # 测试模型随 exe 一起放到 <exe 目录>/Models，运行时不必关心工作目录
+    set(_igameFilterCheckTargets testHistogramChecks testAppendArcLengthChecks testHistogram testAppendArcLength)
+    foreach (_filterCheck IN LISTS _igameFilterCheckTargets)
+        add_custom_command(TARGET ${_filterCheck} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_filterCheck}>/Models"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Models/Histogram_test.vtk"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Models/AppendArcLength_test.vtk"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Models/Convert_Quad_Bicycle.vtk"
+                        "$<TARGET_FILE_DIR:${_filterCheck}>/Models"
+                COMMENT "Copying filter check models next to ${_filterCheck}")
+    endforeach ()
+endif ()

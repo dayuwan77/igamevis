@@ -1036,8 +1036,10 @@ bool VTKAbstractReader::ReadStructuredGrid() {
     return true;
 }
 CellArray::Pointer VTKAbstractReader::CreateCellArray(ArrayObject::Pointer CellsID, ArrayObject::Pointer CellsConnect) {
-    if (m_CellArray == nullptr) { m_CellArray = CellArray::New(); }
-    m_CellArray->Reset();
+    // 每次新建数组：原实现复用成员 m_CellArray，会让 LINES / POLYGONS 共用同一个数组互相覆盖；
+    // 且 CellArray::Reset() 不重置 m_NumberOfCells / m_FixedCellSize / m_UseOffsets，也不补回
+    // 偏移数组的起始 0，导致变长单元（如 3/4/2/2 的折线）连通性整体错位。
+    m_CellArray = CellArray::New();
 
     if (CellsID == nullptr || CellsConnect == nullptr || CellsID->GetNumberOfElements() < 2) {
         igError("Invalid cell arrays while creating CellArray.");

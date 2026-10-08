@@ -50,6 +50,7 @@ class igQtAxisAlignedReflectionWidget;
 class igQtPointAndCellIdsWidget;
 class igQtExtractComponentWidget;
 class QDialog;
+class igQtHistogramChartWidget;
 
 
 class IG_QT_MODULE_EXPORT igQtMainWindow : public QMainWindow {
@@ -194,6 +195,11 @@ private:
     // 改勾选重提取时，原地更新该新模型（模型树不新增节点）
     QDockWidget* m_extractCellsByTypeShell = nullptr;
     igQtExtractCellsByTypeWidget* m_extractCellsByTypeWidget = nullptr;
+    // 直方图结果：主窗口底部的柱状图 Dock（与原模型同窗口显示，反复应用时原地刷新）
+    QDockWidget* m_histogramDock = nullptr;
+    igQtHistogramChartWidget* m_histogramChartWidget = nullptr;
+    // 叠加在 3D 视图上的那张直方图（对应 ParaView 运行 Histogram 后模型视图上出现的紫色直方图）
+    igQtHistogramChartWidget* m_histogramOverlayWidget = nullptr;
     iGame::ExtractCellsByTypeFilter::Pointer m_extractCellsByTypeFilter;
     iGame::Model::Pointer m_extractCellsByTypeModel;
     // 提取分量：独立置顶弹窗（首次打开时懒创建），不占用左侧工具面板；

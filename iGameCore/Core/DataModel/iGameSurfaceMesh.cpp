@@ -97,7 +97,15 @@ Face* SurfaceMesh::GetFace(const IGsize faceId) {
 
 int SurfaceMesh::GetEdgePointIds(const IGsize edgeId, igIndex* ptIds) {
     if (m_Edges == nullptr) { this->BuildEdges(); }
-    m_Edges->GetCellIds(edgeId, ptIds);
+    if (ptIds == nullptr) { return 2; }
+    // 边按约定是 2 点单元，但历史 VTK POLYDATA 的 LINES 可能被读成 n 点多段线（实测 347 点）。
+    // 直接 GetCellIds(edgeId, ptIds) 会按单元真实点数写入，写穿调用方的定长缓冲（常见 igIndex e[2] / [32] /
+    // IGAME_CELL_MAX_SIZE=256），触发 /GS 0xC0000409。这里按调用方约定最多拷贝 2 个点，返回值保持 2 不变。
+    const igIndex* cell = nullptr;
+    const int size = m_Edges->GetCellIds(edgeId, cell);
+    if (cell == nullptr || size <= 0) { return 2; }
+    ptIds[0] = cell[0];
+    if (size > 1) { ptIds[1] = cell[1]; }
     return 2;
 }
 
@@ -865,16 +873,21 @@ void SurfaceMesh::GetDrawableArray(FloatArray::Pointer& positions, UnsignedIntAr
 
     if (m_Clipper->IsAllDisable()) {
         // set triangle indices
-        int i, ncell;
-        igIndex cell[IGAME_CELL_MAX_SIZE]{};
-
         lineIndices->Reserve(this->GetNumberOfEdges());
-        for (i = 0; i < this->GetNumberOfEdges(); i++) {
-            ncell = this->GetEdgePointIds(i, cell);
-            if (cell[0] < 0 || cell[1] < 0) {
-                igError("The index of the edge is negative.");
-            } else {
-                lineIndices->AddElement2(static_cast<iguIndex>(cell[0]), static_cast<iguIndex>(cell[1]));
+        // 这里必须用返回内部指针的重载：VTK POLYDATA 的 LINES 段是 n 点多段线（可能上千点），
+        // 拷进调用方固定长度缓冲（IGAME_CELL_MAX_SIZE=256）会写穿栈，在函数返回时触发 /GS 0xC0000409。
+        // 按相邻点拆成线段：2 点单元与原来的 (cell[0], cell[1]) 完全等价，n 点多段线则得到正确的折线线框。
+        CellArray::Pointer edges = this->GetEdges();
+        for (IGsize i = 0; i < edges->GetNumberOfCells(); ++i) {
+            const igIndex* cell = nullptr;
+            const int numCellPoints = edges->GetCellIds(i, cell);
+            if (cell == nullptr) { continue; }
+            for (int j = 1; j < numCellPoints; ++j) {
+                if (cell[j - 1] < 0 || cell[j] < 0) {
+                    igError("The index of the edge is negative.");
+                } else {
+                    lineIndices->AddElement2(static_cast<iguIndex>(cell[j - 1]), static_cast<iguIndex>(cell[j]));
+                }
             }
         }
 
@@ -958,20 +971,26 @@ void SurfaceMesh::GetDrawableArray(FloatArray::Pointer& positions, UnsignedIntAr
         //}
     } else {
         // set triangle indices
-        int i, ncell;
-        igIndex cell[IGAME_CELL_MAX_SIZE]{};
-
-        for (i = 0; i < this->GetNumberOfEdges(); i++) {
-            ncell = this->GetEdgePointIds(i, cell);
-            if (cell[0] < 0 || cell[1] < 0) {
-                igError("The index of the edge is negative.");
-            } else {
-                lineIndices->AddElement2(static_cast<iguIndex>(cell[0]), static_cast<iguIndex>(cell[1]));
+        // 同上一分支：折线型边单元与任意点数面单元都用指针重载遍历，避免写穿固定长度缓冲。
+        CellArray::Pointer edges = this->GetEdges();
+        for (IGsize i = 0; i < edges->GetNumberOfCells(); ++i) {
+            const igIndex* cell = nullptr;
+            const int numCellPoints = edges->GetCellIds(i, cell);
+            if (cell == nullptr) { continue; }
+            for (int j = 1; j < numCellPoints; ++j) {
+                if (cell[j - 1] < 0 || cell[j] < 0) {
+                    igError("The index of the edge is negative.");
+                } else {
+                    lineIndices->AddElement2(static_cast<iguIndex>(cell[j - 1]), static_cast<iguIndex>(cell[j]));
+                }
             }
         }
 
-        for (i = 0; i < this->GetNumberOfFaces(); i++) {
-            ncell = this->GetFacePointIds(i, cell);
+        CellArray::Pointer faces = this->GetFaces();
+        for (IGsize i = 0; i < faces->GetNumberOfCells(); ++i) {
+            const igIndex* cell = nullptr;
+            const int ncell = faces->GetCellIds(i, cell);
+            if (cell == nullptr) { continue; }
             bool visible = true;
             for (int j = 0; j < ncell; j++) {
                 const auto& point = this->GetPoint(cell[j]);
