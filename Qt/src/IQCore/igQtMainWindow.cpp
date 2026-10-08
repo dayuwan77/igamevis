@@ -1,4 +1,6 @@
 #include "IQCore/igQtMainWindow.h"
+#include "Selection/igameextractselectionfilter.h"
+#include <QInputDialog>
 //
 // Created by m_ky on 2024/4/10.
 //
@@ -1454,6 +1456,30 @@ void igQtMainWindow::showDarkFramelessMessage(const QString& title, const QStrin
 }
 
 void igQtMainWindow::initAllFilters() {
+    auto* extractSelection = ui->menu_filters->addAction(QStringLiteral("提取选中数据 (Extract Selection)"));
+    extractSelection->setObjectName("actionExtractSelection");
+    connect(extractSelection, &QAction::triggered, this, [this]() {
+        auto scene = rendererWidget->GetScene();
+        if (!scene || !scene->GetCurrentModel()) {
+            showDarkFramelessMessage(QStringLiteral("提示"), QStringLiteral("请先打开并选择一个模型。"));
+            return;
+        }
+        bool accepted = false;
+        const QStringList modes{QStringLiteral("选中的点"), QStringLiteral("选中的单元")};
+        const auto mode = QInputDialog::getItem(this, QStringLiteral("提取选中数据"),
+            QStringLiteral("提取类型"), modes, 0, false, &accepted);
+        if (!accepted) return;
+        auto filter = ExtractSelectionFilter::New();
+        filter->SetInput(scene->GetCurrentModel()->GetDataObject());
+        filter->SetSelectionType(mode == modes[0] ? IG_POINT : IG_CELL);
+        if (!filter->Execute()) {
+            showDarkFramelessMessage(QStringLiteral("提取失败"),
+                QStringLiteral("请确认已选择对应的点或单元。\n") + QString::fromStdString(filter->GetLastError()));
+            return;
+        }
+        modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
+        rendererWidget->update();
+    });
     // 按区域提取单元：直接挂在「算法处理」一级菜单下。
     connect(ui->menu_filters->addAction(QStringLiteral("按区域提取单元 (Extract Cells By Region)")),
             &QAction::triggered, this, [this](bool) {

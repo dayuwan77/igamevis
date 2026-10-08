@@ -453,6 +453,9 @@ igame_add_example(testAngularPeriodicSelfCheck Filter/Periodic/TestAngularPeriod
 igame_add_example(testPointVolumeInterpolator Filter/Interpolation/TestPointVolumeInterpolator.cpp)
 igame_add_example(testPointVolumeInterpolatorSelfCheck Filter/Interpolation/TestPointVolumeInterpolatorSelfCheck.cpp)
 
+igame_add_example(TestExtractSelection Filter/Selection/TestExtractSelection.cpp)
+igame_add_example(ExtractionExamples Filter/Selection/ExtractionExamples.cpp)
+
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
     set(IGAME_EXAMPLE_TARGETS "")
@@ -468,3 +471,6 @@ enable_testing()
 foreach(EXAMPLE_TARGET IN LISTS IGAME_EXAMPLE_TARGETS)
     igame_register_example_test(${EXAMPLE_TARGET})
 endforeach()
+
+set_tests_properties(TestExtractSelection ExtractionExamples
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/..")
