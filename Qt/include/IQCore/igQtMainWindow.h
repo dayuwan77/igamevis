@@ -48,6 +48,7 @@ class igQtTriangleStripWidget;
 class igQtExtractCellsByTypeWidget;
 class igQtAxisAlignedReflectionWidget;
 class igQtPointAndCellIdsWidget;
+class igQtSmoothWidget;
 class igQtExtractComponentWidget;
 class QDialog;
 
@@ -149,6 +150,10 @@ public:
     QDockWidget* PointAndCellIdsDockWidget{nullptr};
     igQtPointAndCellIdsWidget* PointAndCellIdsWidget{nullptr};
     int m_pointAndCellIdsCount{0};
+    // 表面平滑参数面板
+    QDockWidget* SmoothDockWidget{nullptr};
+    igQtSmoothWidget* SmoothWidget{nullptr};
+    int m_smoothCount{0};
 
 private slots:
     void updateRecentFilePaths();
