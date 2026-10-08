@@ -235,6 +235,7 @@ igame_add_example(testVectorEveryNth Filter/Vector/TestVectorEveryNth.cpp)
 igame_add_example(testVectorSubData Filter/Vector/TestVectorSubData.cpp)
 igame_add_example(testStreamline Filter/Vector/TestStreamline.cpp)
 igame_add_example(testTensorView Filter/Tensor/TestTensorView.cpp)
+igame_add_example(testYieldCriteria Filter/Tensor/TestYieldCriteria.cpp)
 
 # Visualization data
 igame_add_example(testParallelCoordinatesData Filter/VisualizationData/TestParallelCoordinatesData.cpp)

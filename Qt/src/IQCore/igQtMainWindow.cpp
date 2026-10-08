@@ -63,6 +63,7 @@
 #include "iGameFileIO.h"
 #include "iGameFilterIncludes.h"
 #include <AttributeManipulation/iGameRandomVectorsFilter.h>
+#include <TensorView/iGameYieldCriteriaFilter.h>
 #include <BuildAdjacencyRelation/iGameBuildAdjacencyRelationFilter.h>
 #include <IQComponents/Dialog/igQtBoxSettingDialog.h>
 #include <IQComponents/Dialog/igQtChromeFramelessDialog.h>
@@ -3941,6 +3942,85 @@ void igQtMainWindow::initAllFilters() {
                         dialog->close();
                     } else {
                         showDarkFramelessMessage(QStringLiteral("错误"), QStringLiteral("随机向量生成失败。"));
+                    }
+                });
+            });
+
+    // 屈服准则：在张量属性（应力等）上计算主应力 / Tresca / von Mises，输出新模型 + 结果数组
+    connect(attr_manipulation->addAction(QStringLiteral("屈服准则 (Yield Criteria)")), &QAction::triggered, this,
+            [this](bool) {
+                if (rendererWidget->GetScene() == nullptr || rendererWidget->GetScene()->GetCurrentModel() == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("无可用模型"), QStringLiteral("请先加载并选择模型。"));
+                    return;
+                }
+                auto obj = rendererWidget->GetScene()->GetCurrentModel()->GetDataObject();
+                if (obj == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("无可用模型"), QStringLiteral("当前模型没有可用数据。"));
+                    return;
+                }
+                if (iGame::DynamicCast<iGame::PointSet>(obj) == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("错误"),
+                                             QStringLiteral("当前模型不支持屈服准则（需要网格 / 点集）。"));
+                    return;
+                }
+
+                // 参与计算的张量属性：当前模型里所有 6 / 9 分量的数组
+                // （不强制要求被标记为张量类型：部分读取器不给出该标记）
+                std::vector<QString> tensorNames;
+                if (auto attrSet = obj->GetAttributeSet()) {
+                    const size_t numAttrs = attrSet->GetNumberOfAttributes();
+                    for (size_t i = 0; i < numAttrs; ++i) {
+                        auto& attr = attrSet->GetAttribute(static_cast<IGsize>(i));
+                        if (attr.isDeleted || attr.pointer == nullptr) continue;
+                        const int dim = attr.pointer->GetDimension();
+                        if (dim == 6 || dim == 9) {
+                            tensorNames.push_back(QString::fromStdString(attr.pointer->GetName()));
+                        }
+                    }
+                }
+                if (tensorNames.empty()) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("屈服准则"),
+                            QStringLiteral("当前模型没有 6 或 9 分量的张量属性（例如应力）。"));
+                    return;
+                }
+
+                igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("屈服准则"));
+                const int tensorId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                          QStringLiteral("张量属性"), tensorNames);
+                const std::vector<QString> criteria = {QStringLiteral("主应力 (Principal Stress)"),
+                                                       QStringLiteral("Tresca 准则"),
+                                                       QStringLiteral("von Mises 准则")};
+                const int criterionId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                             QStringLiteral("屈服准则"), criteria);
+                dialog->show();
+                dialog->setApplyFunctor([=, this]() {
+                    bool ok = false;
+                    const int tensorIndex = dialog->getComboIndex(tensorId, ok);
+                    if (!ok || tensorIndex < 0 || tensorIndex >= static_cast<int>(tensorNames.size())) {
+                        showDarkFramelessMessage(QStringLiteral("错误"), QStringLiteral("请选择有效的张量属性。"));
+                        return;
+                    }
+                    const int criterionIndex = dialog->getComboIndex(criterionId, ok);
+                    if (!ok || criterionIndex < 0 || criterionIndex >= 3) {
+                        showDarkFramelessMessage(QStringLiteral("错误"), QStringLiteral("请选择有效的屈服准则。"));
+                        return;
+                    }
+
+                    auto filter = YieldCriteriaFilter::New();
+                    filter->SetTensorArrayName(tensorNames[tensorIndex].toStdString());
+                    filter->SetCriterion(criterionIndex == 0 ? YieldCriteriaFilter::PRINCIPAL_STRESS
+                                            : (criterionIndex == 1 ? YieldCriteriaFilter::TRESCA
+                                                                   : YieldCriteriaFilter::VON_MISES));
+                    filter->SetInput(obj);
+                    if (filter->Execute()) {
+                        modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), ItemSource::Algorithm);
+                        rendererWidget->update();
+                        dialog->close();
+                    } else {
+                        showDarkFramelessMessage(QStringLiteral("错误"),
+                                                 QString::fromStdString(filter->GetStatusMessage()));
                     }
                 });
             });
