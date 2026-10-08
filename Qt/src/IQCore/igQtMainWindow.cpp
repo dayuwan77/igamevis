@@ -1,4 +1,6 @@
 #include "IQCore/igQtMainWindow.h"
+#include "Selection/iGameExtractBlockFilter.h"
+#include <QInputDialog>
 #include <IQWidgets/igQtProbeWidget.h>
 //
 // Created by m_ky on 2024/4/10.
@@ -2388,6 +2390,57 @@ void igQtMainWindow::initAllFilters() {
         });
     }
     ui->menu_filters->addSeparator();
+
+    auto* extractBlock = ui->menu_filters->addAction(QStringLiteral("提取分块 (Extract Block)"));
+    extractBlock->setObjectName("actionExtractBlock");
+    connect(extractBlock, &QAction::triggered, this, [this]() {
+        auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+        if (!scene || !scene->GetCurrentModel()) {
+            showDarkFramelessMessage(QStringLiteral("提示"), QStringLiteral("请先打开并选择一个多块模型。"));
+            return;
+        }
+        auto input = scene->GetCurrentModel()->GetDataObject();
+        auto blocks = ExtractBlockFilter::GetBlocks(input);
+        if (blocks.empty()) {
+            showDarkFramelessMessage(QStringLiteral("提取分块"), QStringLiteral("当前模型没有子块，请选择多块模型的根节点。"));
+            return;
+        }
+        bool accepted = false;
+        const QStringList modes{QStringLiteral("索引路径"), QStringLiteral("块名称")};
+        const auto mode = QInputDialog::getItem(this, QStringLiteral("提取分块"),
+            QStringLiteral("选择方式"), modes, 0, false, &accepted);
+        if (!accepted) return;
+        QStringList labels;
+        for (size_t i = 0; i < blocks.size(); ++i)
+            labels << QString::number(i) + ": " + (blocks[i] ? QString::fromStdString(blocks[i]->GetName()) : QStringLiteral("空块"));
+        const auto value = QInputDialog::getText(this, QStringLiteral("提取分块"),
+            mode == modes[0] ? QStringLiteral("零起始索引路径，例如 1 或 1,0\n") + labels.join("\n")
+                             : QStringLiteral("块名称（必须唯一）"),
+            QLineEdit::Normal, mode == modes[0] ? QStringLiteral("0") : QString{}, &accepted);
+        if (!accepted) return;
+        auto filter = ExtractBlockFilter::New();
+        filter->SetInput(input);
+        if (mode == modes[1]) filter->SetBlockName(value.toStdString());
+        else {
+            std::vector<int> path;
+            for (const auto& part : value.split(',')) {
+                bool valid = false;
+                int index = part.trimmed().toInt(&valid);
+                if (!valid || index < 0) {
+                    showDarkFramelessMessage(QStringLiteral("提取分块"), QStringLiteral("索引必须是由逗号分隔的非负整数。"));
+                    return;
+                }
+                path.push_back(index);
+            }
+            filter->SetBlockPath(path);
+        }
+        if (!filter->Execute()) {
+            showDarkFramelessMessage(QStringLiteral("提取失败"), QString::fromStdString(filter->GetLastError()));
+            return;
+        }
+        modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
+        rendererWidget->update();
+    });
 
     connect(mesh_processing->addAction(QStringLiteral("表面网格简化 (Surface Simplification)")), &QAction::triggered, this, [&](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
