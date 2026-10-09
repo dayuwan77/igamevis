@@ -73,29 +73,59 @@ void igQtExtractEdgesWidget::ExtractEdges() {
     if (m_OriginDataObject->HasSubDataObject()) {
         // —— 情况 A：输入模型带子对象（多块网格）——
         // 每个子对象单独提取，提取结果作为子对象挂到结果模型下
-        // HasSubDataObject()：判断输入是否含有子对象（多块网格的容器模型才有）
-        // SubDataObjectIteratorBegin()/End()：遍历子对象的迭代器（begin 首、end 尾）
+        int failedChildren = 0;
+        int addedChildren = 0;
         for (auto it = m_OriginDataObject->SubDataObjectIteratorBegin();
              it != m_OriginDataObject->SubDataObjectIteratorEnd(); it++) {
-            auto childObject = it->second;  // it->second：子对象指针（map 的 value）
-            if (childObject == nullptr) { continue; }  // 跳过空子对象
-            m_Extracter->SetInput(childObject);        // SetInput：喂入一个子对象
-            m_Extracter->Execute();                    // Execute：执行提取
-            // AddSubDataObject：把单个子对象的提取结果挂到结果模型下作为子对象
-            m_ResultMesh->AddSubDataObject(m_Extracter->GetOutput());
+            auto childObject = it->second;          // 子对象指针（map 的 value）
+            if (childObject == nullptr) { continue; }
+            m_Extracter->SetInput(childObject);     // 喂入一个子对象
+            if (!m_Extracter->Execute()) {          // 检查返回值，失败不伪装成成功
+                ++failedChildren;
+                continue;
+            }
+            auto childMesh = iGame::DynamicCast<iGame::UnstructuredMesh>(m_Extracter->GetOutput());
+            if (childMesh != nullptr && childMesh->GetNumberOfCells() > 0) {
+                m_ResultMesh->AddSubDataObject(childMesh);
+                ++addedChildren;
+            } else {
+                ++failedChildren;                    // 0 条边也算"没有结果"
+            }
+        }
+        if (addedChildren == 0) {
+            // 全部子对象都没有可提取的边：不创建结果节点
+            QMessageBox::information(
+                this, "未提取到边",
+                QString("当前模型没有可提取的边（%1 个子对象被跳过）。").arg(failedChildren));
+            return;
+        }
+        if (failedChildren > 0) {
+            QMessageBox::warning(this, "提示",
+                                 QString("有 %1 个子对象未能提取边，已跳过。").arg(failedChildren));
         }
     } else {
         // —— 情况 B：普通单个网格（最常见）——
         m_Extracter->SetInput(m_OriginDataObject);  // 喂入整个模型
-        m_Extracter->Execute();                     // 执行提取
+        if (!m_Extracter->Execute()) {              // 检查返回值，失败不伪装成成功
+            const QString reason = QString::fromStdString(m_Extracter->GetMessage());
+            QMessageBox::warning(this, "提取失败",
+                                 reason.isEmpty() ? QStringLiteral("边提取失败，请查看日志。") : reason);
+            return;
+        }
         auto out = m_Extracter->GetEdgesMesh();     // 拿到边网格（便捷类型转换）
-        if (out) {
+        if (out != nullptr && out->GetNumberOfCells() > 0) {
             // 把边网格的点/单元/属性拷贝到结果容器里：
             // SetPoints()：设置点坐标数组；SetCells(conn, types)：设置单元连接+类型；
-            // SetAttributeSet()：设置属性集（继承原模型属性）
+            // SetAttributeSet()：设置属性集（Point Data 深拷贝保留 + Cell Data 按来源单元重映射）
             m_ResultMesh->SetPoints(out->GetPoints());
             m_ResultMesh->SetCells(out->GetCells(), out->GetCellTypes());
             m_ResultMesh->SetAttributeSet(out->GetAttributeSet());
+        } else {
+            // 0 条边：不创建结果节点，明确提示（含跳过的单元统计）
+            const QString msg = QString::fromStdString(m_Extracter->GetMessage());
+            QMessageBox::information(this, "未提取到边",
+                                     msg.isEmpty() ? QStringLiteral("当前模型没有可提取的边。") : msg);
+            return;
         }
     }
 

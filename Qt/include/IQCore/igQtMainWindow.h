@@ -22,10 +22,18 @@
 #include <QRect>
 #include <QTimer>
 #include <array>
-#include <AxisAlignedReflection/iGameAxisAlignedReflectionFilter.h>
-#include <MyFilter/iGameExtractCellsByTypeFilter.h>
-#include <iGameScene.h>
 #undef QT_NO_OPENGL
+
+class QMenu;
+class QHBoxLayout;
+class QComboBox;
+class QLabel;
+class QPushButton;
+class QFrame;
+
+namespace Ui {
+class MainWindow;
+}
 
 class igQtModelDrawWidget;
 class igQtFileLoader;
@@ -36,16 +44,14 @@ class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
 class igQtDeformationWidget;
+class igQtElevationFilterPanel;
 class igQtAiChatWidget;
 class igQtCommandManager;
+class QFontMetrics;
 class igQtChromeFramelessDialog;
 class igQtPartFocusWidget;
-class igQtGlobalIdWidget;
-class igQtTriangleStripWidget;
-class igQtExtractCellsByTypeWidget;
-class igQtAxisAlignedReflectionWidget;
-class igQtPointAndCellIdsWidget;
-
+class igQtAttributeSelectWidget;
+class igQtRemoteModelLibrary;
 
 class IG_QT_MODULE_EXPORT igQtMainWindow : public QMainWindow {
     Q_OBJECT
@@ -57,17 +63,11 @@ public:
         Tensor,
         Flow,
         ContourExtract,
-        ExtractEdges,
-        CountCellVertices,
         Slice,
         Deformation,
         Selection,
         VariableDensity,
         DataChange,
-        MergeVectorComponents,
-        ExtractComponent,
-        ExtractCellsByType,
-        GenerateProcessIds,
         Count
     };
 
@@ -81,6 +81,8 @@ public:
     void initAllDockWidgetConnectWithAction();
     void initAllMySignalConnections();
     void initAllFilters();
+    bool connectImportedFilterAction(QAction* action, const QString& filterId);
+    bool connectThirdBatchFilterAction(QAction* action, const QString& filterId);
     void initAllSources();
     void initAllInteractor();
     void initArgs(const QStringList& args);
@@ -92,53 +94,50 @@ public:
     void closeLeftToolPanel(LeftToolPanelId id);
 
 public:
-    igQtModelDrawWidget* rendererWidget;
-    igQtFileLoader* fileLoader;
-    igQtModelDialogWidget* modelTreeWidget;
+    igQtModelDrawWidget* rendererWidget = nullptr;
+    igQtFileLoader* fileLoader = nullptr;
+    igQtModelDialogWidget* modelTreeWidget = nullptr;
 
-    igQtColorManagerWidget* ColorManagerWidget;
-    igQtFilterDialogDockWidget* filterDialogDockWidget;
-    QDockWidget* SliceDockWidget;
-    QDockWidget* ContourDockWidget;
-    igQtModelClipWidget* SliceWidget;
-    QDockWidget* DeformationDockWidget;
-    igQtDeformationWidget* DeformationWidget;
+    igQtColorManagerWidget* ColorManagerWidget = nullptr;
+    igQtFilterDialogDockWidget* filterDialogDockWidget = nullptr;
+    QDockWidget* SliceDockWidget = nullptr;
+    QDockWidget* ContourDockWidget = nullptr;
+    igQtModelClipWidget* SliceWidget = nullptr;
+    QDockWidget* DeformationDockWidget = nullptr;
+    igQtDeformationWidget* DeformationWidget = nullptr;
 
-    igQtProgressBarWidget* progressBarWidget;
-    QComboBox* viewStyleCombox;
-    QComboBox* attributeViewIndexCombox;
-    QComboBox* attributeViewDimCombox;
+    // 高程 (Elevation) 实时参数面板：入口对话框首次执行后绑定会话并显示
+    igQtElevationFilterPanel* ElevationFilterPanel{nullptr};
+
+    igQtProgressBarWidget* progressBarWidget = nullptr;
+    QComboBox* viewStyleCombox = nullptr;
+    QComboBox* attributeViewIndexCombox = nullptr;
+    QComboBox* attributeViewDimCombox = nullptr;
     
     // AI Chat DockWidget
-    QDockWidget* aiChatDockWidget;
-    igQtAiChatWidget* aiChatWidget;
+    QDockWidget* aiChatDockWidget = nullptr;
+    igQtAiChatWidget* aiChatWidget = nullptr;
 
     // Command Manager for MCP Server (端口 12345)
-    igQtCommandManager* commandManager;
+    igQtCommandManager* commandManager = nullptr;
 
     // 零件聚焦弹窗
     igQtChromeFramelessDialog* partFocusDialog{nullptr};
     igQtPartFocusWidget* partFocusWidget{nullptr};
 
-    // 全局 ID 生成与 Local/Global 对照结果
-    QDockWidget* GlobalIdDockWidget{nullptr};
-    igQtGlobalIdWidget* GlobalIdWidget{nullptr};
+    // 报告生成弹窗
+    igQtChromeFramelessDialog* reportGenerateDialog{nullptr};
+    igQtAttributeSelectWidget* reportGenerateWidget{nullptr};
 
-    QDockWidget* TriangleStripDockWidget{nullptr};
-    igQtTriangleStripWidget* TriangleStripWidget{nullptr};
-    // 轴对齐反射面板
-    QDockWidget* AxisAlignedReflectionDockWidget{nullptr};
-    igQtAxisAlignedReflectionWidget* AxisAlignedReflectionWidget{nullptr};
-    iGame::AxisAlignedReflectionFilter::Pointer m_axisAlignedReflectionFilter;
-    iGame::Model::Pointer m_axisAlignedReflectionModel;
-    int m_axisAlignedReflectionCount{0};
-    // 点与单元 ID 参数面板
-    QDockWidget* PointAndCellIdsDockWidget{nullptr};
-    igQtPointAndCellIdsWidget* PointAndCellIdsWidget{nullptr};
+    // Remote Model Library dialog (C/S package catalog and cache controls)
+    igQtRemoteModelLibrary* remoteModelLibrary{nullptr};
 
 private slots:
     void updateRecentFilePaths();
     void updateColorBarShow();
+    void ConfigureRemoteCacheBenchmark(const QString& package, const QString& host,
+                                       quint16 port, const QString& cacheDirectory,
+                                       int rounds, const QString& outputPath);
 
     //void ChangeViewStyle();
     //void ChangeScalarView();
@@ -162,9 +161,17 @@ private:
     // 自定义标题栏相关
     QWidget* m_titleBar = nullptr;
     QLabel* m_titleLabel = nullptr;
+    QWidget* m_brandBox = nullptr;
+    QHBoxLayout* m_topMenuLayout = nullptr;
+    void applyTopMenuButtonStyle();
     QPushButton* m_btnMinimize = nullptr;
     QPushButton* m_btnMaximize = nullptr;
     QPushButton* m_btnClose = nullptr;
+    QPushButton* m_styleToggleButton = nullptr;
+    QLabel* m_logoIconLabel = nullptr;
+    QLabel* m_projectChip = nullptr;
+    QFrame* m_titleAccentLine = nullptr;
+    QFrame* m_rightDivider = nullptr;
     bool m_titleBarDragging = false;
     QPoint m_dragOffset;
     bool m_isMinimizing = false;
@@ -175,15 +182,7 @@ private:
     // 左侧工具 Tab（按需添加；下方 Properties 常驻）
     QDockWidget* m_leftFieldDock = nullptr;
     QTabWidget* m_leftFieldTabs = nullptr;
-    // 按单元类型提取：左侧面板 + 壳 Dock + 常驻 filter
-    // 首次提取生成独立新模型 ExtractCellsByType_n（不覆盖输入模型）；
-    // 改勾选重提取时，原地更新该新模型（模型树不新增节点）
-    QDockWidget* m_extractCellsByTypeShell = nullptr;
-    igQtExtractCellsByTypeWidget* m_extractCellsByTypeWidget = nullptr;
-    iGame::ExtractCellsByTypeFilter::Pointer m_extractCellsByTypeFilter;
-    iGame::Model::Pointer m_extractCellsByTypeModel;
-    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
@@ -196,11 +195,69 @@ private:
     /** 与菜单「算法处理 / 特征提取」等一致：无边框 QMessageBox + 暗色圆角边框。 */
     void showDarkFramelessMessage(const QString& title, const QString& text, bool useInformationIcon = false);
 
+    /**
+     * 「数据转换」：**就地**转换当前帧挂载的数据（复合模型=当前挂载的子块，即当前帧；
+     * 普通模型=自身），转换完**模型树里仍然只有这一个模型**：不新增行，只把该模型改名成
+     * 转换后的名字（`原名[_fN]_PointData/_CellData`），并就地刷新属性行图标与画面。
+     * @param toPointData true=单元数据转点数据；false=点数据转单元数据
+     * @param reason 失败/未转换时的原因（供提示框显示）
+     * @param createdNames 转换后使用的模型名
+     * @return 1 = 已转换并改名；0 = 没有转换（见 reason）
+     */
+    int createConvertedFrameModel(bool toPointData, QString& reason, QStringList& createdNames);
+
     void rebuildActionsAsTwoRowWidget(QToolBar* toolbar, const QList<QAction*>& targetActions, int columns,
                                       QAction* insertBefore = nullptr);
-    void addToolbarTitle(QToolBar* toolbar, const QString& title);
+    void addToolbarTitle(QToolBar* toolbar, const QString& title, int iconSizePx);
     void relayoutToolbarWrappers();
     void initCustomTitleBar();
+
+    void applyStyleMode(int mode);
+    QString styleSheetForMode(int mode) const;
+    QString styleToggleButtonQss() const;
+    QString styleModeDisplayName(int mode) const;
+    void createStyleMenu();
+    void updateTitleBarIcons();
+    QString toolbarButtonQss(int fontPx) const;
+    QString twoRowGridButtonQss() const;
+    QString toolbarTitleLabelQss() const;
+    QString toolbarCaptionLabelQss(int fontPx) const;
+    QString toolbarItemQss() const;
+    QString toolbarSeamColor() const;
+    QString toolbarAccentColor() const;
+
+    void applyWorkspaceLayout(bool enabled);
+    void applyFloatingCards(bool enabled);
+    void applyFloatingCardPalette();
+    void applyViewRail(bool enabled);
+    void updateViewRailPosition();
+    QDockWidget* m_viewDock = nullptr;
+
+    // ---- 工具栏单排适配（宽度拟合 + 文字自动换行）----
+    /** 按指定 iconSize 重建 3×2 轴网格与 4 组「按钮行 + 标题」容器 */
+    void rebuildToolbarRow(int iconSize);
+    /** 删除旧的 wrapper_* 工具栏（连带其容器） */
+    void removeToolbarWrappers();
+    /** 测量当前 4 组 wrapper 的实际总宽度（含组间距） */
+    int measureToolbarRowWidth() const;
+    /** 文字超宽时断成最多两行，第二行仍超宽则省略号收尾 */
+    QString wrapToolbarButtonText(const QString& text, int maxWidth, const QFontMetrics& fm) const;
+
+    int m_currentToolbarIconSize = 40;
+    bool m_toolbarRebuilding = false;
+
+    QString m_originalStyleSheet;
+    int m_styleMode = 9;
+    QWidget* m_centralCardContainer = nullptr;
+    QWidget* m_floatingCardWidget = nullptr;
+    QDockWidget* m_floatingCardDock = nullptr;
+    QDockWidget* m_floatingTreeDock = nullptr;
+    QWidget* m_floatingTreeWrapper = nullptr;
+    QWidget* m_floatingTreeOriginalWidget = nullptr;
+    QWidget* m_floatingTreeOriginalTitleBar = nullptr;
+    QWidget* m_floatingCardOriginalWidget = nullptr;
+    int m_propertiesOriginalMinWidth = 0;
+    QMenu* m_styleMenu = nullptr;
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -216,11 +273,6 @@ private:
     void hookResponsiveEvents();
     // 依当前窗口宽度/屏幕 DPI 挑选最大能一行装下的 iconSize，然后应用到全部工具栏
     void applyResponsiveToolbarLayout();
-    // 内部帮手：按给定 iconSize 刷新普通 toolbar、两行按钮容器、带标题容器
-    void applyToolbarIconSize(int iconSize);
-    // 内部帮手：估计所有 wrapper toolbar 总宽（当前布局下）
-    int totalWrapperWidth() const;
-
 private:
     void minimizeWithAnimation();
     void toggleMaximizeRestore();

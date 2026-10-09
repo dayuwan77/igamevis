@@ -1,11 +1,13 @@
 #include "ui_igQtDataChangeWidget.h"
 #include <IQWidgets/igQtDataChangeWidget.h>
+#include <IQWidgets/igQtRenderWidget.h>
 #include <QElapsedTimer>
 #include <QEvent>
 #include <iGameThreadPool.h>
 #include <utility>
 #include <iGameTimer.h>
 #include <iGameBoxStyle.h>
+#include <BuildAdjacencyRelation/iGameBuildAdjacencyRelationFilter.h>
 using namespace std;
 
 static constexpr int SATURATION = 160;
@@ -216,7 +218,35 @@ void igQtDataChangeWidget::MoveRangeChooseEndPoint(const QPoint& pos) {
     update();
 }
 
-void igQtDataChangeWidget::RangeChooseButtonClicked(bool checked) { m_RangeChooseOn = checked; }
+void igQtDataChangeWidget::RangeChooseButtonClicked(bool checked) {
+    static auto PreVisitFunc = [](iGame::Model::Pointer model) {
+        if (model == nullptr) return;
+        auto dataObj = model->GetDataObject();
+        if (dataObj == nullptr) return;
+        auto type = dataObj->GetDataObjectType();
+        switch (type) {
+            case IG_SURFACE_MESH:
+            case IG_STRUCTURED_MESH:
+            case IG_VOLUME_MESH: {
+                auto buildAdjacencyRelationFilter = BuildAdjacencyRelationFilter::New();
+                buildAdjacencyRelationFilter->SetInput(dataObj);
+                buildAdjacencyRelationFilter->Execute();
+            } break;
+            case IG_UNSTRUCTURED_MESH: {
+                auto mesh = DynamicCast<UnstructuredMesh>(dataObj);
+                if (mesh == nullptr) return;
+                auto selection = mesh->GetSelection();
+                if (selection == nullptr) return;
+                auto& cellFaceExtracter = selection->GetCellFaceExtracter();
+                cellFaceExtracter.PreVisit(mesh);
+            } break;
+            default:
+                return;
+        }
+    };
+    PreVisitFunc(m_Model);
+    m_RangeChooseOn = checked;
+}
 
 void igQtDataChangeWidget::mousePressEvent(QMouseEvent* event) {
     QWidget::mousePressEvent(event);
@@ -326,8 +356,8 @@ void igQtDataChangeWidget::DrawRadial() {
 }
 
 void igQtDataChangeWidget::GenerateBackgroundColor() {
-    // 与主界面/变量相关性等深色面板一致 (#2b2b2b)
-    m_BackgroundColor = {0x2b, 0x2b, 0x2b};
+    const QColor c = igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::CardBg);
+    m_BackgroundColor = {c.red(), c.green(), c.blue()};
 }
 
 void igQtDataChangeWidget::SetUiData() {
@@ -424,7 +454,7 @@ void igQtDataChangeWidget::SetRadialData() {
 void igQtDataChangeWidget::_PaintPlotOnDrawWidget(QPainter& painter) {
     const QRect plotRect = ui->drawWidget->rect();
     if (m_CurrentModelDataIndex < 0 || m_DataChangeDatas.size() <= m_CurrentModelDataIndex) {
-        painter.fillRect(plotRect, QColor(0x2b, 0x2b, 0x2b));
+        painter.fillRect(plotRect, igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::CardBg));
         return;
     }
     QRect smallDrawFrame = InsetRectByBoundaryRatio(plotRect, boundaryRatio);
@@ -666,7 +696,7 @@ void igQtDataChangeWidget::_DrawBackground(QPainter& painter, const QRect& range
 }
 
 void igQtDataChangeWidget::_DrawCoordinateRect(QPainter& painter, const QRect& range) {
-    painter.setPen(QPen(QColor(0xa8, 0xa8, 0xa8), 1));
+    painter.setPen(QPen(igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text), 1));
     painter.setBrush(Qt::NoBrush);
     painter.drawRect(range);
 }
@@ -821,4 +851,12 @@ void igQtDataChangeWidget::TempSlot_SetRadialData() {
     _GenerateVariableImage(m_VariableShow, Data);
     _GenerateChoosedVariableImage(m_VariableShow, Data);
     update();
+}
+
+void igQtDataChangeWidget::changeEvent(QEvent* e) {
+    if (e && e->type() == QEvent::StyleChange) {
+        GenerateBackgroundColor();
+        update();
+    }
+    QWidget::changeEvent(e);
 }

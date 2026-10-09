@@ -12,7 +12,8 @@ IGAME_NAMESPACE_BEGIN
  *
  * 生成的 Point/Cell Global ID 属性使用一维 DoubleArray；可接受的最大精确整数为 2^53。
  * 复合数据中共享同一个 Points 对象的叶子会复用同一段 Point IDs。
- * ID 数组仍只存放在叶子对象上；提交后会更新所有中间容器的 Modified Time。
+ * 过滤器会深拷贝输入数据树并返回独立输出，不修改原模型。
+ * ID 数组只存放在输出的叶子对象上；提交后会更新所有输出中间容器的 Modified Time。
  */
 class GenerateGlobalIdsFilter : public Filter {
 public:

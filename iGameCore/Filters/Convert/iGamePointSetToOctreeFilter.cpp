@@ -1,5 +1,7 @@
 #include "iGamePointSetToOctreeFilter.h"
 
+#include "iGameAttributeSet.h"
+#include "iGameArrayObject.h"
 #include "iGamePointSet.h"
 #include "iGameStructuredMesh.h"
 
@@ -14,6 +16,36 @@ PointSetToOctreeFilter::PointSetToOctreeFilter() {
     SetNumberOfInputs(1);
     SetNumberOfOutputs(1);
 }
+
+namespace {
+// 按源数组的具体类型创建同类型数组（等价 VTK 在探测/采样输出上按源类型复制数组）。
+ArrayObject::Pointer NewArrayLike(const ArrayObject::Pointer& src) {
+    switch (src->GetArrayType()) {
+        case IG_FloatArray:
+            return FloatArray::New();
+        case IG_DoubleArray:
+            return DoubleArray::New();
+        case IG_IntArray:
+            return IntArray::New();
+        case IG_UnsignedIntArray:
+            return UnsignedIntArray::New();
+        case IG_CharArray:
+            return CharArray::New();
+        case IG_UnsignedCharArray:
+            return UnsignedCharArray::New();
+        case IG_ShortArray:
+            return ShortArray::New();
+        case IG_UnsignedShortArray:
+            return UnsignedShortArray::New();
+        case IG_LongLongArray:
+            return LongLongArray::New();
+        case IG_UnsignedLongLongArray:
+            return UnsignedLongLongArray::New();
+        default:
+            return FloatArray::New();
+    }
+}
+} // namespace
 
 //------------------------------------------------------------------------------
 // 等价于 VTK vtkBoundingBox::ClampDivisions
@@ -277,9 +309,79 @@ bool PointSetToOctreeFilter::Execute() {
     output->SetPoints(points);
 
     output->GetAttributeSet()->AddScalar(IG_CELL, octree);
+    output->SetAttributeIndex(0);
     if (outField) {
         output->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_CELL, outField);
     }
+
+    // Display inheritance is an explicit opt-in, independent of statistics.
+    // Average each voxel's input values, then average incident voxel means at
+    // grid vertices. This derived point array is not the original field.
+    AttributeSet::Attribute colorAttr = AttributeSet::Attribute::None();
+    ArrayObject::Pointer outColor = nullptr;
+    const IGsize gridPointCount =
+        static_cast<IGsize>(dimensions[0]) * dimensions[1] * dimensions[2];
+    if (m_InheritDisplayAttribute) {
+        AttributeSet* inAttrs = pointSet->GetAttributeSet();
+        const int activeIndex = pointSet->GetAttributeIndex();
+        if (activeIndex >= 0) {
+            auto& a = inAttrs->GetAttribute(activeIndex);
+            if (!a.isDeleted && a.pointer && a.attachmentType == IG_POINT &&
+                a.pointer->GetNumberOfElements() == numberOfPoints) {
+                colorAttr = a;
+            }
+        }
+        // 输入没有活动属性时（典型场景：文件刚载入，界面上还没在模型树里点过属性），
+        // 退化为自动挑一条：优先真彩色 IG_RGB，其次第一个非恒定的 IG_SCALAR 点属性，
+        // 保证输出依然有颜色可看。
+        if (!colorAttr.pointer) {
+            auto all = inAttrs->GetAllAttributes();
+            for (IGsize i = 0; i < all->GetNumberOfElements(); ++i) {
+                auto& a = all->GetElement(i);
+                if (!a.isDeleted && a.pointer && a.attachmentType == IG_POINT && a.type == IG_RGB &&
+                    a.pointer->GetNumberOfElements() == numberOfPoints) {
+                    colorAttr = a;
+                    break;
+                }
+            }
+        }
+        if (!colorAttr.pointer) {
+            auto all = inAttrs->GetAllAttributes();
+            for (IGsize i = 0; i < all->GetNumberOfElements(); ++i) {
+                auto& a = all->GetElement(i);
+                if (a.isDeleted || !a.pointer || a.attachmentType != IG_POINT || a.type != IG_SCALAR ||
+                    a.pointer->GetNumberOfElements() != numberOfPoints ||
+                    a.pointer->GetDimension() != 1) {
+                    continue;
+                }
+                const double first = a.pointer->GetElementValue(0, 0);
+                bool varied = false;
+                for (IGsize t = 1; t < numberOfPoints && !varied; ++t) {
+                    varied = a.pointer->GetElementValue(t, 0) != first;
+                }
+                if (varied) {
+                    colorAttr = a;
+                    break;
+                }
+            }
+        }
+        if (colorAttr.pointer) {
+            outColor = NewArrayLike(colorAttr.pointer);
+            const std::string baseName = colorAttr.pointer->GetName() + "_体素均值映射";
+            std::string name = baseName;
+            for (int suffix = 2; !output->GetAttributeSet()->GetAttribute(name).IsNone(); ++suffix)
+                name = baseName + "_" + std::to_string(suffix);
+            outColor->SetName(name);
+            outColor->SetDimension(colorAttr.pointer->GetDimension());
+            outColor->Resize(gridPointCount);
+            output->GetAttributeSet()->AddAttribute(colorAttr.type, IG_POINT, outColor);
+        }
+    }
+    const int colorDim = colorAttr.pointer ? colorAttr.pointer->GetDimension() : 0;
+    std::vector<double> colorCellSum(
+        colorAttr.pointer ? static_cast<size_t>(numberOfCells) * colorDim : 0, 0.0);
+    std::vector<IGsize> colorCellCount(colorAttr.pointer ? numberOfCells : 0, 0);
+
     output->GenStructuredCellConnectivities();
 
     SetOutput(output);
@@ -324,6 +426,15 @@ bool PointSetToOctreeFilter::Execute() {
         octreeValue *= (p[2] > outPt[2] ? 16u : 1u);
         octree->ValueAt(outCellId) |= static_cast<unsigned char>(octreeValue);
 
+        // 累加显示属性在体素内的取值，循环结束后取均值散布到格点
+        if (outColor) {
+            double* sum = &colorCellSum[static_cast<size_t>(outCellId) * colorDim];
+            for (int c = 0; c < colorDim; ++c) {
+                sum[c] += colorAttr.pointer->GetElementValue(i, c);
+            }
+            ++colorCellCount[outCellId];
+        }
+
         if (inFieldArr) {
             float inFieldValue = static_cast<float>(inFieldArr->GetValue(i));
             float* outTuple = outField->RawPointer(outCellId);
@@ -363,6 +474,78 @@ bool PointSetToOctreeFilter::Execute() {
                 tuple[meanIndex] = tuple[sumIndex] / tuple[countIndex];
             }
         }
+    }
+
+    // 把体素均值散布到格点（每个单元贡献给它的 8 个角点），并让输出模型沿用输入的着色属性
+    if (outColor) {
+        const int cellDivs[3] = {extent[1], extent[3], extent[5]};
+        const IGsize pointStride[2] = {static_cast<IGsize>(dimensions[0]),
+                                      static_cast<IGsize>(dimensions[0]) * dimensions[1]};
+        std::vector<double> colorPtSum(static_cast<size_t>(gridPointCount) * colorDim, 0.0);
+        std::vector<IGsize> colorPtCount(gridPointCount, 0);
+        for (IGsize cell = 0; cell < numberOfCells; ++cell) {
+            if (colorCellCount[cell] == 0) {
+                continue;
+            }
+            const int i = static_cast<int>(cell % cellDivs[0]);
+            const int j = static_cast<int>((cell / cellDivs[0]) % cellDivs[1]);
+            const int k = static_cast<int>(cell / (static_cast<IGsize>(cellDivs[0]) * cellDivs[1]));
+            for (int dz = 0; dz <= 1; ++dz) {
+                for (int dy = 0; dy <= 1; ++dy) {
+                    for (int dx = 0; dx <= 1; ++dx) {
+                        const IGsize pt = static_cast<IGsize>(i + dx) +
+                            static_cast<IGsize>(j + dy) * pointStride[0] +
+                            static_cast<IGsize>(k + dz) * pointStride[1];
+                        for (int c = 0; c < colorDim; ++c) {
+                            colorPtSum[static_cast<size_t>(pt) * colorDim + c] +=
+                                colorCellSum[static_cast<size_t>(cell) * colorDim + c] /
+                                static_cast<double>(colorCellCount[cell]);
+                        }
+                        ++colorPtCount[pt];
+                    }
+                }
+            }
+        }
+        std::vector<double> tuple(static_cast<size_t>(colorDim), 0.0);
+        for (IGsize pt = 0; pt < gridPointCount; ++pt) {
+            for (int c = 0; c < colorDim; ++c) {
+                tuple[c] = colorPtCount[pt] != 0
+                    ? colorPtSum[static_cast<size_t>(pt) * colorDim + c] /
+                        static_cast<double>(colorPtCount[pt])
+                    : 0.0;
+            }
+            outColor->SetElement(pt, tuple.data());
+        }
+        const int outIndex = output->GetAttributeSet()->GetAttributeIndex(outColor->GetName());
+        if (outIndex >= 0) {
+            output->SetAttributeIndex(outIndex);
+        }
+    }
+
+    // ---- 诊断信息（供界面提示）----
+    {
+        std::string info;
+        info += "输出图像维度 " + std::to_string(dimensions[0]) + "×" + std::to_string(dimensions[1]) +
+                "×" + std::to_string(dimensions[2]) + "（" +
+                std::to_string(static_cast<long long>(numberOfCells)) + " 个体素）；";
+        info += "输入 " + std::to_string(static_cast<long long>(numberOfPoints)) +
+                " 个点，每体素平均点数参数 " +
+                std::to_string(static_cast<long long>(m_NumberOfPointsPerCell)) + "。";
+        if (inFieldArr && !functions.empty()) {
+            info += " 已对点属性 \"" + inFieldArr->GetName() + "\" 统计 " +
+                    std::to_string(static_cast<int>(functions.size())) + " 个分量。";
+        } else {
+            info += " 未处理点属性数组。";
+        }
+        if (m_InheritDisplayAttribute && !outColor) {
+            info += " 未找到可继承的输入点显示属性，未生成均值映射数组。";
+        }
+        if (outColor) {
+            info += " 输入显示属性：" + colorAttr.pointer->GetName() +
+                    "；派生点属性：" + outColor->GetName() +
+                    "（体素均值映射，用于输出着色，不代表原始数据）。";
+        }
+        m_Message = info;
     }
 
     return true;

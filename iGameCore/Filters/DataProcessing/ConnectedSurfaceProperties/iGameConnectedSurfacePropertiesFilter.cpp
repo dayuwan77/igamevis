@@ -123,6 +123,21 @@ void AddOrReplaceCellScalar(AttributeSet* attributes, const ArrayObject::Pointer
     attributes->AddScalar(IG_CELL, array);
 }
 
+void PreserveUncopiedAttributes(const SurfaceMesh::Pointer& input,
+                                const SurfaceMesh::Pointer& output) {
+    auto* source = input->GetAttributeSet();
+    auto* target = output->GetAttributeSet();
+    const IGsize count = std::min(source->GetNumberOfAttributes(),
+                                  target->GetNumberOfAttributes());
+    for (IGsize index = 0; index < count; ++index) {
+        const auto& sourceAttribute = source->GetAttribute(index);
+        auto& targetAttribute = target->GetAttribute(index);
+        if (!sourceAttribute.IsNone() && targetAttribute.IsNone()) {
+            targetAttribute = sourceAttribute;
+        }
+    }
+}
+
 } // namespace
 
 ConnectedSurfacePropertiesFilter::ConnectedSurfacePropertiesFilter() {
@@ -316,6 +331,7 @@ bool ConnectedSurfacePropertiesFilter::Execute() {
 
     auto output = SurfaceMesh::New();
     if (!output->DeepCopy(input)) return fail("无法复制输入表面。");
+    PreserveUncopiedAttributes(input, output);
     output->SetName(input->GetName() + "_ConnectedSurfaceProperties");
     AddOrReplaceCellScalar(output->GetAttributeSet(), m_ObjectIds);
     AddOrReplaceCellScalar(output->GetAttributeSet(), m_Areas);
