@@ -13,3 +13,6 @@ Examples/Models/ExtractLocationTetraPair.vtk -filter -diff -merge text
 Examples/Models/ExtractLocationConnectedSteppedSolid.vtk -filter -diff -merge text
 Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
 Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
+Examples/Models/group_tet.vtk -filter -diff -merge text
+Examples/Models/group_hex.vtk -filter -diff -merge text
+Examples/Models/group_quad.vtk -filter -diff -merge text
