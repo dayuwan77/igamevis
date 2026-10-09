@@ -1,5 +1,6 @@
 #include "iGameOverlappingCellsDetectorFilter.h"
 
+#include <iGameStructuredMesh.h>
 #include <iGameVolume.h>
 
 #include <algorithm>
@@ -35,6 +36,55 @@ struct CellPairHasher {
 };
 
 using Tetrahedron = std::array<Point, 4>;
+
+DataObject::Pointer CloneInputMesh(const DataObject::Pointer& input) {
+    auto copyPoints = [](PointSet* source) {
+        auto points = Points::New();
+        points->DeepCopy(source->GetPoints());
+        return points;
+    };
+    auto copyAttributes = [](DataObject* source) {
+        auto attributes = AttributeSet::New();
+        attributes->DeepCopy(source->GetAttributeSet());
+        return attributes;
+    };
+
+    if (input->GetDataObjectType() == IG_STRUCTURED_MESH) {
+        auto source = DynamicCast<StructuredMesh>(input);
+        auto output = StructuredMesh::New();
+        output->SetPoints(copyPoints(source));
+        output->SetDimensionSize(source->GetDimensionSize());
+        output->GenStructuredCellConnectivities();
+        output->SetAttributeSet(copyAttributes(source));
+        output->SetName(source->GetName());
+        return output;
+    }
+    if (input->GetDataObjectType() == IG_UNSTRUCTURED_MESH) {
+        auto source = DynamicCast<UnstructuredMesh>(input);
+        auto output = UnstructuredMesh::New();
+        output->SetPoints(copyPoints(source));
+        auto cells = CellArray::New();
+        cells->DeepCopy(source->GetCells());
+        auto types = UnsignedIntArray::New();
+        types->DeepCopy(source->GetCellTypes());
+        output->SetCells(cells, types);
+        output->SetAttributeSet(copyAttributes(source));
+        output->SetName(source->GetName());
+        return output;
+    }
+    if (input->GetDataObjectType() == IG_VOLUME_MESH) {
+        auto source = DynamicCast<VolumeMesh>(input);
+        auto output = VolumeMesh::New();
+        output->SetPoints(copyPoints(source));
+        auto volumes = CellArray::New();
+        volumes->DeepCopy(source->GetVolumes());
+        output->SetVolumes(volumes);
+        output->SetAttributeSet(copyAttributes(source));
+        output->SetName(source->GetName());
+        return output;
+    }
+    return nullptr;
+}
 
 } // namespace
 
@@ -246,8 +296,11 @@ bool OverlappingCellsDetectorFilter::Execute() {
     overlapArray->Reserve(cellCount);
     for (const auto count : m_NumberOfOverlapsPerCell) overlapArray->AddValue(static_cast<float>(count));
 
-    auto* attributes = !m_UnstructuredMesh.IsNull() ? m_UnstructuredMesh->GetAttributeSet()
-                                                     : m_VolumeMesh->GetAttributeSet();
+    auto output = CloneInputMesh(GetInput(0));
+    if (output.IsNull()) return fail("创建独立输出网格失败。");
+    output->SetName(GetInput(0)->GetName() + "_OverlappingCellsDetector");
+
+    auto* attributes = output->GetAttributeSet();
     const int existingIndex = attributes->GetAttributeIndex(NumberOfOverlapsPerCellArrayName());
     if (existingIndex >= 0) {
         auto& attribute = attributes->GetAttribute(existingIndex);
@@ -259,8 +312,7 @@ bool OverlappingCellsDetectorFilter::Execute() {
         attributes->AddAttribute(IG_SCALAR, IG_CELL, overlapArray);
     }
 
-    if (!m_UnstructuredMesh.IsNull()) SetOutput(m_UnstructuredMesh);
-    else SetOutput(m_VolumeMesh);
+    SetOutput(output);
     return true;
 }
 

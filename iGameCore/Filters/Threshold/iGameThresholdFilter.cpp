@@ -102,7 +102,9 @@ bool ThresholdFilter::IsInRange(double value) const {
 }
 
 bool ThresholdFilter::Execute() {
-	if (GetNumberOfInputs() == 0 || !GetInput(0) || !m_ScalarData || m_Dimension < 0) return false;
+	// m_Dimension 为 -1 表示取分量模长(与 ArrayObject::GetElementValue 的约定一致),
+	// 因此只拒绝小于 -1 的非法分量下标。
+	if (GetNumberOfInputs() == 0 || !GetInput(0) || !m_ScalarData || m_Dimension < -1) return false;
 
 	auto input = GetInput(0);
 	if (input->GetDataObjectType() == IG_NONE) return true;

@@ -19,8 +19,11 @@
 #include <functional>
 
 #include <iGamePointSet.h>
+#include "igm/igm.h"
 
 class QCloseEvent;
+class QEvent;
+class QShowEvent;
 class QHideEvent;
 class QLabel;
 class QLineEdit;
@@ -30,6 +33,8 @@ class QTableWidget;
 namespace iGame {
 class Scene;
 }
+
+class igQtRenderWidget;
 
 class igQtModelDialogWidget;
 
@@ -48,6 +53,9 @@ public:
     // 打开窗口或切换模型时调用：按当前模型重置默认参数
     void refreshFromCurrentModel();
 
+    // 关联渲染视图：用于事件过滤（拖球交互）与光标反馈。由主窗口创建后调用。
+    void setRenderWidget(igQtRenderWidget* renderWidget);
+
     // 打开窗口时调用：首次创建一个空点集并挂到模型树（不切换当前模型），
     // 该点集同时作为 ProbeFilter 的输入 1 与输出 0，之后一直复用。
     void ensureQueryPointSet();
@@ -55,6 +63,8 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void hideEvent(QHideEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void onProbeClicked();
@@ -72,6 +82,18 @@ private:
     void clearCenterCross();
     void clearOverlays();
     void updateResultTable();
+
+    // ---- 球体拖拽交互（事件过滤器，仅在面板显示且球存在时生效）----
+    enum class DragMode { None, MoveCenter, ResizeRadius };
+    bool isPointOnSphereWireframe(const QPoint& pos, float tolerance) const;
+    bool isPointOnSphereSurface(const QPoint& pos) const;
+    bool beginDrag(const QPoint& pos, DragMode mode);
+    void updateDrag(const QPoint& pos);
+    void endDrag();
+    void updateHoverCursor(const QPoint& pos);
+    void resetDragState();
+    void applySphereParams(const iGame::Point& center, float radius);
+    igm::vec3 unproject(const QPoint& pos, float ndcZ) const;
 
     QLineEdit* m_centerX{nullptr};
     QLineEdit* m_centerY{nullptr};
@@ -92,4 +114,17 @@ private:
     iGame::PointSet::Pointer m_queryPoints;
     unsigned int m_sphereHandle{0};
     unsigned int m_crossHandle[3]{0, 0, 0};
+
+    igQtRenderWidget* m_renderWidget{nullptr};
+    bool m_filterInstalled{false};
+
+    DragMode m_dragMode{DragMode::None};
+    bool m_dragging{false};
+    QPoint m_lastDragPos;
+    iGame::Point m_dragCenter;
+    float m_dragRadius{0.0f};
+    float m_centerNDCZ{0.0f};
+    igm::mat4 m_dragMVP;
+    igm::mat4 m_dragInvMVP;
 };
+

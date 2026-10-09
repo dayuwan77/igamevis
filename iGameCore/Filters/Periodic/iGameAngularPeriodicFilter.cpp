@@ -10,8 +10,11 @@
 #include "iGameVolumeMesh.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 IGAME_NAMESPACE_BEGIN
@@ -176,9 +179,133 @@ bool CollectCells(PointSet* src, std::vector<CellRecord>& cells, std::string& me
     return true;
 }
 
-// 把源属性数组原样复制 copies 遍（点/单元属性在输出里按每份连续排列）。
+// 同一份旋转副本的 3x3 旋转矩阵（行主序）。
+using Rotation = std::array<double, 9>;
+
+// 按 Rodrigues 公式构造绕单位轴 axis 旋转 angleRad 的旋转矩阵。
+Rotation RotationMatrix(const Vector3d& axis, double angleRad) {
+    const double c = std::cos(angleRad);
+    const double s = std::sin(angleRad);
+    const double t = 1.0 - c;
+    const double x = axis[0], y = axis[1], z = axis[2];
+    return Rotation{
+        t * x * x + c,     t * x * y - s * z, t * x * z + s * y,
+        t * x * y + s * z, t * y * y + c,     t * y * z - s * x,
+        t * x * z - s * y, t * y * z + s * x, t * z * z + c,
+    };
+}
+
+// 份数×角度是否恰好覆盖整周（360°）。
+bool IsFullPeriod(int copies, float angleDeg) {
+    return std::fabs(static_cast<double>(copies) * angleDeg - 360.0) < 1e-3;
+}
+
+// 生成覆盖信息：整周闭合 / 缺口 / 重叠，并列出各份角度。
+std::string BuildCoverageInfo(int copies, float angleDeg) {
+    const double total = static_cast<double>(copies) * angleDeg;
+    const double diff = total - 360.0;
+    std::ostringstream oss;
+    if (std::fabs(diff) < 1e-3) {
+        oss << "整周闭合：";
+    } else if (diff < 0.0) {
+        oss << "缺口 " << (-diff) << "°：";
+    } else {
+        oss << "重叠 " << diff << "°：";
+    }
+    for (int i = 0; i < copies; ++i) {
+        if (i > 0) oss << ", ";
+        oss << (i * angleDeg) << "°";
+    }
+    oss << "（覆盖 " << total << "°）";
+    return oss.str();
+}
+
+// 属性按语义旋转的方式。
+enum class AttrRotation {
+    None,     // 原样复制（标量、纹理坐标、RGB、无符号整型等）
+    Vector3,  // 3 分量向量：v' = R·v
+    Tensor9,  // 9 分量张量：T' = R·T·Rᵀ
+    Tensor6,  // 6 分量对称张量（Voigt: xx,yy,zz,xy,yz,xz）：T' = R·T·Rᵀ
+};
+
+AttrRotation ClassifyRotation(const AttributeSet::Attribute& attr) {
+    if (!attr.pointer) return AttrRotation::None;
+    const int dimension = attr.pointer->GetDimension();
+    if ((attr.type == IG_VECTOR || attr.type == IG_NORMAL) && dimension == 3) {
+        return AttrRotation::Vector3;
+    }
+    if (attr.type == IG_TENSOR) {
+        if (dimension == 9) return AttrRotation::Tensor9;
+        if (dimension == 6) return AttrRotation::Tensor6;
+    }
+    return AttrRotation::None;
+}
+
+template <typename T>
+void RotateVector3(const double* R, const T* src, T* dst) {
+    const double x = static_cast<double>(src[0]);
+    const double y = static_cast<double>(src[1]);
+    const double z = static_cast<double>(src[2]);
+    dst[0] = static_cast<T>(R[0] * x + R[1] * y + R[2] * z);
+    dst[1] = static_cast<T>(R[3] * x + R[4] * y + R[5] * z);
+    dst[2] = static_cast<T>(R[6] * x + R[7] * y + R[8] * z);
+}
+
+// 计算 R·A·Rᵀ，A 为行主序 3x3。
+inline void SimilarityTransform(const double* R, const double A[3][3], double out[3][3]) {
+    double tmp[3][3];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double s = 0.0;
+            for (int k = 0; k < 3; ++k) s += R[i * 3 + k] * A[k][j];
+            tmp[i][j] = s;
+        }
+    }
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            double s = 0.0;
+            for (int k = 0; k < 3; ++k) s += tmp[i][k] * R[j * 3 + k];
+            out[i][j] = s;
+        }
+    }
+}
+
+template <typename T>
+void RotateTensor9(const double* R, const T* src, T* dst) {
+    double a[3][3];
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) a[i][j] = static_cast<double>(src[i * 3 + j]);
+    }
+    double out[3][3];
+    SimilarityTransform(R, a, out);
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) dst[i * 3 + j] = static_cast<T>(out[i][j]);
+    }
+}
+
+template <typename T>
+void RotateTensor6(const double* R, const T* src, T* dst) {
+    const double a[3][3] = {
+        {static_cast<double>(src[0]), static_cast<double>(src[3]), static_cast<double>(src[5])},
+        {static_cast<double>(src[3]), static_cast<double>(src[1]), static_cast<double>(src[4])},
+        {static_cast<double>(src[5]), static_cast<double>(src[4]), static_cast<double>(src[2])},
+    };
+    double out[3][3];
+    SimilarityTransform(R, a, out);
+    dst[0] = static_cast<T>(out[0][0]);
+    dst[1] = static_cast<T>(out[1][1]);
+    dst[2] = static_cast<T>(out[2][2]);
+    dst[3] = static_cast<T>(out[0][1]);
+    dst[4] = static_cast<T>(out[1][2]);
+    dst[5] = static_cast<T>(out[0][2]);
+}
+
+// 把源属性数组按 copies 份复制到输出，并按语义对每份做几何同步旋转。
 template <typename TArray>
-ArrayObject::Pointer DuplicateAttributeArrayN(typename TArray::Pointer input, int copies) {
+ArrayObject::Pointer CopyAttributeArrayN(typename TArray::Pointer input,
+                                         int copies,
+                                         AttrRotation rotation,
+                                         const std::vector<Rotation>& rotations) {
     if (!input) return nullptr;
     auto output = TArray::New();
     output->SetName(input->GetName());
@@ -186,41 +313,84 @@ ArrayObject::Pointer DuplicateAttributeArrayN(typename TArray::Pointer input, in
 
     const IGsize tuples = input->GetNumberOfElements();
     const IGsize values = input->GetNumberOfValues();
+    const int dimension = input->GetDimension();
     output->Resize(tuples * copies);
+    if (tuples == 0 || values == 0 || copies <= 0) return output;
 
-    const auto* src = input->RawPointer();
-    auto* dst = output->RawPointer();
+    using Elem = std::remove_cv_t<std::remove_pointer_t<decltype(input->RawPointer())>>;
+    const Elem* srcBase = input->RawPointer();
+    Elem* dstBase = output->RawPointer();
+
+    // 不旋转的数组：整段批量拷贝（避免逐分量循环）
+    if (rotation == AttrRotation::None) {
+        for (int c = 0; c < copies; ++c) {
+            std::copy(srcBase, srcBase + values, dstBase + static_cast<IGsize>(c) * values);
+        }
+        return output;
+    }
+
     for (int c = 0; c < copies; ++c) {
-        std::copy(src, src + values, dst + static_cast<IGsize>(c) * values);
+        const Rotation& R = rotations[static_cast<size_t>(c)];
+        const IGsize base = static_cast<IGsize>(c) * tuples;
+        for (IGsize i = 0; i < tuples; ++i) {
+            const Elem* src = srcBase + i * dimension;
+            Elem* dst = dstBase + (base + i) * dimension;
+            switch (rotation) {
+            case AttrRotation::Vector3:
+                RotateVector3(R.data(), src, dst);
+                break;
+            case AttrRotation::Tensor9:
+                RotateTensor9(R.data(), src, dst);
+                break;
+            case AttrRotation::Tensor6:
+                RotateTensor6(R.data(), src, dst);
+                break;
+            case AttrRotation::None:
+            default:
+                for (int k = 0; k < dimension; ++k) dst[k] = src[k];
+                break;
+            }
+        }
     }
     return output;
 }
 
-ArrayObject::Pointer DuplicateAttribute(const AttributeSet::Attribute& attr, int copies) {
-    auto duplicate = [&](auto array) -> ArrayObject::Pointer {
+ArrayObject::Pointer CopyAttribute(const AttributeSet::Attribute& attr,
+                                   int copies,
+                                   const std::vector<Rotation>& rotations) {
+    const AttrRotation rotation = ClassifyRotation(attr);
+
+    // 浮点数组按语义旋转；整型（含有符号）不参与旋转，原样复制。
+    auto copyRotatable = [&](auto array) -> ArrayObject::Pointer {
         using ArrayType = typename decltype(array)::ObjectType;
-        return DuplicateAttributeArrayN<ArrayType>(array, copies);
+        return CopyAttributeArrayN<ArrayType>(array, copies, rotation, rotations);
+    };
+    auto copyPlain = [&](auto array) -> ArrayObject::Pointer {
+        using ArrayType = typename decltype(array)::ObjectType;
+        return CopyAttributeArrayN<ArrayType>(array, copies, AttrRotation::None, rotations);
     };
 
-    if (auto array = DynamicCast<FloatArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<DoubleArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<IntArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<ShortArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<CharArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<LongLongArray>(attr.pointer)) return duplicate(array);
+    if (auto array = DynamicCast<FloatArray>(attr.pointer)) return copyRotatable(array);
+    if (auto array = DynamicCast<DoubleArray>(attr.pointer)) return copyRotatable(array);
+    if (auto array = DynamicCast<IntArray>(attr.pointer)) return copyPlain(array);
+    if (auto array = DynamicCast<ShortArray>(attr.pointer)) return copyPlain(array);
+    if (auto array = DynamicCast<CharArray>(attr.pointer)) return copyPlain(array);
+    if (auto array = DynamicCast<LongLongArray>(attr.pointer)) return copyPlain(array);
 
-    if (auto array = DynamicCast<UnsignedIntArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<UnsignedShortArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<UnsignedCharArray>(attr.pointer)) return duplicate(array);
-    if (auto array = DynamicCast<UnsignedLongLongArray>(attr.pointer)) return duplicate(array);
+    if (auto array = DynamicCast<UnsignedIntArray>(attr.pointer)) return copyPlain(array);
+    if (auto array = DynamicCast<UnsignedShortArray>(attr.pointer)) return copyPlain(array);
+    if (auto array = DynamicCast<UnsignedCharArray>(attr.pointer)) return copyPlain(array);
+    if (auto array = DynamicCast<UnsignedLongLongArray>(attr.pointer)) return copyPlain(array);
 
     return nullptr;
 }
 
-// 把源 PointData/CellData 全部属性复制到输出（每份值不变，仅逐份重复）。
+// 把源 PointData/CellData 全部属性复制到输出：标量逐份重复，
+// 向量/张量按每份的旋转矩阵同步旋转。
 bool CopyAttributesToOutput(PointSet* src,
                             UnstructuredMesh* output,
                             int copies,
+                            const std::vector<Rotation>& rotations,
                             std::string& message) {
     auto outputAttributes = AttributeSet::New();
 
@@ -232,7 +402,7 @@ bool CopyAttributesToOutput(PointSet* src,
             auto& attr = all->GetElement(i);
             if (attr.IsNone() || !attr.pointer) continue;
 
-            auto copied = DuplicateAttribute(attr, copies);
+            auto copied = CopyAttribute(attr, copies, rotations);
             if (!copied) {
                 message = "不支持复制该属性数组类型: " + attr.pointer->GetName();
                 return false;
@@ -275,7 +445,11 @@ bool AngularPeriodicFilter::Execute() {
         m_Message = "rotation axis has zero length";
         return false;
     }
-    if (m_NumberOfCopies < 1) {
+    if (m_Angle <= 0.f) {
+        m_Message = "period angle must be positive";
+        return false;
+    }
+    if (m_IterationMode == ITERATION_MODE_DIRECT_NB && m_NumberOfCopies < 1) {
         m_Message = "number of copies is invalid";
         return false;
     }
@@ -299,18 +473,45 @@ bool AngularPeriodicFilter::Execute() {
         return false;
     }
 
+    // 计算实际份数：MAX 模式取不超过整周的最大整数份数 floor(360/angle)。
+    if (m_IterationMode == ITERATION_MODE_MAX) {
+        const double raw = 360.0 / static_cast<double>(m_Angle);
+        m_EffectiveCopies = static_cast<int>(std::floor(raw));
+        if (m_EffectiveCopies < 1) m_EffectiveCopies = 1;
+    } else {
+        m_EffectiveCopies = m_NumberOfCopies;
+    }
+
+    // 覆盖信息：整周闭合 / 缺口 / 重叠（默认只提示不拦截）。
+    m_CoverageInfo = BuildCoverageInfo(m_EffectiveCopies, m_Angle);
+    if (m_RequireFullPeriod && !IsFullPeriod(m_EffectiveCopies, m_Angle)) {
+        m_Message = "not a full period: " + m_CoverageInfo;
+        return false;
+    }
+
     auto outputPoints = Points::New();
     auto outputCells = CellArray::New();
     auto outputTypes = UnsignedIntArray::New();
 
-    const float stepAngle =
-        m_Angle / m_NumberOfCopies * 3.14159265358979f / 180.0f;
-    for (int i = 0; i < m_NumberOfCopies; ++i) {
-        const float angleRad = stepAngle * static_cast<float>(i);
+    // ParaView 语义：相邻两份间隔 m_Angle 度，第 i 份旋转 i×m_Angle。
+    const double stepAngle = static_cast<double>(m_Angle) * 3.14159265358979 / 180.0;
+    std::vector<Rotation> rotations(static_cast<size_t>(m_EffectiveCopies));
+    for (int i = 0; i < m_EffectiveCopies; ++i) {
+        rotations[static_cast<size_t>(i)] = RotationMatrix(m_AxisNormalized, stepAngle * i);
+    }
+
+    // 预分配输出，避免逐点/逐单元扩容（每个单元每份最多 2 个三角形）
+    outputPoints->Reserve(numPoints * static_cast<IGsize>(m_EffectiveCopies));
+    const IGsize maxCellsPerCopy = static_cast<IGsize>(cells.size()) * 2;
+    outputCells->Reserve(maxCellsPerCopy * static_cast<IGsize>(m_EffectiveCopies));
+    outputTypes->Reserve(maxCellsPerCopy * static_cast<IGsize>(m_EffectiveCopies));
+
+    for (int i = 0; i < m_EffectiveCopies; ++i) {
+        const Rotation& rotation = rotations[static_cast<size_t>(i)];
         const igIndex pointOffset = static_cast<igIndex>(numPoints * i);
 
         for (IGsize p = 0; p < numPoints; ++p) {
-            outputPoints->AddPoint(RotatePoint(srcPoints->GetPoint(p), angleRad));
+            outputPoints->AddPoint(RotatePoint(srcPoints->GetPoint(p), rotation));
         }
 
         std::vector<igIndex> shifted;
@@ -326,8 +527,8 @@ bool AngularPeriodicFilter::Execute() {
     output->SetPoints(outputPoints);
     output->SetCells(outputCells, outputTypes);
 
-    // PointData/CellData 逐份复制到输出，不丢属性
-    if (!CopyAttributesToOutput(mesh.get(), output.get(), m_NumberOfCopies, m_Message)) {
+    // PointData/CellData 逐份复制到输出，并按语义同步旋转向量/张量
+    if (!CopyAttributesToOutput(mesh.get(), output.get(), m_EffectiveCopies, rotations, m_Message)) {
         return false;
     }
 
@@ -335,23 +536,14 @@ bool AngularPeriodicFilter::Execute() {
     return true;
 }
 
-Point AngularPeriodicFilter::RotatePoint(const Point& p, float angleRad) {
-    double cosA = std::cos(angleRad);
-    double sinA = std::sin(angleRad);
+Point AngularPeriodicFilter::RotatePoint(const Point& p, const RotMat& R) const {
+    const double vx = static_cast<double>(p[0]) - m_AxisOrigin[0];
+    const double vy = static_cast<double>(p[1]) - m_AxisOrigin[1];
+    const double vz = static_cast<double>(p[2]) - m_AxisOrigin[2];
 
-    Vector3d v(p[0] - m_AxisOrigin[0],
-               p[1] - m_AxisOrigin[1],
-               p[2] - m_AxisOrigin[2]);
-    Vector3d axis = m_AxisNormalized;
-
-    Vector3d cross = axis.cross(v);
-    double dot = axis.dot(v);
-
-    Vector3d rotated = v * cosA + cross * sinA + axis * (dot * (1.0 - cosA));
-
-    return Point(static_cast<float>(m_AxisOrigin[0] + rotated[0]),
-                 static_cast<float>(m_AxisOrigin[1] + rotated[1]),
-                 static_cast<float>(m_AxisOrigin[2] + rotated[2]));
+    return Point(static_cast<float>(m_AxisOrigin[0] + R[0] * vx + R[1] * vy + R[2] * vz),
+                 static_cast<float>(m_AxisOrigin[1] + R[3] * vx + R[4] * vy + R[5] * vz),
+                 static_cast<float>(m_AxisOrigin[2] + R[6] * vx + R[7] * vy + R[8] * vz));
 }
 
 IGAME_NAMESPACE_END

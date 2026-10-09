@@ -1,5 +1,7 @@
 #include <IQCore/igQtMainWindow.h>
 #include <QApplication>
+#include <QDir>
+#include <QFileInfo>
 
 #if __linux__
 #include <qtextcodec.h>
@@ -13,6 +15,7 @@
 #include "Core/RenderWindow/iGameRenderWindow.h"
 #include "iGameFileIO.h"
 #include <iostream>
+#include <filesystem>
 int main(int argc, char* argv[]) {
 //    iGame::StressDeformationCodeFilter::Pointer filter = iGame::StressDeformationCodeFilter::New();
 //    //    const std::string fileName = "./Models/sukong_Step-1_2.vtu";
@@ -78,6 +81,46 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setAttribute(Qt::AA_UseDesktopOpenGL);
     QApplication a(argc, argv);
 
+    // Preserve caller-relative input/output paths before locating portable resources.
+    const QDir launchDirectory = QDir::current();
+    QStringList launchArguments = a.arguments();
+    for (int i = 1; i + 1 < launchArguments.size(); ++i) {
+        const QString option = launchArguments[i].toLower();
+        if (option == QStringLiteral("--filepath") ||
+            option == QStringLiteral("--remote-cache") ||
+            option == QStringLiteral("--remote-cache-benchmark-json")) {
+            QString& path = launchArguments[++i];
+            if (!path.isEmpty() && QDir::isRelativePath(path)) {
+                path = launchDirectory.absoluteFilePath(path);
+            }
+        }
+    }
+
+    // Resource paths are relative to the distribution, independent of shortcut cwd.
+    const QDir applicationDirectory(QCoreApplication::applicationDirPath());
+    QString runtimeRoot;
+    for (const QString& candidate : {applicationDirectory.absolutePath(),
+                                    applicationDirectory.absoluteFilePath(QStringLiteral(".."))}) {
+        if (QFileInfo(QDir(candidate).filePath(QStringLiteral("Resources"))).isDir()) {
+            runtimeRoot = QDir::cleanPath(candidate);
+            break;
+        }
+    }
+    const bool runtimeRootReady = !runtimeRoot.isEmpty() && QDir::setCurrent(runtimeRoot);
+
+    // 启动时清理上次运行遗留的临时转换文件（Ansys/LsDyna 等转换到 <cwd>/temp 下）
+    // Only clean the application's own runtime directory, never an unrelated cwd.
+    if (runtimeRootReady) {
+        try {
+            const auto runtimeDirectory = std::filesystem::current_path();
+            const auto tempDir = runtimeDirectory / "temp";
+            if (tempDir.parent_path() == runtimeDirectory) {
+                std::filesystem::remove_all(tempDir);
+            }
+        } catch (...) {
+        }
+    }
+
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setVersion(4, 6); // Mac set to format.setVersion(3, 3);
@@ -101,7 +144,7 @@ int main(int argc, char* argv[]) {
     w.setWindowTitle(codec->toUnicode("iGameVis 2.0"));
     w.show();
     w.showMaximized();
-    w.initArgs(a.arguments());
+    w.initArgs(launchArguments);
     a.exec();
     return 0;
 }

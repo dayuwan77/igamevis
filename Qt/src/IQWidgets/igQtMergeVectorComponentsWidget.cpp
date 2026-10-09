@@ -61,6 +61,10 @@ void igQtMergeVectorComponentsWidget::PopulateComponents() {
         ui->comboBox_Y->addItem(name);
         ui->comboBox_Z->addItem(name);
     }
+    // 候选填充后不预选默认项, 每个分量由用户显式选择
+    for (auto* cb : {ui->comboBox_X, ui->comboBox_Y, ui->comboBox_Z}) {
+        cb->setCurrentIndex(-1);
+    }
 }
 
 void igQtMergeVectorComponentsWidget::OnExecute() {
@@ -71,8 +75,18 @@ void igQtMergeVectorComponentsWidget::OnExecute() {
     }
     if (ui->comboBox_X->count() == 0) {
         QMessageBox::warning(this, QStringLiteral("合并标量数组为向量"),
-                             QStringLiteral("请加载模型/当前数据类型下没有可用的标量数组。"));
+                             QStringLiteral("当前数据类型下没有可用的标量数组。"));
         return;
+    }
+    // 每个分量都必须被显式选择(下拉不预选默认项)
+    const char* axisName[3] = {"X", "Y", "Z"};
+    QComboBox* const combos[3] = {ui->comboBox_X, ui->comboBox_Y, ui->comboBox_Z};
+    for (int k = 0; k < 3; ++k) {
+        if (combos[k]->currentIndex() < 0 || combos[k]->currentText().trimmed().isEmpty()) {
+            QMessageBox::warning(this, QStringLiteral("合并标量数组为向量"),
+                                 QStringLiteral("请选择 %1 分量。").arg(QString::fromLatin1(axisName[k])));
+            return;
+        }
     }
     std::vector<std::string> names = {
         ui->comboBox_X->currentText().toStdString(),
@@ -81,16 +95,18 @@ void igQtMergeVectorComponentsWidget::OnExecute() {
     };
     const bool isPoint = ui->comboBox_DataType->currentIndex() == 0;
     const QString out = ui->lineEdit_OutputName->text().trimmed();
+    const std::string outName = out.isEmpty() ? std::string("vector") : out.toStdString();
 
     auto filter = iGame::MergeVectorComponentsFilter::New();
     filter->SetInput(m_OriginDataObject);
     filter->SetComponentArrayNames(names);
     filter->SetAttachmentType(isPoint ? IG_POINT : IG_CELL);
-    filter->SetOutputVectorName(out.isEmpty() ? std::string("vector") : out.toStdString());
+    filter->SetOutputVectorName(outName);
     if (!filter->Execute()) {
         QMessageBox::warning(this, QStringLiteral("合并标量数组为向量"),
                              QString::fromStdString(filter->GetMessage()));
         return;
     }
+    emit MergeCompleted(filter->GetOutput(), outName);
     QMessageBox::information(this, QStringLiteral("合并标量数组为向量"), QStringLiteral("Algorithm execution completed."));
 }

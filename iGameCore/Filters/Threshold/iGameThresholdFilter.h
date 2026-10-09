@@ -37,6 +37,12 @@ public:
 		UpperInclusive
 	};
 
+	/**
+	 * @brief 设置参与阈值判定的标量数组。
+	 * @param array       标量数组(点关联或单元关联)。
+	 * @param association 标量的关联对象(点或单元)。
+	 * @param dimension   分量下标:>= 0 取对应分量,-1 取模长(各分量平方和开方)。
+	 */
 	void SetScalarData(ArrayObject::Pointer array, Association association = Association::Point,
 					   int dimension = 0);
 	ArrayObject::Pointer GetScalarData() const { return m_ScalarData; }
