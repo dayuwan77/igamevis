@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iGameDataObject.h>
+#include <iGameModel.h>
 
 #include <QWidget>
 
@@ -42,7 +43,7 @@ private slots:
 
 private:
     Ui::igQtGlobalId* ui;
-    iGame::Model* m_currentModel{nullptr};
+    iGame::Model::Pointer m_currentModel;
     iGame::DataObject::Pointer m_currentModelData;
 
     QWidget* m_paginationWidget{nullptr};

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  复选框选中态的对勾图标（白色描边，供深色面板使用）。
+  说明：仓库原有的 Icons/check.png 描边是 #1296DB，压在选中态的蓝底 #0E639C 上
+  对比度只有约 1.95，14px 显示时基本看不出对勾，因此这里单独提供一个白色版本。
+  路径描边宽度 2.5（viewBox 16x16），保证缩到 14px 仍清晰。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <path fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round"
+        stroke-linejoin="round" d="M3 8.5 L6.5 12 L13 4"/>
+</svg>

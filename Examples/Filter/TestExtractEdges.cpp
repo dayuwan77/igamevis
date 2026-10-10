@@ -1,3 +1,10 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestExtractEdges.cpp
+// Regression/example imported from dayuwan77/igamevis at
+// eccac729b57aeacbe9312d7d5189f6990bb4eebd (same relative path).
+// Integration regression: these filters and their example assets were missing
+// from iGameVis-multiFilter. The checks below cover their output/attribute and
+// geometry contracts; visual examples retain an interactive default mode.
+// Local integration fix: feat: integrate second-batch standard filters.
 #include <ExtractEdges/iGameExtractEdgesFilter.h>
 
 #include <Core/iGameScene.h>
@@ -444,7 +451,7 @@ void VisualizeEdgesResult() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     std::cerr << "==== testExtractEdges ====\n";
     TestTriMeshWithCellData();
     TestHexaGrid();
@@ -459,7 +466,7 @@ int main() {
     }
 
     // —— 可视化演示：提取边以线框形式弹出渲染窗口 ——
-    VisualizeEdgesResult();
+    if (!(argc > 1 && std::string(argv[1]) == "--no-render")) VisualizeEdgesResult();
 
     return (g_failed == 0) ? 0 : 1;
 }

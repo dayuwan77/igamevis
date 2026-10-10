@@ -247,41 +247,34 @@ void iGame::AttributeSet::Attribute::Delete() { isDeleted = true; }
 
 bool iGame::AttributeSet::Attribute::DeepCopy(const iGame::AttributeSet::Attribute& other) {
     if (other.isDeleted) return true;
-    if (!other.pointer) return false;
-
-    // 通用数组克隆：覆盖所有 FlatArray 派生类型（float/double/整型等），
-    // 避免只支持 Float/Double 导致其它属性复制失败并留下空属性槽位。
-    auto cloneArray = [](const ArrayObject::Pointer& src) -> ArrayObject::Pointer {
-        if (!src) return nullptr;
-        ArrayObject::Pointer dst = nullptr;
-        if (auto a = DynamicCast<FloatArray>(src)) { auto n = FloatArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<DoubleArray>(src)) { auto n = DoubleArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<CharArray>(src)) { auto n = CharArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<UnsignedCharArray>(src)) { auto n = UnsignedCharArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<ShortArray>(src)) { auto n = ShortArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<UnsignedShortArray>(src)) { auto n = UnsignedShortArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<IntArray>(src)) { auto n = IntArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<UnsignedIntArray>(src)) { auto n = UnsignedIntArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<LongLongArray>(src)) { auto n = LongLongArray::New(); n->DeepCopy(a); dst = n; }
-        else if (auto a = DynamicCast<UnsignedLongLongArray>(src)) { auto n = UnsignedLongLongArray::New(); n->DeepCopy(a); dst = n; }
-        return dst;
-    };
-
-    auto p = cloneArray(other.pointer);
-    if (p == nullptr) return false;
-    p->SetName(other.pointer->GetName());
-    pointer = p;
+    if (DynamicCast<FloatArray>(other.pointer)) {
+        auto p = FloatArray::New();
+        p->DeepCopy(DynamicCast<FloatArray>(other.pointer));
+        p->SetName(other.pointer->GetName());
+        pointer = p;
+    } else if (DynamicCast<DoubleArray>(other.pointer)) {
+        auto p = DoubleArray::New();
+        p->DeepCopy(DynamicCast<DoubleArray>(other.pointer));
+        p->SetName(other.pointer->GetName());
+        pointer = p;
+    } else {
+        return false;
+    }
     type = other.type;
     attachmentType = other.attachmentType;
     isDeleted = other.isDeleted;
+    rangeLocked = other.rangeLocked;
+    rangeMode = other.rangeMode;
+    rangeLockedDimension = other.rangeLockedDimension;
+    runningMin = other.runningMin;
+    runningMax = other.runningMax;
+    runningRangeValid = other.runningRangeValid;
 
-    // 源 dataRange 为 null（未计算）时保持 null，走懒计算；
-    // 避免把 null 拷贝成空数组（非 null），导致后续 UpdateAllDataRange 越界写
-    if (other.dataRange != nullptr) {
+    // Preserve lazy range calculation when the source has no cached range.
+    dataRange = nullptr;
+    if (other.dataRange) {
         dataRange = DoubleArray::New();
         dataRange->DeepCopy(other.dataRange);
-    } else {
-        dataRange = nullptr;
     }
     return true;
 }
@@ -300,10 +293,11 @@ bool iGame::AttributeSet::Attribute::IsNone() const {
 }
 
 iGame::DoubleArray::Pointer iGame::AttributeSet::Attribute::GetDataRange() {
-    if (dataRange == nullptr) {
-        if (!this->pointer) { return dataRange; }
+    if (!this->pointer) { return nullptr; }
+    const int dim = this->pointer->GetDimension();
+    if (dataRange == nullptr || dataRange->GetDimension() != 2 ||
+        dataRange->GetNumberOfElements() != dim + 1) {
         dataRange = DoubleArray::New();
-        int dim = this->pointer->GetDimension();
         dataRange->SetDimension(2);
         dataRange->Resize(dim + 1);
         for (int i = 0; i < dim + 1; i++) {
@@ -316,10 +310,14 @@ iGame::DoubleArray::Pointer iGame::AttributeSet::Attribute::GetDataRange() {
 }
 
 bool iGame::AttributeSet::Attribute::UpdateAllDataRange() {
-    if (dataRange == nullptr) {
+    if (!this->pointer) { return false; }
+    if (dataRange == nullptr || dataRange->GetDimension() != 2 ||
+        dataRange->GetNumberOfElements() != this->pointer->GetDimension() + 1) {
         GetDataRange();
         return true;
     }
+    // 范围锁定：保留固定范围，不按数据重算（供"固定范围"开关使用）
+    if (rangeLocked) { return true; }
     int dim = this->pointer->GetDimension();
     double dimensionRanges[128];
     for (int i = 0; i < 2 * (dim + 1); i += 2) {

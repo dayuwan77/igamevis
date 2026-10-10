@@ -1,30 +1,15 @@
-#include "iGameModelGeometryFilter.h"
+﻿#include "iGameModelGeometryFilter.h"
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Mutex/iGameAtomicMutex.h"
 #include "iGameThreadPool.h"
 #include <mutex>
+#include <new>
 #ifndef __EMSCRIPTEN__
 #include <omp.h>
 #endif
 #include <stdexcept>
 IGAME_NAMESPACE_BEGIN
 #define ArrayList std::vector<ArrayObject>
-
-// 从属性集中读取名为 "vtkGhostType" 的无符号字符数组的原始指针（point/cell 数据）。
-// 找不到或类型不匹配时返回 nullptr。
-static const unsigned char* GetGhostArrayRawPointer(AttributeSet* attrSet, IGenum attachmentType) {
-    if (attrSet == nullptr) return nullptr;
-    auto attrs = attrSet->GetAllAttributes();
-    for (IGsize i = 0; i < attrs->GetNumberOfElements(); ++i) {
-        auto& a = attrs->GetElement(i);
-        if (a.isDeleted || a.pointer == nullptr) continue;
-        if (a.attachmentType != attachmentType) continue;
-        if (a.pointer->GetName() != "vtkGhostType") continue;
-        auto uc = DynamicCast<UnsignedCharArray>(a.pointer);
-        return uc ? uc->RawPointer() : nullptr;
-    }
-    return nullptr;
-}
 ModelGeometryFilter::ModelGeometryFilter() {
     this->PointMinimum = 0;
     this->PointMaximum = INT_MAX;
@@ -257,7 +242,6 @@ public:
                 const bool& isGhost)
         : GFace(originalCellId, numberOfPoints, isGhost) {
         assert(this->NumberOfPoints != 0);
-        std::cout << NumberOfPoints << std::endl;
         this->PointIdsContainer.resize(static_cast<size_t>(this->NumberOfPoints));
         this->PointIds = this->PointIdsContainer.data();
         this->Initialize(pointIds);
@@ -299,13 +283,9 @@ private:
     std::size_t NextFaceIndex;
     unsigned char** Arrays;
     inline static std::size_t SizeofFace(const int& numberOfPoints) {
-        static constexpr std::size_t fSize = sizeof(GFace);
-        static constexpr std::size_t sizeId = sizeof(igIndex);
-        if (fSize % sizeId == 0) {
-            return fSize + static_cast<std::size_t>(numberOfPoints) * sizeId;
-        } else {
-            return (fSize / sizeId + 1 + static_cast<std::size_t>(numberOfPoints)) * sizeId;
-        }
+        const std::size_t size = sizeof(GFace) + static_cast<std::size_t>(numberOfPoints) * sizeof(igIndex);
+        constexpr std::size_t alignment = alignof(GFace);
+        return (size + alignment - 1) / alignment * alignment;
     }
 
 public:
@@ -368,17 +348,10 @@ public:
             this->Arrays[this->NextArrayIndex] = new unsigned char[this->ArrayLength];
         }
 
-        GFace* Face = reinterpret_cast<GFace*>(this->Arrays[this->NextArrayIndex] + this->NextFaceIndex);
+        void* address = this->Arrays[this->NextArrayIndex] + this->NextFaceIndex;
+        GFace* Face = ::new (address) GFace();
         Face->NumberOfPoints = numberOfPoints;
-
-        static constexpr std::size_t fSize = sizeof(GFace);
-        static constexpr std::size_t sizeId = sizeof(igIndex);
-        //字节对齐
-        if (fSize % sizeId == 0) {
-            Face->PointIds = (igIndex*) Face + fSize / sizeId;
-        } else {
-            Face->PointIds = (igIndex*) Face + fSize / sizeId + 1;
-        }
+        Face->PointIds = reinterpret_cast<igIndex*>(static_cast<unsigned char*>(address) + sizeof(GFace));
 
         this->NextFaceIndex += polySize;
 
@@ -483,28 +456,38 @@ struct ExtractCellBoundaries {
         std::fill(this->PointMap, this->PointMap + numPts, -1);
     }
 
-    void UpdatePointMap(CellArray::Pointer& Polygons, Points::Pointer oldPoints, Points::Pointer newPoints) {
-        auto ids = Polygons->GetCellIdArray()->RawPointer();
-        IGsize num = Polygons->GetNumberOfCellIds(); // 使用实际填充的数据量，而不是 buffer 的大小
-        igIndex id = 0;
-        igIndex oldId = 0;
+    void UpdatePointMap(CellArray::Pointer& Polygons, Points::Pointer oldPoints, Points::Pointer newPoints,
+                        CellArray::Pointer Edges = nullptr) {
         igIndex newId = 0;
-        Point p;
-        for (IGsize i = 0; i < num; i++) {
-            oldId = ids[i];
-            if (this->PointMap[oldId] == -1) {
-                //p = oldPoints->GetPoint(oldId);
-                //newPoints->AddPoint(p);
-                this->PointMap[oldId] = newId++;
+        const IGsize oldPointCount = oldPoints->GetNumberOfPoints();
+        auto markUsedPoints = [&](CellArray::Pointer cells) {
+            if (!cells) { return; }
+            auto ids = cells->GetCellIdArray()->RawPointer();
+            const IGsize num = cells->GetNumberOfCellIds();
+            for (IGsize i = 0; i < num; i++) {
+                const igIndex oldId = ids[i];
+                if (oldId >= 0 && oldId < oldPointCount && this->PointMap[oldId] == -1) {
+                    this->PointMap[oldId] = newId++;
+                }
             }
-        }
-        for (IGsize i = 0; i < num; i++) {
-            oldId = ids[i];
-            ids[i] = this->PointMap[oldId];
-        }
+        };
+        markUsedPoints(Polygons);
+        markUsedPoints(Edges);
+
+        auto remapCells = [&](CellArray::Pointer cells) {
+            if (!cells) { return; }
+            auto ids = cells->GetCellIdArray()->RawPointer();
+            const IGsize num = cells->GetNumberOfCellIds();
+            for (IGsize i = 0; i < num; i++) {
+                const igIndex oldId = ids[i];
+                ids[i] = (oldId >= 0 && oldId < oldPointCount) ? this->PointMap[oldId] : -1;
+            }
+        };
+        remapCells(Polygons);
+        remapCells(Edges);
+
         newPoints->Resize(newId);
-        auto pNum = oldPoints->GetNumberOfPoints();
-        for (IGsize i = 0; i < pNum; i++) {
+        for (IGsize i = 0; i < oldPointCount; i++) {
             if (this->PointMap[i] != -1) { newPoints->SetPoint(PointMap[i], oldPoints->GetPoint(i)); }
         }
     }
@@ -790,11 +773,97 @@ int ModelGeometryFilter::ExecuteWithVolumeMesh(DataObject::Pointer input, Surfac
     return ExecuteWithVolumeMesh(input, output, nullptr);
 }
 
+namespace {
+
+void InsertCellFace(igIndex cellId, int facePointCount, const igIndex* facePoints, FaceMemoryPool* facePool,
+                    FaceHashMap* faceMap, const bool& isGhost) {
+    if (facePointCount < 3 || facePoints == nullptr) { return; }
+    switch (facePointCount) {
+        case 3:
+            faceMap->Insert(GTriangle(cellId, facePoints, isGhost), facePool);
+            break;
+        case 4:
+            faceMap->Insert(GQuad(cellId, facePoints, isGhost), facePool);
+            break;
+        case 5:
+            faceMap->Insert(GPentagon(cellId, facePoints, isGhost), facePool);
+            break;
+        case 6:
+            faceMap->Insert(GHexagon(cellId, facePoints, isGhost), facePool);
+            break;
+        case 7:
+            faceMap->Insert(GHeptagon(cellId, facePoints, isGhost), facePool);
+            break;
+        case 8:
+            faceMap->Insert(GOctagon(cellId, facePoints, isGhost), facePool);
+            break;
+        case 9:
+            faceMap->Insert(GNonagon(cellId, facePoints, isGhost), facePool);
+            break;
+        case 10:
+            faceMap->Insert(GDecagon(cellId, facePoints, isGhost), facePool);
+            break;
+        default:
+            faceMap->Insert(GPolygon(cellId, facePointCount, facePoints, isGhost), facePool);
+            break;
+    }
+}
+
+int GetMinimumCellPointCount(const int cellType) {
+    switch (cellType) {
+        case IG_TETRA:
+            return 4;
+        case IG_HEXAHEDRON:
+            return 8;
+        case IG_PRISM:
+            return 6;
+        case IG_PYRAMID:
+            return 5;
+        case IG_QUADRATIC_TETRA:
+            return QuadraticTetra::NumberOfPoints;
+        case IG_QUADRATIC_HEXAHEDRON:
+            return QuadraticHexahedron::NumberOfPoints;
+        case IG_QUADRATIC_PRISM:
+            return QuadraticPrism::NumberOfPoints;
+        case IG_QUADRATIC_PYRAMID:
+            return QuadraticPyramid::NumberOfPoints;
+        default:
+            return 0;
+    }
+}
+
+bool ValidatePointIds(const igIndex* pointIds, const igIndex pointCount, const IGsize meshPointCount) {
+    if (pointIds == nullptr || pointCount <= 0) { return false; }
+    for (igIndex pointIndex = 0; pointIndex < pointCount; ++pointIndex) {
+        if (pointIds[pointIndex] < 0 || static_cast<IGsize>(pointIds[pointIndex]) >= meshPointCount) { return false; }
+    }
+    return true;
+}
+
+bool ValidatePolyhedronConnectivity(const igIndex* connectivity, const igIndex connectivitySize,
+                                    const IGsize meshPointCount) {
+    if (connectivity == nullptr || connectivitySize <= 0 || connectivity[0] <= 0) { return false; }
+    const igIndex faceCount = connectivity[0];
+    igIndex offset = 1;
+    for (igIndex faceId = 0; faceId < faceCount; ++faceId) {
+        if (offset >= connectivitySize) { return false; }
+        const igIndex facePointCount = connectivity[offset++];
+        if (facePointCount < 3 || facePointCount > connectivitySize - offset) { return false; }
+        if (!ValidatePointIds(connectivity + offset, facePointCount, meshPointCount)) {
+            return false;
+        }
+        offset += facePointCount;
+    }
+    return offset == connectivitySize;
+}
+
+} // namespace
+
 void ExtractCellGeometry(UnstructuredMesh::Pointer input, igIndex cellId, int cellType, igIndex npts,
-                         const igIndex* pts, FaceMemoryPool* FacePool, FaceHashMap* FaceMap, const bool& isGhost) {
+                         const igIndex* pts, Cell::Pointer& scratchCell, FaceMemoryPool* FacePool,
+                         FaceHashMap* FaceMap, const bool& isGhost) {
     int FaceId, numFaces, FaceVcnt;
     igIndex ptIds[IGAME_CELL_MAX_SIZE]; // cell GFace point ids
-    igIndex Ids[IGAME_CELL_MAX_SIZE];
     const igIndex* FaceVerts;
     static constexpr int pixelConvert[4] = {0, 1, 3, 2};
     switch (cellType) {
@@ -883,46 +952,17 @@ void ExtractCellGeometry(UnstructuredMesh::Pointer input, igIndex cellId, int ce
 
 
         case IG_POLYHEDRON: {
-            input->GetCellPointIds(cellId, Ids);
+            if (!ValidatePolyhedronConnectivity(pts, npts, input->GetNumberOfPoints())) {
+                igDebug("Skipping invalid polyhedron cell : {}", cellId);
+                break;
+            }
             igIndex index = 0;
-            numFaces = Ids[index++];
+            numFaces = pts[index++];
             for (FaceId = 0; FaceId < numFaces; FaceId++) {
-                FaceVcnt = Ids[index++];
-                pts = Ids + index;
+                FaceVcnt = pts[index++];
+                const igIndex* facePoints = pts + index;
                 index += FaceVcnt;
-                switch (FaceVcnt) {
-                    case 0:
-                    case 1:
-                    case 2:
-                        break;
-                    case 3:
-                        FaceMap->Insert(GTriangle(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 4:
-                        FaceMap->Insert(GQuad(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 5:
-                        FaceMap->Insert(GPentagon(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 6:
-                        FaceMap->Insert(GHexagon(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 7:
-                        FaceMap->Insert(GHeptagon(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 8:
-                        FaceMap->Insert(GOctagon(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 9:
-                        FaceMap->Insert(GNonagon(cellId, pts, isGhost), FacePool);
-                        break;
-                    case 10:
-                        FaceMap->Insert(GDecagon(cellId, pts, isGhost), FacePool);
-                        break;
-                    default:
-                        FaceMap->Insert(GPolygon(cellId, FaceVcnt, pts, isGhost), FacePool);
-                        break;
-                }
+                InsertCellFace(cellId, FaceVcnt, facePoints, FacePool, FaceMap, isGhost);
             }
         }
 
@@ -983,48 +1023,20 @@ void ExtractCellGeometry(UnstructuredMesh::Pointer input, igIndex cellId, int ce
                 }
             }
             break;
-        default:
-            //一般为多面体，需要通过cell找到面片
-            Cell* cell = input->GetCell(cellId);
-            auto cellType = input->GetCellType(cellId);
-            if (Cell::GetCellDimension(cellType) == 3) {
-                for (FaceId = 0, numFaces = cell->GetNumberOfFaces(); FaceId < numFaces; FaceId++) {
-                    Cell* Face = cell->GetFace(FaceId);
-                    FaceVcnt = static_cast<int>(Face->m_PointIds->GetNumberOfIds());
-                    switch (FaceVcnt) {
-                        case 3:
-                            FaceMap->Insert(GTriangle(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 4:
-                            FaceMap->Insert(GQuad(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 5:
-                            FaceMap->Insert(GPentagon(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 6:
-                            FaceMap->Insert(GHexagon(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 7:
-                            FaceMap->Insert(GHeptagon(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 8:
-                            FaceMap->Insert(GOctagon(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 9:
-                            FaceMap->Insert(GNonagon(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        case 10:
-                            FaceMap->Insert(GDecagon(cellId, Face->m_PointIds->RawPointer(), isGhost), FacePool);
-                            break;
-                        default:
-                            FaceMap->Insert(GPolygon(cellId, FaceVcnt, Face->m_PointIds->RawPointer(), isGhost),
-                                            FacePool);
-                            break;
-                    }
-                }
-            } else {
-                igDebug("Unknown cell type : {}", cellType);
+        default: {
+            if (Cell::GetCellDimension(cellType) != 3) { break; }
+            if (!input->GetCell(cellId, scratchCell) || scratchCell == nullptr) {
+                igDebug("Unable to construct cell type : {}", cellType);
+                break;
             }
+            for (FaceId = 0, numFaces = scratchCell->GetNumberOfFaces(); FaceId < numFaces; FaceId++) {
+                Cell* Face = scratchCell->GetFace(FaceId);
+                if (Face == nullptr || Face->m_PointIds == nullptr) { continue; }
+                FaceVcnt = static_cast<int>(Face->m_PointIds->GetNumberOfIds());
+                InsertCellFace(cellId, FaceVcnt, Face->m_PointIds->RawPointer(), FacePool, FaceMap, isGhost);
+            }
+            break;
+        }
     }
 }
 struct ExtractUG : public ExtractCellBoundaries {
@@ -1046,18 +1058,30 @@ struct ExtractUG : public ExtractCellBoundaries {
     void Execute(igIndex beginCellId, igIndex endCellId, FaceMemoryPool* FacePool) {
         igIndex cellId;
         bool isGhost = false;
-        igIndex pts[IGAME_CELL_MAX_SIZE];
-        igIndex npts = 0;
+        Cell::Pointer scratchCell;
         auto FaceMap = this->FaceMap.get();
         if (this->Mesh) {
             auto cellTypes = Mesh->GetCellTypes()->RawPointer();
             for (cellId = beginCellId; cellId < endCellId; cellId++) {
                 igIndex cellType = cellTypes[cellId];
+                if (Cell::GetCellDimension(cellType) < 3) { continue; }
                 //如果是虚拟Cell
                 if (isGhost && (Cell::GetCellDimension(cellType) < 3 || !this->RemoveGhostInterFaces)) { continue; }
                 if (!this->CellVis || this->CellVis[cellId]) {
-                    Mesh->GetCellPointIds(cellId, pts);
-                    ExtractCellGeometry(this->Mesh, cellId, cellType, npts, pts, FacePool, FaceMap, isGhost);
+                    const igIndex* pts = nullptr;
+                    const igIndex npts = Mesh->GetCellPointIds(cellId, pts);
+                    const int minimumPointCount = GetMinimumCellPointCount(cellType);
+                    if (pts == nullptr || npts <= 0 || (minimumPointCount > 0 && npts < minimumPointCount)) {
+                        igDebug("Skipping invalid cell : {}", cellId);
+                        continue;
+                    }
+                    if (cellType != IG_POLYHEDRON &&
+                        !ValidatePointIds(pts, npts, this->Mesh->GetNumberOfPoints())) {
+                        igDebug("Skipping cell with invalid point ids : {}", cellId);
+                        continue;
+                    }
+                    ExtractCellGeometry(this->Mesh, cellId, cellType, npts, pts, scratchCell, FacePool, FaceMap,
+                                        isGhost);
                 }
             }
         }
@@ -1132,14 +1156,65 @@ int ModelGeometryFilter::ExecuteWithUnstructuredMesh(DataObject::Pointer input, 
     }
     std::vector<igIndex> f2c;
     extract->FaceMap.get()->CompositeFaces(Polygons, f2c);
+
+    // Keep explicit shells and beams in mixed-dimensional meshes.
+    CellArray::Pointer explicitEdges = CellArray::New();
+    for (igIndex sourceCellId = 0; sourceCellId < numCells; ++sourceCellId) {
+        if (CellVisible && !CellVisible[sourceCellId]) { continue; }
+
+        const IGenum cellType = Mesh->GetCellType(sourceCellId);
+        const igIndex* cellPoints = nullptr;
+        const int pointCount = Mesh->GetCellPointIds(sourceCellId, cellPoints);
+        if (pointCount <= 0 || cellPoints == nullptr) { continue; }
+
+        switch (cellType) {
+            case IG_FACE:
+            case IG_TRIANGLE:
+            case IG_QUAD:
+            case IG_POLYGON:
+                if (pointCount >= 3) {
+                    Polygons->AddCellIds(cellPoints, pointCount);
+                    f2c.emplace_back(sourceCellId);
+                }
+                break;
+            case IG_LINE:
+                if (pointCount >= 2) { explicitEdges->AddCellIds(cellPoints, 2); }
+                break;
+            case IG_POLY_LINE:
+                for (int pointId = 1; pointId < pointCount; ++pointId) {
+                    explicitEdges->AddCellId2(cellPoints[pointId - 1], cellPoints[pointId]);
+                }
+                break;
+            case IG_QUADRATIC_EDGE:
+                if (pointCount >= 3) {
+                    explicitEdges->AddCellId2(cellPoints[0], cellPoints[2]);
+                    explicitEdges->AddCellId2(cellPoints[2], cellPoints[1]);
+                } else if (pointCount == 2) {
+                    explicitEdges->AddCellIds(cellPoints, 2);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
     CompositeCellAttribute(f2c, inAllDataArray, outAllDataArray);
     if (Merging) {
-        ProcessPointMergin(extract, inPoints, outPoints, Polygons, outAllDataArray);
+        ProcessPointMergin(extract, inPoints, outPoints, Polygons, outAllDataArray, explicitEdges);
     } else {
         m_PointMap = nullptr;
     }
     output->SetPoints(outPoints);
     output->SetFaces(Polygons);
+    if (explicitEdges->GetNumberOfCells() > 0) {
+        output->BuildEdges();
+        auto drawableEdges = output->GetEdges();
+        const igIndex* edgePoints = nullptr;
+        for (IGsize edgeId = 0; edgeId < explicitEdges->GetNumberOfCells(); ++edgeId) {
+            const int edgePointCount = explicitEdges->GetCellIds(edgeId, edgePoints);
+            drawableEdges->AddCellIds(edgePoints, edgePointCount);
+        }
+    }
     output->SetAttributeSet(outAllDataArray);
     output->SetViewStyle(IG_WIREFRAME | IG_SURFACE);
     //igDebug("Extracted " << output->GetNumberOfPoints() << " points,"
@@ -1192,9 +1267,6 @@ struct ExtractSG : public ExtractCellBoundaries {
     }
     void Initialize() override { this->ExtractCellBoundaries::Initialize(); }
 
-    // 依据 ghost 掩膜提取「有效单元区域」的表面：对每个非 ghost 单元，若其 6 邻居中的某个是
-    // ghost 或在网格边界之外，则抽出该面。等价于 ParaView 对 vtkResampleToImage 输出做空白化后
-    // 显示的表面（只在存在 vtkGhostType 单元数组时启用）。
     void ExecuteBlanking() {
         auto size = Mesh->GetDimensionSize();
         const igIndex d0 = size[0], d1 = size[1], d2 = size[2];
@@ -1207,12 +1279,12 @@ struct ExtractSG : public ExtractCellBoundaries {
             for (igIndex j = 0; j < cd1; ++j) {
                 for (igIndex i = 0; i < cd0; ++i) {
                     const igIndex cellId = i + cd0 * j + cellPlane01 * k;
-                    if (this->CellGhosts[cellId] != 0) continue; // 跳过 ghost 单元
+                    if ((this->CellGhosts[cellId] & 32) != 0) continue; // 跳过 ghost 单元
                     if (this->CellVis && !this->CellVis[cellId]) continue;
                     const igIndex base = i + d0 * j + plane01 * k;
 
                     // k- 面
-                    if (k == 0 || this->CellGhosts[cellId - cellPlane01] != 0) {
+                    if (k == 0 || (this->CellGhosts[cellId - cellPlane01] & 32) != 0) {
                         vhs[0] = base;
                         vhs[1] = base + 1;
                         vhs[2] = base + 1 + d0;
@@ -1221,7 +1293,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // k+ 面
-                    if (k == cd2 - 1 || this->CellGhosts[cellId + cellPlane01] != 0) {
+                    if (k == cd2 - 1 || (this->CellGhosts[cellId + cellPlane01] & 32) != 0) {
                         vhs[0] = base + plane01;
                         vhs[1] = base + plane01 + 1;
                         vhs[2] = base + plane01 + 1 + d0;
@@ -1230,7 +1302,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // j- 面
-                    if (j == 0 || this->CellGhosts[cellId - cd0] != 0) {
+                    if (j == 0 || (this->CellGhosts[cellId - cd0] & 32) != 0) {
                         vhs[0] = base;
                         vhs[1] = base + 1;
                         vhs[2] = base + 1 + plane01;
@@ -1239,7 +1311,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // j+ 面
-                    if (j == cd1 - 1 || this->CellGhosts[cellId + cd0] != 0) {
+                    if (j == cd1 - 1 || (this->CellGhosts[cellId + cd0] & 32) != 0) {
                         vhs[0] = base + d0;
                         vhs[1] = base + d0 + 1;
                         vhs[2] = base + d0 + 1 + plane01;
@@ -1248,7 +1320,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // i- 面
-                    if (i == 0 || this->CellGhosts[cellId - 1] != 0) {
+                    if (i == 0 || (this->CellGhosts[cellId - 1] & 32) != 0) {
                         vhs[0] = base;
                         vhs[1] = base + d0;
                         vhs[2] = base + d0 + plane01;
@@ -1257,7 +1329,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // i+ 面
-                    if (i == cd0 - 1 || this->CellGhosts[cellId + 1] != 0) {
+                    if (i == cd0 - 1 || (this->CellGhosts[cellId + 1] & 32) != 0) {
                         vhs[0] = base + 1;
                         vhs[1] = base + 1 + d0;
                         vhs[2] = base + 1 + d0 + plane01;
@@ -1271,10 +1343,7 @@ struct ExtractSG : public ExtractCellBoundaries {
     }
 
     void Execute() {
-        if (this->CellGhosts) {
-            this->ExecuteBlanking();
-            return;
-        }
+        if (this->CellGhosts) { ExecuteBlanking(); return; }
         auto size = Mesh->GetDimensionSize();
         igIndex i = 0, j = 0, k = 0;
         igIndex vhs[4] = {0};
@@ -1418,8 +1487,22 @@ int ModelGeometryFilter::ExecuteWithStructuredMesh(DataObject::Pointer input, Su
     CharArray::Pointer CellVisibleArray = CharArray::New();
     char* CellVisible = ComputeCellVisibleArray(CellVisibleArray, inPoints, Mesh->GetCells());
     if (CellVisible) { return this->ExecuteWithVolumeMesh(input, output); }
-    const unsigned char* cellGhosts = GetGhostArrayRawPointer(inAllDataArray, IG_CELL);
+    // ResampleToImage writes vtkGhostType=32 for invalid samples. Validate
+    // association, tuple count and storage before using the contiguous mask.
+    const unsigned char* cellGhosts = nullptr;
     const unsigned char* pointGhosts = nullptr;
+    if (inAllDataArray) {
+        auto attrs = inAllDataArray->GetAllAttributes();
+        for (IGsize index = 0; index < attrs->GetNumberOfElements(); ++index) {
+            const auto& attr = attrs->GetElement(index);
+            if (attr.isDeleted || !attr.pointer || attr.attachmentType != IG_CELL ||
+                attr.pointer->GetName() != "vtkGhostType") continue;
+            auto mask = DynamicCast<UnsignedCharArray>(attr.pointer);
+            if (mask && mask->GetDimension() == 1 && mask->GetNumberOfValues() == numCells)
+                cellGhosts = mask->RawPointer();
+            break;
+        }
+    }
 
     auto* extract =
             new ExtractSG(Mesh, CellVisible, cellGhosts, pointGhosts, this->Merging, this->RemoveGhostInterfaces);
@@ -1526,9 +1609,9 @@ char* ModelGeometryFilter::ComputeCellVisibleArray(CharArray::Pointer& CellVisib
 }
 void ModelGeometryFilter::ProcessPointMergin(ExtractCellBoundaries* extract, Points::Pointer inPoints,
                                              Points::Pointer& outPoints, CellArray::Pointer Polygons,
-                                             AttributeSet::Pointer outAllDataArray) {
+                                             AttributeSet::Pointer outAllDataArray, CellArray::Pointer Edges) {
     outPoints = Points::New();
-    extract->UpdatePointMap(Polygons, inPoints, outPoints);
+    extract->UpdatePointMap(Polygons, inPoints, outPoints, Edges);
     CompositePointAttribute(extract->GetPointMap()->RawPointer(), inPoints->GetNumberOfPoints(),
                             outPoints->GetNumberOfPoints(), outAllDataArray);
     m_PointMap = extract->GetPointMap();

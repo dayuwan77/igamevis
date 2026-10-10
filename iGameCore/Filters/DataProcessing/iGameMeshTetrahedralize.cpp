@@ -1,4 +1,4 @@
-﻿#include "iGameMeshTetrahedralize.h"
+#include "iGameMeshTetrahedralize.h"
 #include "iGameFaceTable.h"
 #include "iGameFlatArray.h"
 #include <Eigen/Core>
@@ -83,7 +83,7 @@ inline int GetCellToPolyhedronPointIds(UnstructuredMesh::Pointer input, IGsize c
         case (IG_HEXAHEDRON): {//六面体
             int p1 = 0;
             ids[p1++] = input->GetCell(ci)->GetNumberOfFaces();//六面体有六个四边形面
-            for (int f = 0; f < 6; f++) { 
+            for (int f = 0; f < 6; f++) {
                 ids[p1++] = 4;
                 for (int p = 0; p < 4; p++) ids[p1++] = originIds[Hexahedron::faces[f][p]];
             }
@@ -95,7 +95,7 @@ inline int GetCellToPolyhedronPointIds(UnstructuredMesh::Pointer input, IGsize c
             ids[p1++] = input->GetCell(ci)->GetNumberOfFaces();//金字塔形有5个面，第一个是四边形底面，后四个是三角形侧面
             ids[p1++] = 4;
             for (int p = 0; p < 4; p++) ids[p1++] = originIds[Pyramid::faces[0][p]];
-            for (int f = 1; f < 5; f++) { 
+            for (int f = 1; f < 5; f++) {
                 ids[p1++] = 3;
                 for (int p = 0; p < 3; p++) ids[p1++] = originIds[Pyramid::faces[f][p]];
             }
@@ -155,7 +155,7 @@ bool isConvexPolyhedron(Volume::Pointer input,std::string& reason) {
         auto p0 = face->GetPoint(0);
         for (auto p: cellPoints) {//看看是否所有点都在面的同一边
             auto result = normal.dot(p - p0);
-            if (!std::isfinite(result)) { 
+            if (!std::isfinite(result)) {
                 reason = "单元存在异常法线";
                 return false;
             }
@@ -183,7 +183,7 @@ inline bool IsTetLikePolyhedron(
     auto numPoints = cell->GetNumberOfPoints();
     if (numFaces != 4) return false;
     std::set<int> cellPoints;
-    for (int i = 0; i < numPoints; i++) { 
+    for (int i = 0; i < numPoints; i++) {
         cellPoints.insert(cell->GetPointId(i));
     }
     if (cellPoints.size() == 4) {
@@ -257,14 +257,14 @@ ArrayObject::Pointer CopyAttribute(AttributeSet::Attribute& attr, const ArrayObj
 
 } // namespace
 
-bool MeshTetrahedralize::Execute() 
-{ 
+bool MeshTetrahedralize::Execute()
+{
     m_failReason.clear();
     auto obj = GetInput(0);
     if (!obj) return false;
 
     UnstructuredMesh::Pointer input = UnstructuredMesh::New();
-    if (obj->GetDataObjectType() == IG_UNSTRUCTURED_MESH) { 
+    if (obj->GetDataObjectType() == IG_UNSTRUCTURED_MESH) {
         input = DynamicCast<UnstructuredMesh>(obj);
     } else if (obj->GetDataObjectType() == IG_VOLUME_MESH) {
         auto vinput = DynamicCast<VolumeMesh>(obj);
@@ -287,7 +287,7 @@ bool MeshTetrahedralize::Execute()
             continue;
         }
         int size;
-        if (input->GetCellType(ci) == IG_POLYHEDRON) { 
+        if (input->GetCellType(ci) == IG_POLYHEDRON) {
             if (IsTetLikePolyhedron(input, ci,tetLikePolysPoints)) {
                 passthroughTetLikePolys.push_back(ci);//实际上就是四面体，不需要四面体化
                 continue;
@@ -298,16 +298,16 @@ bool MeshTetrahedralize::Execute()
                 return false;//不支持的类型
             }
         }
-        
+
         igIndex cursor = 0, num = 0;
         igIndex numFaces = ids[cursor++];
         while (numFaces--) {
             int id_num = ids[cursor++];
             igIndex id = faceTable->IsFace(ids + cursor, id_num);
-            if (id == -1) { 
+            if (id == -1) {
                 id = faceTable->GetNumberOfFaces();
                 faceTable->InsertFace(ids + cursor, id_num);
-            } 
+            }
             faceIds[num++] = id;
             cursor += id_num;
         }
@@ -320,7 +320,7 @@ bool MeshTetrahedralize::Execute()
     mesh->InitVolumesWithPolyhedron(faces, volumeFaces);
     mesh->InitPolyhedronVertices();
 
-    
+
 
     auto out = VolumeMesh::New();
     out->SetName(input->GetName());
@@ -535,7 +535,7 @@ bool MeshTetrahedralize::Execute()
                     }
 
                 }
-                
+
             }
         }
     }

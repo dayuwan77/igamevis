@@ -20,6 +20,7 @@
 #include <QShowEvent>
 #include <QTimer>
 #include <iostream>
+#include <algorithm>
 
 namespace
 {
@@ -292,70 +293,82 @@ int igQtFilterDialogDockWidget::addParameter(WidgetType type, const QString& tit
 
 int igQtFilterDialogDockWidget::addParameter(QLabel* label, QWidget* value) {
     label->setAlignment(Qt::AlignRight | Qt::AlignCenter);
-    label->setMinimumHeight(20);
-    value->setMinimumHeight(20);
+    // 行高按字体实际高度推算（含样式表上下内边距与边框），避免高 DPI 下数字被上下裁掉
+    const int rowMinHeight = qMax(20, qMax(label->fontMetrics().height(), value->fontMetrics().height()) + 12);
+    label->setMinimumHeight(rowMinHeight);
+    value->setMinimumHeight(rowMinHeight);
 
-    gridLayout->addWidget(label, index, 0);
-    gridLayout->addWidget(value, index, 1);
+    itemMap[index].label = label;
+    const int row = gridLayout->count() ? gridLayout->rowCount() : 0;
+    if (m_verticalParameterLayout) {
+        label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        label->setWordWrap(true);
+        if (auto* check = qobject_cast<QCheckBox*>(value)) {
+            check->setText(label->text());
+            label->hide();
+            gridLayout->addWidget(check, row, 0, 1, 2);
+        } else {
+            gridLayout->addWidget(label, row, 0, 1, 2);
+            gridLayout->addWidget(value, row + 1, 0, 1, 2);
+        }
+    } else {
+        gridLayout->addWidget(label, row, 0);
+        gridLayout->addWidget(value, row, 1);
+    }
 
     return index++;
 }
 
-int igQtFilterDialogDockWidget::addVectorParameter(const QString& title,
-                                                   const QString& x, const QString& y, const QString& z) {
-    auto* container = new QWidget(this);
-    auto* layout = new QHBoxLayout(container);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(4);
-
-    const QString defaults[3] = {x, y, z};
-    const QString axisNames[3] = {QStringLiteral("X"), QStringLiteral("Y"), QStringLiteral("Z")};
-    std::array<QLineEdit*, 3> edits{};
-    for (int c = 0; c < 3; ++c) {
-        auto* axisLabel = new QLabel(axisNames[c], container);
-        axisLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        auto* edit = new QLineEdit(container);
-        edit->setText(defaults[c]);
-        layout->addWidget(axisLabel);
-        layout->addWidget(edit, 1);
-        edits[c] = edit;
+void igQtFilterDialogDockWidget::setParameterLayoutVertical() {
+    if (m_verticalParameterLayout) return;
+    m_verticalParameterLayout = true;
+    gridLayout->setVerticalSpacing(10);
+    // Preserve custom rows and parameter IDs while moving each label above its input.
+    struct Row { int order; QWidget* widget; QLabel* label; };
+    std::vector<Row> rows;
+    for (const auto& entry : itemMap) {
+        auto& item = entry.second;
+        int row, column, rowSpan, columnSpan;
+        gridLayout->getItemPosition(gridLayout->indexOf(item.widget), &row, &column, &rowSpan, &columnSpan);
+        rows.push_back({row, item.widget, item.label});
+        gridLayout->removeWidget(item.widget);
+        gridLayout->removeWidget(item.label);
     }
-
-    QLabel* label = new QLabel(this);
-    label->setText(title);
-    const int id = addParameter(label, container);
-    vectorItemMap[id] = edits;
-    return id;
-}
-
-double igQtFilterDialogDockWidget::getVectorComponent(int i, int component, bool& ok) const {
-    ok = false;
-    auto it = vectorItemMap.find(i);
-    if (it == vectorItemMap.end() || component < 0 || component > 2) return 0.0;
-    return it->second[component]->text().toDouble(&ok);
-}
-
-void igQtFilterDialogDockWidget::setVectorComponent(int i, int component, const QString& text) const {
-    auto it = vectorItemMap.find(i);
-    if (it == vectorItemMap.end() || component < 0 || component > 2) return;
-    it->second[component]->setText(text);
-}
-
-QLineEdit* igQtFilterDialogDockWidget::getVectorEdit(int i, int component) const {
-    auto it = vectorItemMap.find(i);
-    if (it == vectorItemMap.end() || component < 0 || component > 2) return nullptr;
-    return it->second[component];
-}
-
-void igQtFilterDialogDockWidget::setVectorEnabled(int i, bool enabled) const {
-    auto it = vectorItemMap.find(i);
-    if (it == vectorItemMap.end()) return;
-    for (QLineEdit* edit : it->second) {
-        if (edit) edit->setEnabled(enabled);
+    while (gridLayout->count()) {
+        int row, column, rowSpan, columnSpan;
+        gridLayout->getItemPosition(0, &row, &column, &rowSpan, &columnSpan);
+        auto* item = gridLayout->takeAt(0);
+        rows.push_back({row, item->widget(), nullptr});
+        delete item;
+    }
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.order < b.order; });
+    int row = 0;
+    for (const auto& entry : rows) {
+        if (entry.label) {
+            entry.label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            entry.label->setWordWrap(true);
+            if (auto* check = qobject_cast<QCheckBox*>(entry.widget)) {
+                check->setText(entry.label->text());
+                entry.label->hide();
+            } else {
+                gridLayout->addWidget(entry.label, row++, 0, 1, 2);
+            }
+        }
+        gridLayout->addWidget(entry.widget, row++, 0, 1, 2);
     }
 }
 
-void igQtFilterDialogDockWidget::setParameterColumnStretch(int labelStretch, int valueStretch) {
-    gridLayout->setColumnStretch(0, labelStretch);
-    gridLayout->setColumnStretch(1, valueStretch);
+void igQtFilterDialogDockWidget::setParameterVisible(int parameterId, bool visible) {
+    auto found = itemMap.find(parameterId);
+    if (found == itemMap.end()) return;
+    auto& item = found->second;
+    item.widget->setVisible(visible);
+    const bool inlineLabel = m_verticalParameterLayout && item.type == QT_CHECK_BOX;
+    item.label->setVisible(visible && !inlineLabel);
+}
+
+int igQtFilterDialogDockWidget::addRowWidget(QWidget* rowWidget) {
+    // 跨两列追加一行（不登记 itemMap，纯界面扩展，不影响 getDouble 等取值接口）
+    gridLayout->addWidget(rowWidget, gridLayout->count() ? gridLayout->rowCount() : 0, 0, 1, 2);
+    return index++;
 }

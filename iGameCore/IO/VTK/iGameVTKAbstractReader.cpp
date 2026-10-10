@@ -3,6 +3,88 @@
 #include <vector>
 IGAME_NAMESPACE_BEGIN
 
+namespace {
+bool IsVtkCellSizeValid(VTKAbstractReader::VTKTYPE type, int size) {
+    switch (type) {
+        case VTKAbstractReader::VERTEX:
+            return size == 1;
+        case VTKAbstractReader::LINE:
+            return size == 2;
+        case VTKAbstractReader::POLYLINE:
+            return size >= 2;
+        case VTKAbstractReader::TRIANGLE:
+            return size == 3;
+        case VTKAbstractReader::POLYGON:
+            return size >= 3;
+        case VTKAbstractReader::PIXEL:
+        case VTKAbstractReader::QUAD:
+        case VTKAbstractReader::TETRA:
+            return size == 4;
+        case VTKAbstractReader::VOXEL:
+        case VTKAbstractReader::HEXAHEDRON:
+            return size == 8;
+        case VTKAbstractReader::WEDGE:
+            return size == 6;
+        case VTKAbstractReader::PYRAMID:
+            return size == 5;
+        case VTKAbstractReader::PENTAGONAL_PRISM:
+            return size == 10;
+        case VTKAbstractReader::HEXAGONAL_PRISM:
+            return size == 12;
+        case VTKAbstractReader::QUADRATIC_EDGE:
+            return size == 3;
+        case VTKAbstractReader::QUADRATIC_TRIANGLE:
+            return size == 6;
+        case VTKAbstractReader::QUADRATIC_QUAD:
+            return size == 8;
+        case VTKAbstractReader::QUADRATIC_TETRA:
+            return size == 10;
+        case VTKAbstractReader::QUADRATIC_HEXAHEDRON:
+            return size == 20;
+        case VTKAbstractReader::QUADRATIC_WEDGE:
+            return size == 15;
+        case VTKAbstractReader::QUADRATIC_PYRAMID:
+            return size == 13;
+        default:
+            // Polyhedra and Lagrange cells have variable connectivity sizes.
+            return true;
+    }
+}
+
+VTKAbstractReader::VTKTYPE NormalizeVtkCellType(VTKAbstractReader::VTKTYPE type, int size) {
+    // Some third-party writers keep all midside nodes but incorrectly label
+    // the cell with its linear VTK type.  ParaView tolerates these files.  The
+    // node counts below identify the corresponding quadratic type without
+    // weakening validation for arbitrary malformed connectivity.
+    switch (type) {
+        case VTKAbstractReader::LINE:
+            if (size == 3) return VTKAbstractReader::QUADRATIC_EDGE;
+            break;
+        case VTKAbstractReader::TRIANGLE:
+            if (size == 6) return VTKAbstractReader::QUADRATIC_TRIANGLE;
+            break;
+        case VTKAbstractReader::QUAD:
+            if (size == 8) return VTKAbstractReader::QUADRATIC_QUAD;
+            break;
+        case VTKAbstractReader::TETRA:
+            if (size == 10) return VTKAbstractReader::QUADRATIC_TETRA;
+            break;
+        case VTKAbstractReader::HEXAHEDRON:
+            if (size == 20) return VTKAbstractReader::QUADRATIC_HEXAHEDRON;
+            break;
+        case VTKAbstractReader::WEDGE:
+            if (size == 15) return VTKAbstractReader::QUADRATIC_WEDGE;
+            break;
+        case VTKAbstractReader::PYRAMID:
+            if (size == 13) return VTKAbstractReader::QUADRATIC_PYRAMID;
+            break;
+        default:
+            break;
+    }
+    return type;
+}
+} // namespace
+
 VTKAbstractReader::VTKAbstractReader() {
     this->Header = nullptr;
     this->FileMajorVersion = 0;
@@ -1036,8 +1118,10 @@ bool VTKAbstractReader::ReadStructuredGrid() {
     return true;
 }
 CellArray::Pointer VTKAbstractReader::CreateCellArray(ArrayObject::Pointer CellsID, ArrayObject::Pointer CellsConnect) {
-    if (m_CellArray == nullptr) { m_CellArray = CellArray::New(); }
-    m_CellArray->Reset();
+    // Each POLYGONS/LINES section owns its connectivity. Reset removes the
+    // initial zero offset (breaking mixed polygons), and also overwrites any
+    // preceding section that already holds this same CellArray.
+    m_CellArray = CellArray::New();
 
     if (CellsID == nullptr || CellsConnect == nullptr || CellsID->GetNumberOfElements() < 2) {
         igError("Invalid cell arrays while creating CellArray.");
@@ -1098,6 +1182,8 @@ void VTKAbstractReader::TransferVtkCellToiGameCell(DataObject::Pointer& _mesh, A
     const int offsetsCount = static_cast<int>(CellsID->GetNumberOfElements());
     const int connectCount = static_cast<int>(CellsConnect->GetNumberOfElements());
     int skippedCells = 0;
+    int normalizedCells = 0;
+    bool onlyVertexCells = CellNum > 0 && mesh->GetNumberOfCells() == 0;
 
     for (int i = 0; i < CellNum; i++) {
         if (i + 1 >= offsetsCount) {
@@ -1113,9 +1199,16 @@ void VTKAbstractReader::TransferVtkCellToiGameCell(DataObject::Pointer& _mesh, A
             continue;
         }
 
-        std::vector<igIndex> vhs(size);
+        const VTKTYPE declaredType = (VTKTYPE) VtkCellsType->GetValue(i);
+        onlyVertexCells &= declaredType == VERTEX;
+        VTKTYPE type = NormalizeVtkCellType(declaredType, size);
+        if (type != declaredType) normalizedCells++;
+        if (!IsVtkCellSizeValid(type, size)) {
+            skippedCells++;
+            continue;
+        }
 
-        VTKTYPE type = (VTKTYPE) VtkCellsType->GetValue(i);
+        std::vector<igIndex> vhs(size);
 
         if (type != POLYHEDRON) {
             for (int j = 0; j < size; j++) { vhs[j] = static_cast<igIndex>(CellsConnect->GetValue(st + j)); }
@@ -1184,6 +1277,7 @@ void VTKAbstractReader::TransferVtkCellToiGameCell(DataObject::Pointer& _mesh, A
             case iGame::VTKAbstractReader::T0:
                 break;
             case iGame::VTKAbstractReader::VERTEX:
+                mesh->AddCell(vhs.data(), size, IG_VERTEX);
                 break;
             case iGame::VTKAbstractReader::POLYVERTEX:
                 break;
@@ -1210,8 +1304,16 @@ void VTKAbstractReader::TransferVtkCellToiGameCell(DataObject::Pointer& _mesh, A
             case iGame::VTKAbstractReader::TETRA:
                 mesh->AddCell(vhs.data(), size, IG_TETRA);
                 break;
-            case iGame::VTKAbstractReader::VOXEL:
-                break;
+            case iGame::VTKAbstractReader::VOXEL: {
+                // VTK_VOXEL (cell type 11) is topologically a hexahedron whose node
+                // ordering differs from VTK_HEXAHEDRON. Reorder the 8 point ids into
+                // iGame hexahedron ordering and store it as IG_HEXAHEDRON so that
+                // rendering, surface extraction and the IGC codec all handle it.
+                static constexpr igIndex VoxelToHexahedron[8] = {0, 1, 3, 2, 4, 5, 7, 6};
+                igIndex hexVhs[8];
+                for (int j = 0; j < 8; ++j) { hexVhs[j] = vhs[VoxelToHexahedron[j]]; }
+                mesh->AddCell(hexVhs, size, IG_HEXAHEDRON);
+            } break;
             case iGame::VTKAbstractReader::HEXAHEDRON:
                 mesh->AddCell(vhs.data(), size, IG_HEXAHEDRON);
                 break;
@@ -1300,7 +1402,16 @@ void VTKAbstractReader::TransferVtkCellToiGameCell(DataObject::Pointer& _mesh, A
                 break;
         }
     }
+    if (normalizedCells > 0) {
+        igDebug("TransferVtkCellToiGameCell normalized mislabeled quadratic cells: {}", normalizedCells);
+    }
     if (skippedCells > 0) { igDebug("TransferVtkCellToiGameCell skipped invalid cells: {}", skippedCells); }
+    // A vertex-only grid has no surface to extract. Preserve its cells and
+    // attributes, and draw the original points instead of an empty shell.
+    if (onlyVertexCells && mesh->GetNumberOfCells() == CellNum) {
+        mesh->SetShellRenderingOption(false);
+        mesh->SetViewStyle(IG_POINTS);
+    }
     _mesh = mesh;
 }
 

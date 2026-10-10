@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>C:\profile_part\DeskTop\igame\igamevis\ThirdParty\freetype-2.13.3\objs\x64\Debug\freetype.dll</FullPath>
+      <FullPath>D:\OpeniGame\editOpeniGame\ThirdParty\freetype-2.13.3\objs\Win32\Debug\freetype.dll</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />

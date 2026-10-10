@@ -47,7 +47,7 @@ Meshleter::~Meshleter() {}
 void Meshleter::SetInput(SmartPointer<DataObject> obj) {
     m_DataObject = obj;
     // this->SetName(std::format("{}'s Meshleter", m_DataObject->GetName()));
-    this->SetName(m_DataObject->GetName());
+    if (m_DataObject) { this->SetName(m_DataObject->GetName()); }
 }
 
 SmartPointer<DataObject> Meshleter::GetInput() const { return m_DataObject; }
@@ -135,9 +135,10 @@ void Meshleter::SyncGpuBuffers() {
                 m_ColorVBO->Modified();
 
                 m_TriangleVAO->VertexBuffer(GL_VBO_IDX_1, m_ColorVBO, 0,
-                                            3 * sizeof(float));
+                                            colors->GetDimension() * sizeof(float));
                 GLSetVertexAttrib(m_TriangleVAO, GL_LOCATION_IDX_1,
-                                  GL_VBO_IDX_1, 3, GL_FLOAT, GL_FALSE, 0);
+                                  GL_VBO_IDX_1, colors->GetDimension(),
+                                  GL_FLOAT, GL_FALSE, 0);
             }
 
             if (cellColors->GetMTime() > m_CellColorVBO->GetMTime() ||
@@ -153,23 +154,8 @@ void Meshleter::SyncGpuBuffers() {
                     float color[3]{};
                     SmartPointer<FloatArray> ces = FloatArray::New();
                     ces->SetDimension(3);
-
-                    // 优先使用"三角形 -> 单元"映射(与绘制的三角形顺序严格一致),
-                    // 该映射由 ConvertToDrawableData 生成;缺失时退回 meshlet 路径
-                    // 构建的 m_TriangleToFace。此前普通渲染路径下该映射为空,
-                    // 逐三角形颜色缓冲未被填充,单元数据着色会退化成按顶点采样。
-                    UnsignedIntArray* triangleToCell = drawObject->GetTriangleToCell();
-                    const IGsize triangleCount =
-                            triangleToCell != nullptr
-                                    ? triangleToCell->GetNumberOfElements()
-                                    : static_cast<IGsize>(m_TriangleToFace.size());
-
-                    for (IGsize i = 0; i < triangleCount; i++) {
-                        const IGsize cellId =
-                                triangleToCell != nullptr
-                                        ? static_cast<IGsize>(triangleToCell->GetValue(i))
-                                        : static_cast<IGsize>(m_TriangleToFace[i]);
-                        cellColorMapper->GetElement(cellId, color);
+                    for (auto i = 0; i < m_TriangleToFace.size(); i++) {
+                        cellColorMapper->GetElement(m_TriangleToFace[i], color);
                         ces->AddElement3(color[0], color[1], color[2]);
                         ces->AddElement3(color[0], color[1], color[2]);
                         ces->AddElement3(color[0], color[1], color[2]);
@@ -221,6 +207,27 @@ void Meshleter::ReleaseGpuBuffers() {
     m_DrawCommandBuffer = GLBuffer::New();
     m_VisibleMeshletBuffer = GLBuffer::New();
     m_FinalDrawCommandBuffer = GLBuffer::New();
+    m_CellTriangleVAO = GLVertexArray::New();
+    m_CellPositionVBO = GLBuffer::New();
+    m_CellColorVBO = GLBuffer::New();
+    m_CellDrawCommandBuffer = GLBuffer::New();
+    m_CellFinalDrawCommandBuffer = GLBuffer::New();
+#endif
+}
+
+bool Meshleter::HasGpuResources() const {
+    auto live = [](const auto& object) { return object && object->Handle() != 0; };
+#ifdef GL_SUPPORTS_MESH_SHADER
+    return live(m_MeshletBuffer) || live(m_MeshletVertexBuffer) || live(m_MeshletTriangleBuffer) ||
+           live(m_MeshletDescriptorBuffer) || live(m_InvisibleMeshletBuffer) ||
+           live(m_PositionBuffer) || live(m_ColorBuffer) || live(m_NormalBuffer) || live(m_UVBuffer);
+#else
+    return live(m_TriangleVAO) || live(m_TriangleEBO) || live(m_PositionVBO) ||
+           live(m_ColorVBO) || live(m_NormalVBO) || live(m_UVVBO) ||
+           live(m_MeshletDescriptorBuffer) || live(m_VisibleMeshletBuffer) ||
+           live(m_DrawCommandBuffer) || live(m_FinalDrawCommandBuffer) ||
+           live(m_CellTriangleVAO) || live(m_CellPositionVBO) || live(m_CellColorVBO) ||
+           live(m_CellDrawCommandBuffer) || live(m_CellFinalDrawCommandBuffer);
 #endif
 }
 

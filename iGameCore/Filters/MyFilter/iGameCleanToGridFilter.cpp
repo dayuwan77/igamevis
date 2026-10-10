@@ -1,4 +1,4 @@
-﻿#include "iGameCleanToGridFilter.h"
+#include "iGameCleanToGridFilter.h"
 #include "iGameCell.h"
 #include "iGameCellArray.h"
 #include "iGameFlatArray.h"

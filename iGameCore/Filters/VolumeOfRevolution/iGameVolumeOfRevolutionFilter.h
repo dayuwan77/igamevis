@@ -6,7 +6,7 @@
 
 IGAME_NAMESPACE_BEGIN
 
-struct Edge {
+struct RevolutionEdge {
     IGsize v0, v1;
     IGsize cellId;
 };
