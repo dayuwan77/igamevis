@@ -75,6 +75,28 @@ else ()
     set(CMAKE_CUDA_STANDARD_REQUIRED TRUE)
 endif ()
 
+# Redetect localized MSVC /showIncludes output using the Windows code page.
+# Ninja needs the matching prefix to track headers; a prefix decoded as UTF-8
+# from Chinese compiler output silently loses dependencies in incremental builds.
+if (MSVC AND CMAKE_GENERATOR MATCHES "Ninja")
+    set(showincludes_probe "${CMAKE_BINARY_DIR}/CMakeFiles/igame_showincludes.c")
+    file(WRITE "${showincludes_probe}" "#include <stddef.h>\n")
+    execute_process(
+            COMMAND "${CMAKE_C_COMPILER}" /nologo /showIncludes /EP "${showincludes_probe}"
+            OUTPUT_VARIABLE showincludes_output
+            ERROR_VARIABLE showincludes_error
+            RESULT_VARIABLE showincludes_result
+            ENCODING AUTO)
+    string(REGEX MATCH "([^\r\n]+:) +[A-Za-z]:[/\\\\]" showincludes_match
+            "${showincludes_output}\n${showincludes_error}")
+    if (NOT showincludes_result EQUAL 0 OR NOT showincludes_match)
+        message(FATAL_ERROR "Unable to detect MSVC /showIncludes prefix for Ninja")
+    endif ()
+    set(CMAKE_CL_SHOWINCLUDES_PREFIX "${CMAKE_MATCH_1}")
+    set(CMAKE_C_CL_SHOWINCLUDES_PREFIX "${CMAKE_CL_SHOWINCLUDES_PREFIX}")
+    set(CMAKE_CXX_CL_SHOWINCLUDES_PREFIX "${CMAKE_CL_SHOWINCLUDES_PREFIX}")
+endif ()
+
 # Required by Windows-specific third-party headers (notably Abaqus).  Keep
 # this independent of the CUDA switch so the native platform contract is the
 # same in both project() branches.
