@@ -130,6 +130,7 @@ bool MergeVectorComponentsFilter::Execute() {
         pts->DeepCopy(um->GetPoints());
         outMesh->SetPoints(pts);
         auto cells = CellArray::New();
+        cells->Reset();
         cells->DeepCopy(um->GetCells());
         UnsignedIntArray::Pointer inTypes{ um->GetCellTypes() };
         auto types = UnsignedIntArray::New();
@@ -151,6 +152,7 @@ bool MergeVectorComponentsFilter::Execute() {
         outMesh->SetPoints(pts);
         CellArray::Pointer inFaces{ sm->GetFaces() };
         auto faces = CellArray::New();
+        faces->Reset();
         faces->DeepCopy(inFaces);
         outMesh->SetFaces(faces);
         output = outMesh;

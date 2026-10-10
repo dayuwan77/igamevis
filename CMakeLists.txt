@@ -19,10 +19,14 @@ endif ()
 # These options must NOT be forced so that command-line -D values work.
 option(ENABLE_CGNS_MODULE "Enable CGNS ThirdParty Module" OFF)
 option(ENABLE_NASTRAN_MODULE "Enable Nastran Lib ThirdParty Module" OFF)
-option(ENABLE_LIBTORCH_MODULE "Enable Libtorch ThirdParty Module" OFF)
+set(ENABLE_LIBTORCH_MODULE "OFF" CACHE STRING "Libtorch ThirdParty Module: OFF / GPU / CPU")
+set_property(CACHE ENABLE_LIBTORCH_MODULE PROPERTY STRINGS OFF GPU CPU)
 option(ENABLE_GPSCUDA_MODULE "Enable GPS CUDA Module." OFF)
 option(ENABLE_QT_MODULE "Build GUI/Qt Module." ON)
 option(ENABLE_WASM "Build WASM Target." OFF)
+option(IGAME_DEPLOY_ABAQUS_RUNTIME
+        "Copy Abaqus runtime DLLs beside built/installed binaries (normally keep OFF and use the user's installation)."
+        OFF)
 
 set(IGAME_RENDER_BACKEND "DesktopGL" CACHE STRING "Rendering backend: DesktopGL or GLES2")
 set_property(CACHE IGAME_RENDER_BACKEND PROPERTY STRINGS DesktopGL GLES2)
@@ -35,7 +39,6 @@ if (EMSCRIPTEN)
     endif ()
 endif ()
 
-#--------------------------------------------------------------------
 #--------------------------------------------------------------------
 # If external application want to use Core Module lib.
 # Set Core Module install Option to ON
@@ -100,26 +103,42 @@ if (ENABLE_GPSCUDA_MODULE)
 endif ()
 
 if (ENABLE_LIBTORCH_MODULE)
+    if (ENABLE_LIBTORCH_MODULE STREQUAL "CPU")
+        set(LIBTORCH_FLAVOUR "CPU")
+        set(LIBTORCH_USE_CUDA FALSE)
+    else ()
+        set(LIBTORCH_FLAVOUR "GPU")
+        set(LIBTORCH_USE_CUDA TRUE)
+    endif ()
+    message(STATUS "LibTorch flavour: ${LIBTORCH_FLAVOUR}")
     if (WIN32)
         if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Windows/Debug/GPU")
+            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Windows/Debug/${LIBTORCH_FLAVOUR}")
         else ()
-            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Windows/Release/GPU")
+            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Windows/Release/${LIBTORCH_FLAVOUR}")
         endif ()
     elseif (UNIX)
         if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Linux/Debug/GPU")
+            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Linux/Debug/${LIBTORCH_FLAVOUR}")
         else ()
-            enable_language(CUDA)
-            find_package(CUDAToolkit REQUIRED)
-            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Linux/Release/GPU")
+            if (LIBTORCH_USE_CUDA)
+                enable_language(CUDA)
+                find_package(CUDAToolkit REQUIRED)
+            endif ()
+            set(LIBTORCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libtorch/Linux/Release/${LIBTORCH_FLAVOUR}")
         endif ()
+    endif ()
+    if (NOT EXISTS "${LIBTORCH_DIR}")
+        message(FATAL_ERROR
+                "LibTorch not found at ${LIBTORCH_DIR}. "
+                "Download the ${LIBTORCH_FLAVOUR} build and extract it there, "
+                "or set ENABLE_LIBTORCH_MODULE to CPU / GPU / OFF.")
     endif ()
     # CUDA 12 ships NVTX as the header-only nvtx3 API.  Some LibTorch
     # packages only probe their own source tree and otherwise request the
     # removed CUDA::nvToolsExt import library.  Seed the probe with the
     # toolkit include directory so those packages select nvtx3.
-    if (WIN32)
+    if (WIN32 AND LIBTORCH_USE_CUDA)
         find_package(CUDAToolkit REQUIRED)
         if (EXISTS "${CUDAToolkit_INCLUDE_DIRS}/nvtx3")
             set(nvtx3_dir "${CUDAToolkit_INCLUDE_DIRS}" CACHE PATH
@@ -128,6 +147,10 @@ if (ENABLE_LIBTORCH_MODULE)
     endif ()
     set(Torch_DIR "${LIBTORCH_DIR}/share/cmake/Torch")
     find_package(Torch REQUIRED)
+    if (LIBTORCH_USE_CUDA)
+        # 源码里的 CUDA 专有头（ATen/cuda、cuda_runtime）只在 GPU 版里存在
+        add_compile_definitions(IGAME_LIBTORCH_CUDA)
+    endif ()
 endif ()
 
 add_subdirectory(ThirdParty)
@@ -139,33 +162,22 @@ add_subdirectory(iGameCore)
 if (ENABLE_QT_MODULE)
     add_subdirectory(Qt)
 
-    add_executable(${PROJECT_NAME} main.cpp)
+    # Compile startup hooks directly into the executable so static Qt_module
+    # linking cannot discard an otherwise unreferenced registration object.
+    add_executable(${PROJECT_NAME}
+            main.cpp
+            Qt/Startup/igQtConsoleInitialization.cpp
+    )
     target_link_libraries(${PROJECT_NAME} PUBLIC
             iGameCore
             Qt_module
     )
 
-    # 将运行时资源（Shaders/Assests 等）部署到可执行文件同级目录。
-    # 渲染器按 CWD 相对路径 ./Resources/... 加载着色器与字体，多配置生成器
-    # （Visual Studio）下 exe 位于 <build>/<Config>/，而资源被拷到 <build>/Resources，
-    # 双击 exe 时会导致全部 shader/字体加载失败。此命令保持二者一致。
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_BINARY_DIR}/Resources"
-            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources"
-            COMMENT "Deploying runtime Resources next to the executable"
-            VERBATIM)
-
     if (WIN32)
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                 COMMAND ${DEPLOYQT_EXECUTABLE} "$<TARGET_FILE:${PROJECT_NAME}>")
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_BINARY_DIR}/Resources"
-                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/Resources"
-                COMMENT "Deploying iGameVis runtime resources"
-                VERBATIM)
-        if (IGAME_ABQ_RUNTIME_DIR AND IGAME_ABQ_RUNTIME_LIBRARY_NAMES)
+        if (IGAME_DEPLOY_ABAQUS_RUNTIME AND
+                IGAME_ABQ_RUNTIME_DIR AND IGAME_ABQ_RUNTIME_LIBRARY_NAMES)
             add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                     COMMAND ${CMAKE_COMMAND}
                     "-DIGAME_RUNTIME_SEARCH_DIR=${IGAME_ABQ_RUNTIME_DIR}"
@@ -192,6 +204,12 @@ if (ENABLE_QT_MODULE)
 endif ()
 
 # 导入example
+option(IGAME_BUILD_ANIMATION_INFO_TESTS "Build animation field-description regressions" OFF)
+if (IGAME_BUILD_ANIMATION_INFO_TESTS AND ENABLE_QT_MODULE)
+    enable_testing()
+    add_subdirectory(Examples/Animation/FieldInfo)
+endif ()
+
 if (EXAMPLE_COMPILE)
     add_subdirectory(Examples)
 endif ()

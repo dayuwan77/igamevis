@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Periodic/TestAngularPeriodic.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include "Periodic/iGameAngularPeriodicFilter.h"
 #include "iGameFileIO.h"
 #include "iGameInteractor.h"
@@ -10,11 +16,11 @@ int main() {
     auto dataObj = iGame::FileIO::ReadFile(fileName);
     if (dataObj == nullptr) {
         igError("Error reading the file");
-        return 0;
+        return 1;
     }
 
     auto scene = iGame::Scene::New();
-    scene->AddModel(dataObj); 
+    scene->AddModel(dataObj);
 
     auto filter = iGame::AngularPeriodicFilter::New();
     filter->SetInput(dataObj);
@@ -23,8 +29,8 @@ int main() {
     filter->SetRotationAxis(axisOrigin, axisDir);
     filter->SetNumberOfCopies(3);
     filter->SetAngle(120.0); // 周期角度：相邻两份间隔 120°（0/120/240，与 120° 扇区吻合）
-    filter->Execute();
-    scene->AddModel(filter->GetOutput());  
+    if (!filter->Execute() || !filter->GetOutput()) return 1;
+    scene->AddModel(filter->GetOutput());
 
     // 画出旋转定轴和 XYZ 坐标轴
     auto bbox = dataObj->GetBoundingBox();
@@ -60,6 +66,7 @@ int main() {
     makeAxisLine(center, iGame::Vector3d(0.0, 0.0, 1.0), halfLen,
                  igm::vec3(0.0f, 0.0f, 1.0f));
 
+    if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
     auto window = iGame::RenderWindow::New();
     window->SetSize(1280, 720);
     window->SetScene(scene);

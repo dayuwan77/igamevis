@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Periodic/TestAngularPeriodicSelfCheck.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 // 角度周期复制过滤器回归自检（无 GUI、无外部模型依赖）。
 // 覆盖：多单元类型、PointData/CellData 属性、>16 点大单元、
 //       VolumeMesh（不得按面类型错建）、StructuredMesh 显式拓扑。

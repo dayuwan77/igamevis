@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/PointLineInterpolator/TestPointLineInterpolator.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <PointLineInterpolator/iGamePointLineInterpolatorFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameFileIO.h>
@@ -237,6 +243,6 @@ int main() {
                     TestNullPointStrategiesAndInvalidParameters();
     if (!ok) return 1;
     std::cout << "PointLineInterpolator acceptance tests passed.\n";
-    VisualizeResult();
+    if (!std::getenv("IGAME_EXAMPLE_NO_RENDER")) VisualizeResult();
     return 0;
 }

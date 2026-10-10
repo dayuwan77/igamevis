@@ -1,3 +1,11 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Convert/TestResampleToImage.cpp
+#include <string>
+// Regression/example imported from dayuwan77/igamevis at
+// eccac729b57aeacbe9312d7d5189f6990bb4eebd (same relative path).
+// Integration regression: these filters and their example assets were missing
+// from iGameVis-multiFilter. The checks below cover their output/attribute and
+// geometry contracts; visual examples retain an interactive default mode.
+// Local integration fix: feat: integrate second-batch standard filters.
 #include <Convert/iGameResampleToImageFilter.h>
 #include <ModelSurface/iGameModelGeometryFilter.h>
 #include <iGameArrayObject.h>
@@ -14,7 +22,7 @@
 
 #include <chrono>
 
-int main() {
+int main(int argc, char** argv) {
     /* 创建场景 */
     auto scene = iGame::Scene::New();
 
@@ -23,7 +31,7 @@ int main() {
     iGame::DataObject::Pointer obj = iGame::FileIO::ReadFile(fileName);
     if (obj == nullptr) {
         std::cout << "Read ERROR!\n";
-        return 0;
+        return 1;
     }
 
     /* Resample To Image：把网格上的点场重采样到规则图像网格。
@@ -40,7 +48,7 @@ int main() {
     auto resMesh = iGame::DynamicCast<iGame::StructuredMesh>(filter->GetOutput());
     if (resMesh == nullptr) {
         std::cout << "Output ERROR!\n";
-        return 0;
+        return 1;
     }
 
     /* ---- 定位输出属性 ---- */
@@ -113,6 +121,7 @@ int main() {
        渲染时 ModelGeometryFilter 读取 "vtkGhostType" 单元数组做空白化，抽出有效单元表面，
        从而显示成缺角立方体形状（输入模型挖掉一个角部小立方体），与 VTK vtkResampleToImage
        的 ghost 空白化行为一致。 */
+    if (argc > 1 && std::string(argv[1]) == "--no-render") return 0;
     scene->AddModel(resMesh);
     auto outDraw = iGame::DynamicCast<iGame::DrawObject>(resMesh);
     if (outDraw != nullptr) {
@@ -128,5 +137,5 @@ int main() {
     interactor->Initialize(scene);
     interactor->CreateDefaultStyle();
     window->SetInteractor(interactor);
-    window->Show();
+    if (!(argc > 1 && std::string(argv[1]) == "--no-render")) window->Show();
 }

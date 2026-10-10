@@ -1,4 +1,10 @@
-﻿#include <AppendLocationAttribute/iGameAppendLocationAttribute.h>
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestAppendLocationAttribute.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
+#include <AppendLocationAttribute/iGameAppendLocationAttribute.h>
 #include <Core/iGameScene.h>
 #include <VectorView/iGameVectorBase.h>
 #include <iGameFileIO.h>
@@ -24,7 +30,7 @@ int main() {
     auto filter = iGame::AppendLocationAttribute::New();
     //设置输入
     filter->SetInput(input);
-    
+
     if (!filter->Execute()) {
         std::cerr << "AppendLocationAttribute execution failed.\n";
         return 1;
@@ -37,6 +43,7 @@ int main() {
     }
     std::cout << "AppendLocationAttribute execution succeeded.\n";
     scene->AddModel(res);
+    if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
     /* 启动窗口设置*/
     iGame::RenderWindow::Pointer window = iGame::RenderWindow::New();
     window->SetSize(1920, 1080);

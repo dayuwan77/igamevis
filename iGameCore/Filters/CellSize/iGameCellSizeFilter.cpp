@@ -41,6 +41,7 @@ bool CellSizeFilter::Execute() {
             auto pts = Points::New();
             pts->DeepCopy(sm->GetPoints());
             auto faces = CellArray::New();
+            faces->Reset();
             faces->DeepCopy(sm->GetFaces());
             out->SetPoints(pts);
             out->SetFaces(faces);
@@ -57,6 +58,7 @@ bool CellSizeFilter::Execute() {
             auto pts = Points::New();
             pts->DeepCopy(vm->GetPoints());
             auto vols = CellArray::New();
+            vols->Reset();
             vols->DeepCopy(vm->GetCells());
             out->SetPoints(pts);
             out->SetVolumes(vols);
@@ -72,7 +74,9 @@ bool CellSizeFilter::Execute() {
             auto out = UnstructuredMesh::New();
             auto pts = Points::New();
             pts->DeepCopy(unstructuredMesh->GetPoints());
+            out->SetPoints(pts);
             auto cells = CellArray::New();
+            cells->Reset();
             cells->DeepCopy(unstructuredMesh->GetCells());
             auto types = UnsignedIntArray::New();
             types->DeepCopy(unstructuredMesh->GetCellTypes());

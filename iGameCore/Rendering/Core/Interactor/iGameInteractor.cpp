@@ -1,5 +1,6 @@
-#include "iGameInteractor.h"
+﻿#include "iGameInteractor.h"
 #include "iGameBasicStyle.h"
+#include "iGameResampleToLineStyle.h"
 #include "iGameScene.h"
 #include "iGameSingleDragStyle.h"
 #include "iGameSingleSelectionStyle.h"
@@ -156,19 +157,18 @@ void Interactor::RequestSlicingStyle(SmartPointer<Selection> s) {
     m_Internal = act;
     is_Base = false;
 }
+void Interactor::RequestResampleToLineStyle(SmartPointer<Selection> s) {
+    if (!s) return;
+    auto style = ResampleToLineStyle::New();
+    style->Initialize(this, s);
+    m_Internal = style;
+    is_Base = false;
+}
+
 void Interactor::RequestStreamLineStyle(SmartPointer<Selection> s) {
     if (!s) return;
     //InitModel();
     auto act = StreamLineStyle::New();
-    act->Initialize(this, s);
-    m_Internal = act;
-    is_Base = false;
-}
-
-void Interactor::RequestResampleToLineStyle(SmartPointer<Selection> s) {
-    if (!s) return;
-    //InitModel();
-    auto act = ResampleToLineStyle::New();
     act->Initialize(this, s);
     m_Internal = act;
     is_Base = false;
