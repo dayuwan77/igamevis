@@ -61,5 +61,11 @@
 #include "MergeVectorComponents/iGameMergeVectorComponentsFilter.h"
 #include "PointAndCellIds/iGamePointAndCellIdsFilter.h"
 #include "ProcessGet/iGameGenerateProcessIdsFilter.h"
+#include "PointLineInterpolator/iGamePointLineInterpolatorFilter.h"
+
+#include "AppendReduce/iGameAppendReduceFilter.h"
+
 #include "ResampleToLine/iGameResampleToLine.h"
 #include "TriangleStrip/iGameTriangleStripFilter.h"
+
+#include "Animation/iGameTemporalStatistics.h"
