@@ -66,3 +66,4 @@
 #include "ProcessGet/iGameGenerateProcessIdsFilter.h"
 #include "ResampleToLine/iGameResampleToLine.h"
 #include "TriangleStrip/iGameTriangleStripFilter.h"
+#include "Connectivity/iGameConnectivityFilter.h"
