@@ -707,6 +707,9 @@ igame_add_example(testAppendAttributes Filter/AppendAttributes/TestAppendAttribu
 igame_add_example(testReverseSense Filter/ReverseSense/TestReverseSense.cpp)
 igame_add_example(testReverseSenseSelfCheck Filter/ReverseSense/TestReverseSenseSelfCheck.cpp)
 
+# PerlinNoise: samples 3D Perlin noise at every input point into a point scalar array.
+igame_add_example(testPerlinNoise Filter/AttributeManipulation/TestPerlinNoise.cpp)
+
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
     set(IGAME_EXAMPLE_TARGETS "")

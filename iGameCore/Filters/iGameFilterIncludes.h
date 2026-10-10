@@ -50,6 +50,7 @@
 
 #include "Animation/iGameAttrDiff.h"
 #include "AttributeManipulation/iGameRandomVectorsFilter.h"
+#include "AttributeManipulation/iGamePerlinNoiseFilter.h"
 
 #include "AppendReduce/iGameAppendReduceFilter.h"
 #include "Tube/iGameTube.h"
