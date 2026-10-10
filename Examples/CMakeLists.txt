@@ -575,9 +575,15 @@ igame_add_example(testIsoVolume Filter/TestIsoVolume.cpp)
 igame_add_example(testDeformation Filter/Deformation/TestStressDeformationFilter.cpp)
 igame_add_example(testDeformationCode Filter/Deformation/TestStressDeformationFilterCode.cpp)
 igame_add_example(testContourLine Filter/TestContourLine.cpp)
+# Modeling：线性拉伸（Linear Extrusion）
+igame_add_example(testLinearExtrusion Filter/TestLinearExtrusion.cpp)
+
+# ������ #5 + �е����� #28 ���ײ�������
 igame_add_example(testGhostCellModel Filter/GhostCell/TestGhostCellModel.cpp)
 igame_add_example(testPlaneSamplingFilter Filter/TestPlaneSampling.cpp)
+igame_add_example(testExtractEnclosedPoints Filter/TestExtractEnclosedPoints.cpp)
 
+igame_add_example(TestTubeFilter Filter/Tube/TestTubeFilter.cpp)
 #        #5 +  е      #28    ײ       
 igame_add_example(testContourExtraction Filter/TestContourExtraction.cpp)
 igame_add_example(testModelGeometryParallelValidation Filter/ModelGeometryParallelValidation.cpp)
@@ -620,6 +626,7 @@ igame_add_example(testGenerateGlobalIds Filter/GlobalIds/TestGenerateGlobalIds.c
 igame_add_example(testPointAndCellIds Filter/PointAndCellIds/TestPointAndCellIds.cpp)
 igame_add_example(testGenerateProcessIds Filter/TestGenerateProcessIds.cpp)
 igame_add_example(testAxisAlignedReflection Filter/AxisAlignedReflection/TestAxisAlignedReflection.cpp)
+igame_add_example(testOutline Filter/Outline/TestOutline.cpp)
 igame_add_example(testExtractComponent Filter/TestExtractComponent.cpp)
 igame_add_example(testMergeVectorComponents Filter/TestMergeVectorComponents.cpp)
 igame_add_example(testResampleToImage Filter/Convert/TestResampleToImage.cpp)
@@ -667,6 +674,9 @@ igame_add_example(testSurfaceNormalsFilter Filter/SurfaceNormals/TestSurfaceNorm
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
 igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 
+# Warp By Scalar: displaces points along a normal by a point scalar array.
+igame_add_example(testWarpByScalar Filter/WarpByScalar/TestWarpByScalar.cpp)
+
 # First-batch standard filter examples (Elevation is registered above).
 igame_add_example(testPointCoordinates Filter/PointCoordinates/TestPointCoordinates.cpp)
 igame_add_example(testCellCenterFilter Filter/CellCenter/TestCellCenterFilter.cpp)
@@ -689,6 +699,9 @@ igame_add_example(testExtractLocationDrag Filter/DataProcessing/ExtractLocation/
 
 # Force Static Mesh: cached geometry (pinned to the frame that built the cache) + attribute updates.
 igame_add_example(testForceStaticMesh Filter/ForceStaticMesh/TestForceStaticMesh.cpp)
+
+# Append Attributes: merges point/cell attribute arrays from several inputs sharing the same layout.
+igame_add_example(testAppendAttributes Filter/AppendAttributes/TestAppendAttributes.cpp)
 
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
