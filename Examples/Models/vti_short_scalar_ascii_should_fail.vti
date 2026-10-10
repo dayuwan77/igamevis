@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<VTKFile type="ImageData" version="1.0" byte_order="LittleEndian" header_type="UInt32">
+  <ImageData WholeExtent="0 1 0 1 0 0" Origin="0 0 0" Spacing="1 1 1">
+    <Piece Extent="0 1 0 1 0 0">
+      <PointData Scalars="shortScalar">
+        <DataArray type="Float32" Name="shortScalar" NumberOfComponents="1" format="ascii">
+          1.5 2.5
+        </DataArray>
+      </PointData>
+      <CellData>
+      </CellData>
+    </Piece>
+  </ImageData>
+</VTKFile>
