@@ -1,3 +1,9 @@
+// Source: dayuwan77/igamevis at eccac729b57aeacbe9312d7d5189f6990bb4eebd.
+// Integration gap: e7ec6571 imported the filter but omitted its example.
+// Preserve the numerical/attribute checks below and reject invalid inputs;
+// visual examples support --no-render so CI requires a real exit status.
+// Integration commit: test: add examples for first-batch standard filters
+// Find it: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Probe/TestProbe.cpp
 // ============================================================================
 // TestProbe — ProbeFilter 自动探测测试（模型与参数写死，无需手动输入）
 //
@@ -23,6 +29,7 @@
 #include <iGamePoints.h>
 
 #include <iomanip>
+#include <cmath>
 #include <iostream>
 #include <string>
 
@@ -166,6 +173,27 @@ bool RunProbe(const std::string& modelFile, const Point& center, float radius,
     }
 
     std::cout << "Valid points: " << validCount << " / " << numQuery << "\n";
+    // The fixed sphere lies inside the pipe wall: an all-invalid result used to
+    // print PASS unconditionally. Require valid interpolation and finite values.
+    if (validCount != count || filter->GetOutput().get() != query.get()) {
+        std::cerr << "Result: FAIL (expected every query inside the pipe wall)\n";
+        return false;
+    }
+    auto sourceAttributes = model->GetAttributeSet()->GetAllPointAttributes();
+    for (IGsize i = 0; i < sourceAttributes->GetNumberOfElements(); ++i) {
+        const auto& source = sourceAttributes->GetElement(i);
+        if (source.isDeleted || source.pointer.IsNull()) continue;
+        const int index = attrs->GetAttributeIndex(source.pointer->GetName());
+        if (index < 0) return false;
+        const auto array = attrs->GetAttribute(index).pointer;
+        if (!array || array->GetDimension() != source.pointer->GetDimension() ||
+            array->GetNumberOfElements() != numQuery) return false;
+        for (IGsize q = 0; q < numQuery; ++q) {
+            for (int d = 0; d < array->GetDimension(); ++d) {
+                if (!std::isfinite(array->GetElementValue(q, d))) return false;
+            }
+        }
+    }
     std::cout << "Result: PASS\n";
     return true;
 }

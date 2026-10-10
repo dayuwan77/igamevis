@@ -2,7 +2,7 @@
 
 > - 头文件:`iGameCore/Filters/Animation/iGameTemporalStatistics.h`
 > - 实现文件:`iGameCore/Filters/Animation/iGameTemporalStatistics.cpp`
-> - 菜单入口:`算法处理 -> 时域统计 (TemporalStatistics)`
+> - 菜单入口:`算法处理 -> 开发中filter/第二批 -> 时域统计 (Temporal Statistics)`
 > - 对标实现:ParaView 的 Temporal Statistics(演示视频见 PR 附件)
 
 ---
@@ -51,7 +51,7 @@
 ### 3.1 界面操作(推荐)
 
 1. 打开含多时间步的数据(PVD 或多个时间步文件组成的序列),在模型树中选中该模型
-2. 点击菜单 `算法处理 -> 时域统计 (TemporalStatistics)`
+2. 点击菜单 `算法处理 -> 开发中filter/第二批 -> 时域统计 (Temporal Statistics)`
 3. 模型树新增 `<输入模型名>_temporal_statistics`,展开可见各数组的 `_average` / `_minimum` / `_maximum`
 4. 结果模型会自动选中第一个统计数组并着色;想换别的统计量,在模型树点选对应属性行或在标量场面板选择
 5. 需要整段动画颜色稳定时,把标量场面板的**映射范围模式**设为「全局固定」或「只扩不缩」
@@ -114,4 +114,4 @@ auto output = filter->GetOutput(0);     // 新数据集,输入未被修改
 | `iGameCore/Filters/Animation/iGameTemporalStatistics.h` | 滤波器声明(无参数):`Accumulator`(每个块 × 每个数组一个)、`SourceInfo` |
 | `iGameCore/Filters/Animation/iGameTemporalStatistics.cpp` | 执行流程:解析全部数组 -> 逐帧取块 -> 逐元素累加 -> 建输出骨架并写入统计数组 |
 | `iGameCore/Filters/iGameFilterIncludes.h` | 滤波器总头,Qt 侧通过它引用 |
-| `Qt/src/IQCore/igQtMainWindow.cpp` | 菜单入口「时域统计 (TemporalStatistics)」 |
+| `Qt/src/IQCore/igQtMainWindow.cpp` | 菜单入口「开发中filter/第二批 -> 时域统计 (Temporal Statistics)」 |
