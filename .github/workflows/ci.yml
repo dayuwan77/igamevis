@@ -1,12 +1,8 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
-
   push:
     branches: [main, stable-sdk]
-
   workflow_dispatch:
 
 concurrency:
@@ -23,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-22.04"]' || '["ubuntu-22.04","windows-2022"]') }}
+        os: [ubuntu-22.04, windows-2022]
 
     env:
       CMAKE_OPTIONS: >-

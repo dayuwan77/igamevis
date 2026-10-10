@@ -2,6 +2,7 @@
 
 #include <QComboBox>
 #include <QPushButton>
+#include <QSet>
 #include <QString>
 #include <QVector>
 #include <QWidget>
@@ -9,6 +10,7 @@
 // 前向声明
 class QDockWidget;
 class QLabel;
+class QSpinBox;
 
 namespace iGame
 {
@@ -41,8 +43,8 @@ public:
     // 刷新属性列表
     void refreshProperties();
 
-    // Show the point-data table and focus the requested attribute.
-    void showPointAttributeDetails(iGame::Model* model, const QString& arrayName);
+    // 直接按零件 ID 过滤单元表格；空列表表示取消零件过滤。
+    void setSelectedPartIds(const QVector<int>& partIds);
 
 private slots:
     // 查询按钮点击槽函数
@@ -69,12 +71,15 @@ private:
 
     QVector<PropertyDescriptor> m_properties;
     QVector<int> m_filteredItemIds;
+    QSet<int> m_selectedPartIds;
 
     QWidget* m_paginationWidget{nullptr};
     QPushButton* m_previousPageButton{nullptr};
     QPushButton* m_nextPageButton{nullptr};
     QComboBox* m_pageSizeComboBox{nullptr};
     QLabel* m_pageInfoLabel{nullptr};
+    QSpinBox* m_pageJumpSpinBox{nullptr};
+    QPushButton* m_pageJumpButton{nullptr};
     int m_currentPage{0};
 
     // 当前选择的数据类型 (0: 点数据, 1: 面数据)
@@ -99,4 +104,7 @@ private:
     bool currentPropertyValue(int itemId, double& value) const;
     void rebuildFilteredItems(const QString& operatorStr = QString(), bool hasFilter = false, double filterValue = 0.0);
     void renderCurrentPage();
+
+protected:
+    void changeEvent(QEvent* e) override;
 };

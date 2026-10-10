@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestThresholdAndGenerateIds.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 /**
  * @file TestThresholdAndGenerateIds.cpp
  * @brief GenerateIds 与 Threshold 两个滤波器的自动测试示例。

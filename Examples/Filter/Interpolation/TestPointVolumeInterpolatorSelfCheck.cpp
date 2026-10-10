@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Interpolation/TestPointVolumeInterpolatorSelfCheck.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 // 点体积插值（PointVolumeInterpolator）无 GUI 自动回归自检。
 // 覆盖：Voronoi 精确还原、常数场加权归一、N 近邻、Null 三策略、输出结构。
 #include <Interpolation/iGamePointVolumeInterpolatorFilter.h>

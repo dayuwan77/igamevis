@@ -32,6 +32,7 @@ bool ShrinkFilter::CopyPointAttributes(PointSet* pointSet, const std::vector<IGs
 		if (newArr.IsNull()) continue;
 
 		a.pointer = newArr;
+		a.dataRange = nullptr;
 		a.UpdateAllDataRange();
 	}
 	return true;
@@ -61,18 +62,51 @@ ArrayObject::Pointer ShrinkFilter::CloneArray(ArrayObject::Pointer src,
 	IGsize newCount = srcOfNew.size();
 
 	dst->Resize(newCount);
-	for (IGsize i = 0; i < newCount; i++) {
-		IGsize s = srcOfNew[i];
-		for (IGsize c = 0; c < dim; c++) {
-			dst->SetValue(i * dim + c, src->GetValue(s * dim + c));
-		}
-	}
+    auto copyValues = [&]<class T>() {
+        auto* source = static_cast<FlatArray<T>*>(src.get());
+        auto* target = static_cast<FlatArray<T>*>(dst.get());
+        for (IGsize i = 0; i < newCount; ++i) {
+            const T* tuple = source->RawPointer(srcOfNew[i]);
+            std::copy(tuple, tuple + dim, target->RawPointer(i));
+        }
+    };
+    switch (src->GetArrayType()) {
+        case IG_CharArray: copyValues.template operator()<char>(); break;
+        case IG_UnsignedCharArray: copyValues.template operator()<unsigned char>(); break;
+        case IG_ShortArray: copyValues.template operator()<short>(); break;
+        case IG_UnsignedShortArray: copyValues.template operator()<unsigned short>(); break;
+        case IG_IntArray: copyValues.template operator()<int>(); break;
+        case IG_UnsignedIntArray: copyValues.template operator()<unsigned int>(); break;
+        case IG_LongLongArray: copyValues.template operator()<long long>(); break;
+        case IG_UnsignedLongLongArray: copyValues.template operator()<unsigned long long>(); break;
+        case IG_FloatArray: copyValues.template operator()<float>(); break;
+        case IG_DoubleArray: copyValues.template operator()<double>(); break;
+        default: return nullptr;
+    }
 	return dst;
 }
 
 bool ShrinkFilter::Execute() {
     auto input = GetInput(0);
     if (input.IsNull()) return false;
+
+    // AttributeSet::DeepCopy drops integer arrays and creates an empty range
+    // when the source range has not been evaluated. Clone all numeric arrays,
+    // letting each output attribute calculate its own range on demand.
+    auto copyAttributes = [&]() {
+        auto output = AttributeSet::New();
+        auto* source = input->GetAttributeSet();
+        if (!source) return output;
+        for (IGsize i = 0; i < source->GetNumberOfAttributes(); ++i) {
+            const auto& a = source->GetAttribute(i);
+            if (a.isDeleted || !a.pointer) continue;
+            std::vector<IGsize> indices(a.pointer->GetNumberOfElements());
+            for (IGsize j = 0; j < indices.size(); ++j) indices[j] = j;
+            auto array = CloneArray(a.pointer, indices);
+            if (array) output->AddAttribute(a.type, a.attachmentType, array);
+        }
+        return output;
+    };
 
     // 只在"输出的副本"上做修改，输入网格保持原样
     auto shrinkCells = [&](PointSet* mesh, IGsize count, CellArray* cells, auto getCellPointIds) -> bool {
@@ -127,8 +161,7 @@ bool ShrinkFilter::Execute() {
         points->DeepCopy(inMesh->GetPoints());
         auto volumes = CellArray::New();
         volumes->DeepCopy(inMesh->GetVolumes());
-        auto attrs = AttributeSet::New();
-        attrs->DeepCopy(input->GetAttributeSet());
+        auto attrs = copyAttributes();
         out->SetPoints(points);
         out->SetVolumes(volumes);
         out->SetAttributeSet(attrs);
@@ -149,8 +182,7 @@ bool ShrinkFilter::Execute() {
         points->DeepCopy(inMesh->GetPoints());
         auto faces = CellArray::New();
         faces->DeepCopy(inMesh->GetFaces());
-        auto attrs = AttributeSet::New();
-        attrs->DeepCopy(input->GetAttributeSet());
+        auto attrs = copyAttributes();
         out->SetPoints(points);
         out->SetFaces(faces);
         out->SetAttributeSet(attrs);
@@ -175,8 +207,7 @@ bool ShrinkFilter::Execute() {
         types->Resize(inMesh->GetNumberOfCells());
         auto inTypes = inMesh->GetCellTypes();
         for (IGsize i = 0; i < inMesh->GetNumberOfCells(); i++) { types->SetValue(i, inTypes->GetValue(i)); }
-        auto attrs = AttributeSet::New();
-        attrs->DeepCopy(input->GetAttributeSet());
+        auto attrs = copyAttributes();
         out->SetPoints(points);
         out->SetCells(cells, types);
         out->SetAttributeSet(attrs);

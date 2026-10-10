@@ -1,3 +1,10 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestMergeVectorComponents.cpp
+// Regression/example imported from dayuwan77/igamevis at
+// eccac729b57aeacbe9312d7d5189f6990bb4eebd (same relative path).
+// Integration regression: these filters and their example assets were missing
+// from iGameVis-multiFilter. The checks below cover their output/attribute and
+// geometry contracts; visual examples retain an interactive default mode.
+// Local integration fix: feat: integrate second-batch standard filters.
 // Automatic test for MergeVectorComponentsFilter (no manual input required).
 // Model: ./Models/MergeVectorComponents_Quad_Plane.vtk (hardcoded relative path; the CMake
 //        assets step copies Examples/Models next to the executable)

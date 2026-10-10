@@ -412,7 +412,7 @@ bool TriangleStripFilter::GetTrianglePointIds(igIndex faceId, std::array<igIndex
 bool TriangleStripFilter::GetOrientedEdgePointIds(const OrientedEdge& edge, igIndex& origin,
                                                   igIndex& destination) const {
     std::array<igIndex, 3> ids{};
-    if (!edge.IsValid() || !GetTrianglePointIds(edge.FaceId, ids))  return false; 
+    if (!edge.IsValid() || !GetTrianglePointIds(edge.FaceId, ids))  return false;
     origin = ids[edge.LocalEdge];
     destination = ids[(edge.LocalEdge + 1) % 3];
     return true;
@@ -455,11 +455,11 @@ igIndex TriangleStripFilter::FindThirdPoint(igIndex faceId, igIndex edgePoint0, 
     bool has1 = false;
     igIndex third = -1;
     for (igIndex id: ids) {
-        if (id == edgePoint0) 
+        if (id == edgePoint0)
             has0 = true;
-        else if (id == edgePoint1) 
+        else if (id == edgePoint1)
             has1 = true;
-        else 
+        else
             third = id;
     }
     return has0 && has1 ? third : -1;
@@ -469,9 +469,9 @@ TriangleStripFilter::OrientedEdge TriangleStripFilter::FindOrientedEdge(igIndex 
                                                                         igIndex destination) const {
     std::array<igIndex, 3> ids{};
     if (!GetTrianglePointIds(faceId, ids)) { return {}; }
-    for (int i = 0; i < 3; ++i) 
-        if (ids[i] == origin && ids[(i + 1) % 3] == destination) 
-            return {faceId, i}; 
+    for (int i = 0; i < 3; ++i)
+        if (ids[i] == origin && ids[(i + 1) % 3] == destination)
+            return {faceId, i};
     return {};
 }
 
@@ -734,5 +734,3 @@ bool TriangleStripFilter::BuildOutputAttributes(
     return true;
 }
 IGAME_NAMESPACE_END
-
-

@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Interpolation/TestPointVolumeInterpolator.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 // 点体积插值（PointVolumeInterpolator）GUI 示例：
 // 读取一个散点云，按核函数把点属性插值到规则体网格并显示。
 // 固定相对路径，无需手动输入，运行自动完成测试。
@@ -38,7 +44,7 @@ int main() {
     if (cloudDraw) {
         cloudDraw->SetViewStyle(IG_POINTS);
         cloudDraw->SetPointSize(3.0f);
-        cloudDraw->ViewCloudPicture(scene, 0, -1);
+        if (!std::getenv("IGAME_EXAMPLE_NO_RENDER")) cloudDraw->ViewCloudPicture(scene, 0, -1);
     }
 
     const auto& box = dataObj->GetBoundingBox();
@@ -91,9 +97,10 @@ int main() {
     auto outDraw = iGame::DynamicCast<iGame::DrawObject>(output);
     if (outDraw) {
         outDraw->SetViewStyle(IG_SURFACE);
-        outDraw->ViewCloudPicture(scene, 0, -1); // 按插值后的 field 上色
+        if (!std::getenv("IGAME_EXAMPLE_NO_RENDER")) outDraw->ViewCloudPicture(scene, 0, -1); // 按插值后的 field 上色
     }
 
+    if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
     std::cout << std::flush;
     auto window = iGame::RenderWindow::New();
     window->SetSize(1280, 720);

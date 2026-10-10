@@ -237,7 +237,8 @@ void Model::Draw() {
 #if !defined(IGAME_OPENGL_VERSION_330) || defined(__EMSCRIPTEN__)
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
         bool hasAcceleration = drawObject->GetAccelerationOption();
-        if (hasTransparency || hasAcceleration) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (hasTransparency || hasAcceleration || hasOpacityMapping) { return; }
 #endif
 
         // Render
@@ -274,9 +275,8 @@ void Model::Draw() {
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 0.0f, 0.0f});
             }
 
-            // 如果是cell标量：核心侧已经为单元属性生成了逐点颜色（m_Colors），此时按顶点色绘制，
-            // 点样式也能显示当前属性的颜色；只有在拿不到逐点颜色时才回退到旧的纯白行为。
-            if (colorWithCell && !(useColor && renderableObject->HasPointColors())) {
+            // Use generated point colors for cell attributes, including extracted shells.
+            if (colorWithCell && !(useColor && renderableObject->HasPointColorsForCellData())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
 #ifdef __EMSCRIPTEN__
@@ -305,7 +305,9 @@ void Model::Draw() {
 #ifndef __EMSCRIPTEN__
         if (viewStyle & IG_WIREFRAME && viewStyle & IG_SURFACE &&
             renderableObject->IsUseSinglePassWireframeRendering()) {
-            auto shader = m_Scene->GetShader(ShaderType::SINGLEPASSWIREFRAME);
+            const bool remoteRendering = renderableObject->GetRemoteRenderingEnabled();
+            auto shader = m_Scene->GetShader(remoteRendering ? ShaderType::REMOTE_SINGLEPASSWIREFRAME
+                                                            : ShaderType::SINGLEPASSWIREFRAME);
             shader->Use();
 
             shader->SetUniformf("lineWidth", renderableObject->GetLineWidth());
@@ -313,7 +315,14 @@ void Model::Draw() {
             auto edgeMaskTexture =
                     colorWithCell ? renderableObject->m_CellEdgeMaskTexture
                                   : renderableObject->m_EdgeMaskTexture;
-            edgeMaskTexture->Active(GL_TEXTURE1);
+            if (remoteRendering) {
+                const int constantEdgeMask = colorWithCell ? renderableObject->m_ConstantCellEdgeMask
+                                                          : renderableObject->m_ConstantEdgeMask;
+                if (constantEdgeMask < 0) { edgeMaskTexture->Active(GL_TEXTURE1); }
+                shader->SetUniformi("constantEdgeMask", constantEdgeMask);
+            } else {
+                edgeMaskTexture->Active(GL_TEXTURE1);
+            }
             shader->SetUniformi("edgeMasks", 1);
 
             if (useColor && !colorWithCell) {
@@ -403,10 +412,7 @@ void Model::Draw() {
 #ifdef __EMSCRIPTEN__
                 m_Scene->m_ShaderManager->ApplyWebFallbackUniforms(shader);
 #endif
-                // 只要不使用顶点颜色就必须给出 inputColor：BlinnPhong.frag 在 ubo.useColor==0 时
-                // 使用 inputColor，未赋值时会落到着色器默认值 vec3(1,1,1)（纯白），
-                // 于是 !useColor && colorWithCell 这一组合会让整个模型变成纯白。
-                if (!useColor) {
+                if (!useColor && !colorWithCell) {
                     shader->SetUniform3f("inputColor", defaultColor);
                 }
 
@@ -508,7 +514,8 @@ void Model::DrawWithTransparency() {
         if (!drawObject->GetVisibility()) { return; }
 
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
-        if (!hasTransparency) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (!hasTransparency && !hasOpacityMapping) { return; }
 
         // Render
         bool useSimplified = false;
@@ -536,9 +543,8 @@ void Model::DrawWithTransparency() {
             shader->SetUniformi("uUseLighting", 0);
             shader->SetUniformi("colorMode", 1);
 
-            // 如果是cell标量：核心侧已经为单元属性生成了逐点颜色（m_Colors），此时按顶点色绘制，
-            // 点样式也能显示当前属性的颜色；只有在拿不到逐点颜色时才回退到旧的纯白行为。
-            if (colorWithCell && !(useColor && renderableObject->HasPointColors())) {
+            // Use generated point colors for cell attributes, including extracted shells.
+            if (colorWithCell && !(useColor && renderableObject->HasPointColorsForCellData())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
                 #ifdef __EMSCRIPTEN__
@@ -696,7 +702,8 @@ void Model::DrawPhase1() {
 
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
         bool hasAcceleration = drawObject->GetAccelerationOption();
-        if (hasTransparency || !hasAcceleration) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (hasTransparency || hasOpacityMapping || !hasAcceleration) { return; }
 
         // Render
         m_Scene->UpdateObjectDataBlock(dataObject);
@@ -723,8 +730,8 @@ void Model::DrawPhase1() {
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 0.0f, 0.0f});
             }
 
-            // 如果是cell标量，强制用白色绘制点
-            if (colorWithCell) {
+            // Use generated point colors for cell attributes, including extracted shells.
+            if (colorWithCell && !(useColor && surfaceObject->HasPointColorsForCellData())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 1.0f, 1.0f});
@@ -830,7 +837,8 @@ void Model::DrawPhase1() {
 
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
         bool hasAcceleration = drawObject->GetAccelerationOption();
-        if (hasTransparency || !hasAcceleration) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (hasTransparency || hasOpacityMapping || !hasAcceleration) { return; }
 
         // Render
         auto meshleter = drawObject->m_RenderableMesh.mMeshleter;
@@ -859,8 +867,8 @@ void Model::DrawPhase1() {
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 0.0f, 0.0f});
             }
 
-            // 如果是cell标量，强制用白色绘制点
-            if (colorWithCell) {
+            // Use generated point colors for cell attributes, including extracted shells.
+            if (colorWithCell && !(useColor && surfaceObject->HasPointColorsForCellData())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 1.0f, 1.0f});
@@ -982,7 +990,8 @@ void Model::DrawPhase2() {
 
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
         bool hasAcceleration = drawObject->GetAccelerationOption();
-        if (hasTransparency || !hasAcceleration) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (hasTransparency || hasOpacityMapping || !hasAcceleration) { return; }
 
         // Render
         m_Scene->UpdateObjectDataBlock(dataObject);
@@ -1009,8 +1018,8 @@ void Model::DrawPhase2() {
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 0.0f, 0.0f});
             }
 
-            // 如果是cell标量，强制用白色绘制点
-            if (colorWithCell) {
+            // Use generated point colors for cell attributes, including extracted shells.
+            if (colorWithCell && !(useColor && surfaceObject->HasPointColorsForCellData())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 1.0f, 1.0f});
@@ -1117,7 +1126,8 @@ void Model::DrawPhase2() {
 
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
         bool hasAcceleration = drawObject->GetAccelerationOption();
-        if (hasTransparency || !hasAcceleration) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (hasTransparency || hasOpacityMapping || !hasAcceleration) { return; }
 
         // Render
         auto meshleter = drawObject->m_RenderableMesh.mMeshleter;
@@ -1146,8 +1156,8 @@ void Model::DrawPhase2() {
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 0.0f, 0.0f});
             }
 
-            // 如果是cell标量，强制用白色绘制点
-            if (colorWithCell) {
+            // Use generated point colors for cell attributes, including extracted shells.
+            if (colorWithCell && !(useColor && surfaceObject->HasPointColorsForCellData())) {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
                 shader->SetUniform3f("inputColor", igm::vec3{1.0f, 1.0f, 1.0f});
@@ -1309,7 +1319,8 @@ void Model::TestOcclusionResults() {
 
         bool hasTransparency = drawObject->GetTransparency() < 1.0f;
         bool hasAcceleration = drawObject->GetAccelerationOption();
-        if (hasTransparency || !hasAcceleration) { return; }
+        bool hasOpacityMapping = drawObject->GetOpacityMappingEnabled();
+        if (hasTransparency || hasOpacityMapping || !hasAcceleration) { return; }
 
         // compute
         auto meshleter = drawObject->m_RenderableMesh.mMeshleter;

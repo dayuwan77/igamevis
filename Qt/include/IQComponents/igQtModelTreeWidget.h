@@ -108,6 +108,9 @@ public:
     void setDimension(int length);
     int getDimension() const { return m_Dimension; }
 
+    /** 该行对应 AttributeSet 里的下标（供转换后原地刷新挂载类型图标用） */
+    int attributeIndex() const { return index; }
+
     int currentIndex() const { return comboBox->currentIndex(); }
     void show() { comboBox->show(); }
     void hide() { comboBox->hide(); }
@@ -205,9 +208,13 @@ public:
     SubAttribTreeWidgetItem(int index, QTreeWidget* treeview = nullptr, SubObjectTreeWidgetItem* parent = nullptr)
         : QTreeWidgetItem(parent), m_Index(index), m_Tree(treeview), m_Parent(parent) {
         QWidget* widget = new QWidget(treeview);
+        widget->setStyleSheet(QStringLiteral("background-color: transparent; border: none;"));
         m_Combo = new MComboBox(this, widget);
-        m_Combo->setStyleSheet("QComboBox { background-color: transparent; }"
-                               "QComboBox QAbstractItemView { background-color: white; }");
+        auto* comboLayout = new QHBoxLayout(widget);
+        comboLayout->setContentsMargins(0, 0, 0, 0);
+        comboLayout->addWidget(m_Combo);
+        m_Combo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        m_Combo->setStyleSheet("QComboBox { background-color: transparent; }");
         setDimension(1);
         treeview->setItemWidget(this, 1, widget);
         hide();
@@ -238,6 +245,8 @@ public:
     }
 
     int getDimension() const { return m_Dimension; }
+    /** 该行对应（子块）AttributeSet 里的下标 */
+    int attributeIndex() const { return m_Index; }
 
     int currentIndex() const { return m_Combo->currentIndex(); }
     void show() { m_Combo->show(); }
@@ -270,17 +279,25 @@ public:
 
     ModelTreeWidgetItem* getItem(const QPoint& p) const;
     QTreeWidgetItem* getChild(const QPoint& p) const;
+    void setLeftColumnPercent(int percent);
 
     //void setCurrentModelItem(ModelTreeWidgetItem* item);
     //ModelTreeWidgetItem* getCurrentModelItem();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 
 signals:
     void ChangeCurrentModel(iGame::Model* model);
     void ViewCloudPicture();
 
 private:
+    void applyColumnProportions();
+    QRect eyeHitRect(const QTreeWidgetItem* item) const;
     //ModelTreeWidgetItem* currentModelItem{nullptr};
+    int m_leftPercent = 36;
+    int m_lastLeft = -1;
+    int m_lastRight = -1;
 };
