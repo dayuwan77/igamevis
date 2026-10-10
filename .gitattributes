@@ -1,0 +1,17 @@
+*.largefile filter=lfs diff=lfs merge=lfs -text
+test/FeatureExtraction[[:space:]]Test/*.vtk filter=lfs diff=lfs merge=lfs -text
+test/streamtest/*.vtk filter=lfs diff=lfs merge=lfs -text
+*.vtk filter=lfs diff=lfs merge=lfs -text
+"test/Streamline Test/StreamTest.vtk" -filter
+"test/Format Validation Test/ansys/*.rth" filter=lfs diff=lfs merge=lfs -text
+"test/Format Validation Test/ansys/*.rst" filter=lfs diff=lfs merge=lfs -text
+ThirdParty/Python/pyAnsysLib/ansys_to_pvd_converter.exe filter=lfs diff=lfs merge=lfs -text
+ThirdParty/Python/pyLsDynaLib/lsdyna_to_pvd_converter.exe filter=lfs diff=lfs merge=lfs -text
+
+# Small text fixtures for the two filter regression examples.
+Examples/Models/ExtractLocationTetraPair.vtk -filter -diff -merge text
+Examples/Models/ExtractLocationConnectedSteppedSolid.vtk -filter -diff -merge text
+Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
+Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
+Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
+Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text

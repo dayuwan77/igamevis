@@ -1,6 +1,7 @@
 #pragma once
 
 #include "iGameDataObject.h"
+#include "iGameModel.h"
 
 #include <QWidget>
 
@@ -41,5 +42,5 @@ private:
     void initConnections();
 
     Ui::igQtPointAndCellIds* ui;
-    iGame::Model* m_currentModel{nullptr};
+    iGame::Model::Pointer m_currentModel;
 };

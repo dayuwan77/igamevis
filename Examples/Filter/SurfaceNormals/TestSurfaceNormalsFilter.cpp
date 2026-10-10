@@ -1,3 +1,11 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/SurfaceNormals/TestSurfaceNormalsFilter.cpp
+// Regression: a fresh output AttributeSet has no DrawObject owner; refreshing through
+// that owner crashed. Execute and verify output normals before rendering; fix feat: integrate third-batch standard filters.
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <SurfaceNormals/iGameSurfaceNormalsFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameFileIO.h>
@@ -111,6 +119,14 @@ int main(int argc, char* argv[]) {
     }
 
     auto filter = iGame::SurfaceNormalsFilter::New();
+    // Regression (fix: feat: integrate third-batch standard filters): VTKReader reset the initial CellArray offset,
+    // corrupting the quad/triangle transition in this model before Execute.
+    // The supplied roof has five quads followed by four triangles.
+    if (argc == 1) {
+        if (inputMesh->GetNumberOfFaces() != 9) return 1;
+        for (IGsize i = 0; i < 9; ++i)
+            if (inputMesh->GetFaces()->GetCellSize(i) != (i < 5 ? 4 : 3)) return 1;
+    }
     filter->SetInput(inputMesh);
 
     if (!filter->Execute()) {
@@ -138,6 +154,7 @@ int main(int argc, char* argv[]) {
     // 将 filter 输出作为模型数据加入场景。
     scene->AddModel(output);
 
+    if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
     auto window = iGame::RenderWindow::New();
     window->SetSize(1280, 720);
     window->SetScene(scene);

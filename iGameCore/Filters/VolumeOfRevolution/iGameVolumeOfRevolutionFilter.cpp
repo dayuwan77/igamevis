@@ -15,7 +15,7 @@
 IGAME_NAMESPACE_BEGIN
 
 // ---------- 辅助函数 ----------
-static void BuildAdjacency(const std::vector<Edge>& edges, std::map<IGsize, std::set<IGsize>>& adj) {
+static void BuildAdjacency(const std::vector<RevolutionEdge>& edges, std::map<IGsize, std::set<IGsize>>& adj) {
     for (const auto& e: edges) {
         adj[e.v0].insert(e.v1);
         adj[e.v1].insert(e.v0);
@@ -97,7 +97,7 @@ bool VolumeOfRevolutionFilter::Execute() {
     if (!input) return false;
 
     std::vector<Vector3d> contourPts;
-    std::vector<Edge> edges;
+    std::vector<RevolutionEdge> edges;
 
     IGenum type = input->GetDataObjectType();
 
@@ -446,7 +446,7 @@ if (hasValidCellIds && !triCellIds.empty()) {
                         outArray->SetValue(t * dim + d, val);
                     }
                 } else {
-                    // 若 cellId 无效，置 0 
+                    // 若 cellId 无效，置 0
                     for (int d = 0; d < dim; ++d) outArray->SetValue(t * dim + d, 0.0);
                 }
             }

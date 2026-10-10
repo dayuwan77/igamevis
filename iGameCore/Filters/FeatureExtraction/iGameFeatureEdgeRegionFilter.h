@@ -16,7 +16,7 @@ public:
     void SetFeatureAngle(float angle) { m_featureAngle = angle; }
 
 protected:
-    FeatureEdgeRegionFilter() { 
+    FeatureEdgeRegionFilter() {
         this->SetNumberOfInputs(1);
         this->SetNumberOfOutputs(1);
     }

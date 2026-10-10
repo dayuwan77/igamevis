@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestCleanToGridFilter.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <MyFilter/iGameCleanToGridFilter.h>
 #include <iGameFileIO.h>
 #include <iGameInteractor.h>
@@ -301,6 +307,7 @@ int main() {
         auto drawObj = iGame::DynamicCast<iGame::DrawObject>(out);
         if (drawObj) {
             drawObj->SetViewStyle(IG_SURFACE);
+            if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
             drawObj->ConvertToDrawableData();
         }
 

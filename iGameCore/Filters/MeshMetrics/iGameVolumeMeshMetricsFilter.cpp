@@ -69,12 +69,7 @@ bool VolumeMeshMetricsFilter::Execute() {
         metricArray->AddValue(metric);                  // 存储结果
     }
     
-    // 重复执行时替换旧的同名属性，避免同名 Metric 属性堆积（会影响后续按名查找与渲染）
-    auto attrSet = input->GetAttributeSet();
-    const std::string metricName = "Metric" + std::to_string(m_Metric);
-    int existIndex = attrSet->GetAttributeIndex(metricName);
-    if (existIndex >= 0) { attrSet->DeleteAttribute(existIndex); }
-    attrSet->AddAttribute(IG_SCALAR, IG_CELL, metricArray);
+    input->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_CELL, metricArray);
     this->SetOutput(input);
     return true;
 }
