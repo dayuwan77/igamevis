@@ -236,6 +236,13 @@ if (EXAMPLE_COMPILE)
     add_subdirectory(Examples)
 endif ()
 
+if (EXAMPLE_COMPILE AND TARGET Qt_module)
+    add_executable(testConnectedSurfacePropertiesWidget
+        Examples/Filter/DataProcessing/ConnectedSurfaceProperties/TestConnectedSurfacePropertiesWidget.cpp)
+    target_include_directories(testConnectedSurfacePropertiesWidget PRIVATE ${CMAKE_SOURCE_DIR}/Qt)
+    target_link_libraries(testConnectedSurfacePropertiesWidget PRIVATE Qt_module iGameCore)
+endif ()
+
 if (ENABLE_WASM)
     add_subdirectory(Examples/Wasm)
 endif ()
