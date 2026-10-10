@@ -208,6 +208,7 @@ set(IGAME_BATCH2_EXAMPLES
     testTriangleStripWidget
     testBatch2GeometryValidation
     testStandardFiltersMenu
+    testTextureMapToPlane
 )
 set(IGAME_BATCH2_VISUAL_EXAMPLES
     testCountCellVertices
@@ -695,6 +696,7 @@ igame_add_example(testExtractSubset Filter/TestExtractSubset.cpp)
 # Extract Location and Overlapping Cells Detector regression examples.
 igame_add_example(testExtractLocation Filter/DataProcessing/ExtractLocation/TestExtractLocation.cpp)
 igame_add_example(testOverlappingCellsDetector Filter/DataProcessing/OverlappingCellsDetector/TestOverlappingCellsDetector.cpp)
+igame_add_example(testTextureMapToPlane Filter/DataProcessing/TextureMapToPlane/TestTextureMapToPlane.cpp)
 
 igame_add_example(testExtractLocationDrag Filter/DataProcessing/ExtractLocation/TestExtractLocationDrag.cpp)
 

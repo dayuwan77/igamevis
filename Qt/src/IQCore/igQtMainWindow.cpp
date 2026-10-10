@@ -103,6 +103,7 @@
 #include <IQWidgets/igQtModelInformationWidget.h>
 #include <IQWidgets/igQtParallelCoordinatesWidget.h>
 #include <IQWidgets/igQtTensorWidget.h>
+#include <IQWidgets/igQtTextureMapToPlaneWidget.h>
 #include <IQWidgets/igQtVariableCorrelationWidget.h>
 #include <IQWidgets/igQtPartFocusWidget.h>
 #include <IQWidgets/igQtAttributeSelectWidget.h>
@@ -5343,6 +5344,7 @@ void igQtMainWindow::initAllFilters() {
                     dialog->close();
                 });
                 dialog->show();
+            });
 
     // 反转面朝向 (Reverse Sense)。
     connect(developingFiltersBatch2->addAction(QStringLiteral("反转面朝向 (Reverse Sense)")),
@@ -5413,6 +5415,28 @@ void igQtMainWindow::initAllFilters() {
                     dialog->close();
                 });
             });
+
+    QAction* textureMapToPlaneAction = developingFiltersBatch2->addAction(
+            QStringLiteral("生成平面纹理坐标 (Texture Map to Plane)"));
+    textureMapToPlaneAction->setObjectName(QStringLiteral("action_developing_texture_map_to_plane"));
+    connect(textureMapToPlaneAction, &QAction::triggered, this, [this]() {
+        auto model = rendererWidget->GetScene()->GetCurrentModel();
+        if (!model) {
+            showDarkFramelessMessage(QStringLiteral("生成平面纹理坐标"),
+                                     QStringLiteral("请先在模型树中选择一个包含点数据的网格模型。"));
+            return;
+        }
+        auto* panel = new igQtTextureMapToPlaneWidget(rendererWidget, modelTreeWidget, model, this);
+        if (!panel->isReady()) {
+            showDarkFramelessMessage(QStringLiteral("生成平面纹理坐标"),
+                                     QStringLiteral("当前模型不属于 PointSet 网格体系，或模型中没有点；操作已取消。"));
+            panel->deleteLater();
+            return;
+        }
+        panel->show();
+        panel->raise();
+        panel->activateWindow();
+    });
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {
