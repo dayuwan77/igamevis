@@ -75,10 +75,10 @@ iGame::ComputeSymmetricEigen(a, values, vectors);   // 特征值降序，vectors
 
 ### GUI 使用
 
-菜单：**算法处理 → 数据属性操作 (Attribute Manipulation) → 屈服准则 (Yield Criteria)**
+菜单：**算法处理 → 新增filter/第二批 → 屈服准则 (Yield Criteria)**
 
 1. 加载并选中带张量属性的模型（例如 `Examples/Models/YieldCriteria_Test.vtk`）；
-2. 点击菜单弹出参数面板：**张量属性**下拉框（列出模型里的 6/9 分量张量属性）、**屈服准则**下拉框（主应力 / Tresca / von Mises）；
+2. 点击菜单弹出参数面板：**张量属性**下拉框（列出模型里的 6/9 分量数组）、**屈服准则**下拉框（主应力 / Tresca / von Mises）；
 3. 点 **执行**：模型树出现新模型 `xxx_YieldCriteria`，其属性列表里多出结果数组，可直接用于云图着色。
 
 ## 测试
