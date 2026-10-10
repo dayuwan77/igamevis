@@ -5348,6 +5348,7 @@ void igQtMainWindow::initAllFilters() {
                     rendererWidget->update();
                     dialog->close();
                 });
+            });
     // ---------- 管道生成 (Tube)：追加在“开发中filter/第二批”菜单末尾 ----------
     QAction* tubeAction = developingFiltersBatch2->addAction(QStringLiteral("管道生成 (Tube)"));
     connect(tubeAction, &QAction::triggered, this,
