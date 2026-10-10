@@ -15,6 +15,7 @@
 #include "CellCenter/iGameCellCenterFilter.h"
 #include "ParallelCoordinates/iGameGenerateParallelCoordinatesData.h"
 #include "PlotLine/iGameGeneratePlotLineDataFilter.h"
+#include "RenameArrays/iGameRenameArrays.h"
 #include "PointCoordinates/iGamePointCoordinatesFilter.h"
 #include "Probe/iGameProbeFilter.h"
 #include "RemoveGhostInformation/iGameRemoveGhostInformationFilter.h"

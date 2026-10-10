@@ -42,6 +42,9 @@ public:
 public slots:
     int addModelToModelTree(iGame::Model::Pointer model);
     ModelTreeWidgetItem* getItemFromObject(iGame::DataObject::Pointer obj);
+    /** 模型树里全部顶层模型项（顺序与树一致）。注意场景模型池里还有中心坐标轴这类
+     *  内部模型，它们不在模型树中，因此不会出现在这里。 */
+    QList<ModelTreeWidgetItem*> getAllModelItems() const;
     void updateAllAttriubute(iGame::DataObject::Pointer obj);
     void refreshAnimationAttributes(iGame::DataObject::Pointer obj);
     void updateItemName(iGame::DataObject::Pointer obj);

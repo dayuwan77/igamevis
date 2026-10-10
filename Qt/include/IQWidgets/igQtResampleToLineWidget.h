@@ -80,6 +80,11 @@ private:
     /** 清理控件自己绘制的预览线段 */
     void ClearPreviewHandles();
 
+    /** 解除当前 m_ResultMesh 上的「结果被删除」回调，并把 tag 清零（换绑前必须调用） */
+    void DetachResultObserver();
+    /** 为当前 m_ResultMesh 注册「结果被删除」回调，保证 tag 与对象一一对应 */
+    void AttachResultObserver();
+
     Ui::ResampleToLineWidget* ui;
 
     iGame::LineSelection::Pointer m_Selection;

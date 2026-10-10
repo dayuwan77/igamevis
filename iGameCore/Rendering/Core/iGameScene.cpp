@@ -351,6 +351,20 @@ SmartPointer<Model> Scene::GetModelById(int id) {
     }
     return nullptr;
 }
+
+std::vector<std::pair<IGuint, SmartPointer<Model>>> Scene::GetAllModels() {
+    std::vector<std::pair<IGuint, SmartPointer<Model>>> models;
+    models.reserve(m_ModelPool->GetObjectCount());
+    for (auto it = m_ModelPool->Begin(); it != m_ModelPool->End(); ++it) {
+        models.emplace_back(it->first, it->second);
+    }
+    // 句柄池内部是无序 map，这里按模型 id 排序，保证下拉框顺序稳定
+    std::sort(models.begin(), models.end(),
+              [](const std::pair<IGuint, SmartPointer<Model>>& a,
+                 const std::pair<IGuint, SmartPointer<Model>>& b) { return a.first < b.first; });
+    return models;
+}
+
 bool Scene::SetModelById(int id, SmartPointer<Model>model) {
     for (auto it = m_ModelPool->Begin(); it != m_ModelPool->End(); ++it) {
         auto modelID = it->first;
@@ -1088,6 +1102,24 @@ void Scene::ClearSceneFramebuffer(float depth, int width, int height) {
 void Scene::DrawFrame() {
     auto viewport = m_Camera->GetScaledViewPort();
 
+#ifndef __EMSCRIPTEN__
+    // Before the first Resize() the offscreen framebuffer that BindFramebuffer()
+    // selects has no attachments, so any draw into it only raises
+    // GL_INVALID_FRAMEBUFFER_OPERATION (visible right after a window/buffer is
+    // created, e.g. on startup or while the view is still zero-sized).
+    {
+#ifdef GL_SUPPORT_MSAA
+        const SmartPointer<GLFramebuffer>& target = m_FramebufferMultisampled;
+#else
+        const SmartPointer<GLFramebuffer>& target = m_Framebuffer;
+#endif
+        if (target == nullptr ||
+            target->CheckStatus() != GL_FRAMEBUFFER_COMPLETE) {
+            return;
+        }
+    }
+#endif
+
     // Convert to drawable data
     for (auto it = m_ModelPool->Begin(); it != m_ModelPool->End(); ++it) {
         auto model = it->second;
@@ -1101,7 +1133,10 @@ void Scene::DrawFrame() {
         BindFramebuffer();
         ClearSceneFramebuffer(0.0f, viewport.x, viewport.y);
 
-#ifndef __EMSCRIPTEN__
+        // The volume framebuffer only exists when the 4.6/desktop path that
+        // creates it is compiled in; binding it unconditionally crashed the
+        // GL 3.3 feature-level builds (Web/ES and macOS 4.1).
+#ifdef IGAME_OPENGL_VERSION_460
         m_VolumeFramebuffer->Bind();
         ClearSceneFramebuffer(0.0f, viewport.x, viewport.y);
 
