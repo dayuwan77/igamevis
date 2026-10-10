@@ -15,3 +15,4 @@ Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
 Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
 Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
 Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text
+Examples/Models/DecimatePolyline_Curve.vtk -filter -diff -merge text
