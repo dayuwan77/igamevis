@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/FeatureExtraction/FeatureEdgeRegion.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <FeatureExtraction/iGameFeatureEdgeRegionFilter.h>
 #include <Convert/iGameConvertToSurfaceMeshFilter.h>
 #include <iGameDrawObject.h>
@@ -11,8 +17,8 @@
 
 
 
-int main() { 
-	const std::string fileName = "./Models/FeatureRegion_MountingPlate.vtk"; 
+int main() {
+	const std::string fileName = "./Models/FeatureRegion_MountingPlate.vtk";
 	auto scene = iGame::Scene::New();
     auto input = iGame::FileIO::ReadFile(fileName);
 
@@ -85,6 +91,7 @@ int main() {
 
 
     outputDrawObject->SetViewStyle(IG_SURFACE);
+    if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
     outputDrawObject->ViewCloudPicture(scene, outputDrawObject->GetAttributeSet()->GetAttributeIndex("Region Id"), 0);
 
     auto window = iGame::RenderWindow::New();

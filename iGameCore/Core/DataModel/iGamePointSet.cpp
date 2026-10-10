@@ -16,12 +16,7 @@ IGsize PointSet::GetNumberOfPoints() { return m_Points ? m_Points->GetNumberOfPo
 
 const Point& PointSet::GetPoint(const IGsize ptId) const { return m_Points->GetPoint(ptId); }
 
-void PointSet::SetPoint(const IGsize ptId, const Point& p) {
-    m_Points->SetPoint(ptId, p);
-    // PointSet 自身也必须失效，确保交互修改会重建渲染缓存。
-    this->Modified();
-    this->ForceReConvertToDrawableData();
-}
+void PointSet::SetPoint(const IGsize ptId, const Point& p) { m_Points->SetPoint(ptId, p); }
 
 IGsize PointSet::AddPoint(const Point& p) {
     if (!InEditStatus()) { RequestEditStatus(); }
@@ -120,18 +115,6 @@ void PointSet::ConvertToDrawableData() {
             if (!attr.isDeleted && attr.attachmentType == IG_POINT) {
                 m_ColorWithCell = false;
                 this->SetAttributeWithPointData(attr.pointer, attr.GetDataRange(), m_AttributeDimension);
-            } else if (!attr.isDeleted && attr.attachmentType == IG_CELL) {
-                // 单元属性：由子类展开为可着色的单元几何（SurfaceMesh/VolumeMesh/UnstructuredMesh/
-                // StructuredMesh 都已实现，基类 PointSet 本身没有单元信息）。展开前先清零单元顶点数，
-                // 避免复用上一帧的过期几何；若最终没有生成任何单元几何，则退回默认颜色——否则
-                // m_ColorWithCell 与实际几何不匹配，Model::Draw 会去画空的 m_CellVAO（模型消失），
-                // 或让着色器落到 inputColor 的默认纯白上。
-                m_CellPositionSize = 0;
-                this->SetAttributeWithCellData(attr.pointer, attr.GetDataRange(), m_AttributeDimension);
-                m_ColorWithCell = m_CellPositionSize > 0;
-                if (!m_ColorWithCell) {
-                    m_UseColor = false;
-                }
             }
         }
     }
@@ -142,21 +125,24 @@ void PointSet::ConvertToDrawableData() {
 
 void PointSet::SetAttributeWithPointData(ArrayObject::Pointer attr, DoubleArray::Pointer attrRange, igIndex dimension) {
     /* 当pointMapper 外部更新（调整颜色映射的 Range）， 则不用调整ColorMap的范围*/
-    if (!m_ColorMapper->GetStable() && m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
-        int minIdx = 2 + dimension * 2 + 0;
-        int maxIdx = 2 + dimension * 2 + 1;
-        double minimal_val = attrRange->GetValue(minIdx);
-        double maximal_val = attrRange->GetValue(maxIdx);
-        
-        if (minimal_val < maximal_val) {
-            m_ColorMapper->SetRange(minimal_val, maximal_val);
-        } else {
-            m_ColorMapper->InitRange(attr, dimension);
+    // 派生网格（抽壳/简化）只读范围，不写范围（原因见 iGameSurfaceMesh.cpp 同名注释）
+    if (m_IsMainRenderableObject && m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
+        if (!m_ColorMapper->GetStable()) {
+            int minIdx = 2 + dimension * 2 + 0;
+            int maxIdx = 2 + dimension * 2 + 1;
+            double minimal_val = attrRange->GetValue(minIdx);
+            double maximal_val = attrRange->GetValue(maxIdx);
+            
+            if (minimal_val < maximal_val) {
+                m_ColorMapper->SetRange(minimal_val, maximal_val);
+            } else {
+                m_ColorMapper->InitRange(attr, dimension);
+            }
         }
     }
-    m_Colors = m_ColorMapper->MapScalars(attr, dimension);
-    m_Colors->Modified();
+    m_Colors = m_ColorMapper->MapScalars(attr, dimension, 4);
     if (m_Colors == nullptr) { return; }
+    m_Colors->Modified();
 }
 
 FlatArray<igIndex>::Pointer PointSet::GetPointMap() { return m_PointMap; }

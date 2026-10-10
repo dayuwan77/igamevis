@@ -1,5 +1,6 @@
 ﻿#include "iGameScalarsToColors.h"
 #include "iGameThreadPool.h"
+#include <limits>
 #include <time.h>
 
 IGAME_NAMESPACE_BEGIN
@@ -10,6 +11,7 @@ ScalarsToColors::ScalarsToColors() {
     this->VectorSize = -1;
     this->VectorMode = ScalarsToColors::COMPONENT;
     this->m_stable = false;
+    this->m_OpacityRangeSet = false;
 
     // only used in this class, not used in subclasses
     this->InputRange[0] = 0.0;
@@ -39,6 +41,29 @@ void ScalarsToColors::SetVectorModeToRGBColors() { this->SetVectorMode(ScalarsTo
 // do not use SetMacro() because we do not want the table to rebuild.
 void ScalarsToColors::SetAlpha(float alpha) { this->Alpha = (alpha < 0.0 ? 0.0 : (alpha > 1.0 ? 1.0 : alpha)); }
 
+void ScalarsToColors::SetOpacityMappingEnabled(bool enabled) {
+    if (enabled && !this->m_OpacityRangeSet) {
+        this->m_OpacityRangeSet = true;
+        this->Modified();
+    }
+    else if (!enabled && this->m_OpacityRangeSet) {
+        this->m_OpacityRangeSet = false;
+        this->Modified();
+    }
+}
+
+// shift and scale are computed from the computeShiftScale() function. 
+float ScalarsToColors::GetOpacity(float v, float& shift, float& scale) {
+    if (!this->m_OpacityRangeSet) { return this->Alpha; }
+
+    float val = (v + shift) * scale;
+    val = (val < 0.0) ? 0.0 : (val > 0.999999 ? 0.999999 : val);
+
+    float opacity = 0.999999;
+    this->MapOpacity(val, opacity);
+    return opacity * this->Alpha;
+}
+
 void ScalarsToColors::InitRange(ArrayObject::Pointer input) {
     if (this->VectorMode == RGBCOLORS) return;
     this->SetVectorModeToMagnitude();
@@ -53,6 +78,12 @@ void ScalarsToColors::InitRange(ArrayObject::Pointer input, int component) {
 }
 
 void ScalarsToColors::SetRange(double minval, double maxval) {
+    // 退化范围保护：min==max 会导致所有值被钳到色标一端（如全红）。
+    // 保留上一次有效范围，避免 [0,0] 之类写入 mapper。
+    if (maxval <= minval) { return; }
+    // 未初始化哨兵保护：对空数组算范围时 max 会停留为 DBL_MIN（2.2e-308），
+    // 属于"无有效最大值"的哨兵；拒绝它，继续使用上一次有效范围。
+    if (maxval == std::numeric_limits<double>::min()) { return; }
     if (this->InputRange[0] != minval || this->InputRange[1] != maxval) {
         this->InputRange[0] = minval;
         this->InputRange[1] = maxval;
@@ -88,7 +119,7 @@ void ScalarsToColors::GetColor(float v, float rgb[3], float& shift, float& scale
 const unsigned char* ScalarsToColors::MapValue(float v, float& shift, float& scale) {
     float rgb[3];
     this->GetColor(v, rgb, shift, scale);
-    float alpha = this->GetOpacity(v);
+    float alpha = this->GetOpacity(v, shift, scale);
     this->RGBABytes[0] = ColorToUChar(rgb[0]);
     this->RGBABytes[1] = ColorToUChar(rgb[1]);
     this->RGBABytes[2] = ColorToUChar(rgb[2]);
@@ -206,13 +237,12 @@ void ScalarsToColors::MapVectorsToColors(ArrayObject::Pointer input, FloatArray:
             ComputeShiftScale(shift, scale);
             auto func = [&](igIndex start, igIndex end) -> void {
                 float data[128];
-                float rgb[3];
+                float rgba[4];
                 for (int i = start; i < end; i++) {
                     input->GetElement(i, data);
-                    MapValueToRGB(data[index], rgb, shift, scale);
-                    //const unsigned char* rgb = MapValue(data[index], shift, scale);
-                    //std::array<unsigned char, 3>tmp = { rgb[0], rgb[1], rgb[2] };
-                    output->SetElement(i, rgb);
+                    MapValueToRGB(data[index], rgba, shift, scale);
+                    if (outputFormat == 4) { rgba[3] = this->GetOpacity(data[index], shift, scale); }
+                    output->SetElement(i, rgba);
                 }
             };
             ThreadPool::parallelFor(0, input->GetNumberOfElements(), func);
@@ -223,14 +253,15 @@ void ScalarsToColors::MapVectorsToColors(ArrayObject::Pointer input, FloatArray:
             ComputeShiftScale(shift, scale);
             auto func = [&](igIndex start, igIndex end) -> void {
                 float data[128];
-                float rgb[3];
+                float rgba[4];
                 for (int i = start; i < end; i++) {
                     input->GetElement(i, data);
                     float value = 0.0;
                     for (int j = index; j < index + vectorSize; j++) { value += data[j] * data[j]; }
                     value = sqrt(value);
-                    MapValueToRGB(value, rgb, shift, scale);
-                    output->SetElement(i, rgb);
+                    MapValueToRGB(value, rgba, shift, scale);
+                    if (outputFormat == 4) { rgba[3] = this->GetOpacity(value, shift, scale); }
+                    output->SetElement(i, rgba);
                 }
             };
             ThreadPool::parallelFor(0, input->GetNumberOfElements(), func);
@@ -241,9 +272,18 @@ void ScalarsToColors::MapVectorsToColors(ArrayObject::Pointer input, FloatArray:
             //std::array<unsigned char, 3> rgb;
             auto func = [&](igIndex start, igIndex end) -> void {
                 float data[128];
+                float rgba[4];
                 for (int i = start; i < end; i++) {
                     input->GetElement(i, data);
-                    output->SetElement(i, data);
+                    if (outputFormat == 4) {
+                        rgba[0] = data[0];
+                        rgba[1] = data[1];
+                        rgba[2] = data[2];
+                        rgba[3] = this->Alpha;
+                        output->SetElement(i, rgba);
+                    } else {
+                        output->SetElement(i, data);
+                    }
                 }
             };
             ThreadPool::parallelFor(0, input->GetNumberOfElements(), func);
@@ -263,6 +303,7 @@ bool ScalarsToColors::DeepCopy(ScalarsToColors::Pointer other) {
     this->VectorComponent = other->VectorComponent;
     this->VectorSize = other->VectorSize;
     this->m_stable = other->m_stable;
+    this->m_OpacityRangeSet = other->m_OpacityRangeSet;
 
     // Copy range and last RGB/RGBA buffers
     this->InputRange[0] = other->InputRange[0];

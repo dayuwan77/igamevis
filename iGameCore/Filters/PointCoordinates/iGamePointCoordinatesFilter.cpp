@@ -29,6 +29,8 @@ DataObject::Pointer DeepCopyMesh(DataObject::Pointer input) {
             auto inTypes = inMesh->GetCellTypes();
             if (inCells && inTypes) {
                 auto outCells = CellArray::New();
+                // CellArray::DeepCopy appends offsets; discard the constructor's zero.
+                outCells->Reset();
                 outCells->DeepCopy(inCells);
                 auto outTypes = UnsignedIntArray::New();
                 outTypes->DeepCopy(inTypes);
@@ -107,6 +109,7 @@ bool PointCoordinatesFilter::Execute() {
         igDebug("PointCoordinatesFilter failed to deep copy the input.");
         return false;
     }
+    output->SetName(input->GetName() + "_Coordinates");
 
     auto outPoints = output->GetPoints();
     auto outCoordinates = outPoints->ConvertToArray();
