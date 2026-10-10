@@ -5,6 +5,7 @@
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Convert/iGameConvertToVolumeMeshFilter.h"
 #include "Elevation/iGameElevationFilter.h"
+#include "ExtractEnclosedPoints/iGameExtractEnclosedPointsFilter.h"
 #include "ExtractSubset/iGameExtractSubsetFilter.h"
 #include "IsoVolume/iGameIsoVolumeFilter.h"
 #include "MaskPoints/iGameMaskPointsFilter.h"
