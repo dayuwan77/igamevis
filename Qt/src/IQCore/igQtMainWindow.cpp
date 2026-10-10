@@ -4978,8 +4978,10 @@ void igQtMainWindow::initAllFilters() {
 
     // 线性拉伸 (Linear Extrusion)：按向量/点法向/点缩放三种规则把输入线性扫描出端面与侧面。
     // 独立置顶弹窗（非模态）：不占用左侧工具面板，不点 X 不会消失；
-    // 继承语义：首次执行新增模型树节点，再次执行更新结果节点
-    QAction* linearExtrusion = ui->menu_filters->addAction(QStringLiteral("线性拉伸 (Linear Extrusion)"));
+    // 继承语义：首次执行新增模型树节点，再次执行更新结果节点。
+    // 入口按 9.28 约定统一放到「算法处理 → 开发中filter/第二批」末尾，所以这里只创建 action，
+    // 等本函数末尾（第二批菜单条目都添加完之后）再 addAction。
+    QAction* linearExtrusion = new QAction(QStringLiteral("线性拉伸 (Linear Extrusion)"), this);
     connect(linearExtrusion, &QAction::triggered, this, [this](bool checked) {
         auto scene = rendererWidget->GetScene();
         if (scene == nullptr || scene->GetCurrentModel() == nullptr) {
@@ -7210,6 +7212,10 @@ void igQtMainWindow::initAllFilters() {
 
         dlg->show();
     });
+
+    // ---- 9.28 新布置 filter：线性拉伸 (Linear Extrusion) ----
+    // 追加在「开发中filter/第二批」末尾（本函数内其余第二批条目都已添加完毕）
+    developingFiltersBatch2->addAction(linearExtrusion);
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {
