@@ -73,7 +73,7 @@ double v = iGame::EvaluatePerlinNoise(xyz, freq, phase, 1.0);
 
 ### GUI 使用
 
-菜单：**算法处理 → 数据属性操作 (Attribute Manipulation) → Perlin 噪声 (Perlin Noise)**
+菜单：**算法处理 → 新增filter/第二批 → Perlin 噪声 (Perlin Noise)**
 
 1. 先加载并选中一个网格模型；
 2. 点击菜单弹出参数面板，填写 振幅 / 频率 X,Y,Z / 相位 X,Y,Z；
