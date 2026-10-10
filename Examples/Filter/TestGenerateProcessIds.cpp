@@ -1,3 +1,10 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestGenerateProcessIds.cpp
+// Regression/example imported from dayuwan77/igamevis at
+// eccac729b57aeacbe9312d7d5189f6990bb4eebd (same relative path).
+// Integration regression: these filters and their example assets were missing
+// from iGameVis-multiFilter. The checks below cover their output/attribute and
+// geometry contracts; visual examples retain an interactive default mode.
+// Local integration fix: feat: integrate second-batch standard filters.
 #include <iostream>
 #include <iGameCellArray.h>
 #include <iGameFileIO.h>

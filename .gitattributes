@@ -1,0 +1,33 @@
+*.largefile filter=lfs diff=lfs merge=lfs -text
+test/FeatureExtraction[[:space:]]Test/*.vtk filter=lfs diff=lfs merge=lfs -text
+test/streamtest/*.vtk filter=lfs diff=lfs merge=lfs -text
+*.vtk filter=lfs diff=lfs merge=lfs -text
+"test/Streamline Test/StreamTest.vtk" -filter
+"test/Format Validation Test/ansys/*.rth" filter=lfs diff=lfs merge=lfs -text
+"test/Format Validation Test/ansys/*.rst" filter=lfs diff=lfs merge=lfs -text
+ThirdParty/Python/pyAnsysLib/ansys_to_pvd_converter.exe filter=lfs diff=lfs merge=lfs -text
+ThirdParty/Python/pyLsDynaLib/lsdyna_to_pvd_converter.exe filter=lfs diff=lfs merge=lfs -text
+
+# Small text fixtures for the two filter regression examples.
+Examples/Models/ExtractLocationTetraPair.vtk -filter -diff -merge text
+Examples/Models/ExtractLocationConnectedSteppedSolid.vtk -filter -diff -merge text
+Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
+Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
+Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
+Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text
+
+# Keep upstream's small plain-text example fixtures outside Git LFS.
+Examples/Models/ElevationSlopeTerrain.vtk -filter -diff -merge text
+Examples/Models/ElevationTerraces.vtk -filter -diff -merge text
+Examples/Models/ExtractEnclosedPoints_Points_Cloud1.vtk -filter -diff -merge text
+Examples/Models/ExtractEnclosedPoints_Surface_Sphere.vtk -filter -diff -merge text
+Examples/Models/FeatureEdges_Cube.vtk -filter -diff -merge text
+Examples/Models/FeatureEdges_NonManifold.vtk -filter -diff -merge text
+Examples/Models/GhostCell_Pyramid.vtk -filter -diff -merge text
+Examples/Models/GhostCell_TwoTets.vtk -filter -diff -merge text
+Examples/Models/LinearExtrusion_ClosedCube.vtk -filter -diff -merge text
+Examples/Models/LinearExtrusion_OpenSurface.vtk -filter -diff -merge text
+Examples/Models/OutlineCorners_Box.vtk -filter -diff -merge text
+Examples/Models/rectangle_structured_2d.vtk -filter -diff -merge text
+Examples/Models/test_mesh.vtk -filter -diff -merge text
+Examples/Models/tube_test.vtk -filter -diff -merge text

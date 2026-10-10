@@ -69,7 +69,7 @@ public:
     void InitializeSeedList() { m_Seeds.clear(); }
     void AddSeed(igIndex id) { m_Seeds.push_back(id); }
 
-    // 指定区域编号（SPECIFIED_REGIONS）。
+    // 指定区域编号（SPECIFIED_REGIONS）：使用当前 RegionIdAssignmentMode 排序后的编号。
     void InitializeSpecifiedRegionList() { m_SpecifiedRegionIds.clear(); }
     void AddSpecifiedRegion(int id) { m_SpecifiedRegionIds.push_back(id); }
 
@@ -93,8 +93,8 @@ protected:
 private:
     // 构建点→面邻接（CSR 风格的 vector，不修改输入）。
     void BuildPointFaceAdjacency();
-    // 从给定单元波前开始，按共享点做一次连通扩散，写入 m_Visited / m_PointMap；返回标记的单元数。
-    IGsize TraverseAndMark(const std::vector<igIndex>& seedCells, int regionNumber, igIndex& pointNumber);
+    // 按共享点扩散，入队时标记面，每个合格点的邻接只展开一次；返回标记的单元数。
+    IGsize TraverseAndMark(const std::vector<igIndex>& seedCells, int regionNumber);
     // 几何相邻之外的可选标量连通判定。
     bool CellIsConnected(igIndex cellId) const;
     // 选择标量连通使用的点属性数组；返回是否成功。
@@ -119,7 +119,8 @@ private:
     SurfaceMesh::Pointer m_Mesh{nullptr};
     std::vector<std::vector<igIndex>> m_PointFaces; // 点 -> 相邻面
     std::vector<int> m_Visited;                     // 面 -> 区域号（-1 未访问）
-    std::vector<igIndex> m_PointMap;                // 输入点 -> 输出点（-1 未收录）
+    std::vector<char> m_ExpandedPoints;             // 点邻接是否已展开
+    std::vector<char> m_CellEligible;               // 每个面是否满足标量连通条件
     std::vector<igIndex> m_RegionSizes;             // 各区域单元数
     ArrayObject::Pointer m_ScalarArray{nullptr};    // 标量连通用的点属性
 };

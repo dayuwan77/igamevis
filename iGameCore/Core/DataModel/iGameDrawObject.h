@@ -1,5 +1,6 @@
 #ifndef iGameDrawObject_h
 #define iGameDrawObject_h
+#include <array>
 
 #include "iGameClipper.h"
 #include "iGameDataObject.h"
@@ -14,8 +15,7 @@
 #include "OpenGL/GLVertexArray.h"
 
 #include "Meshleter/iGameMeshleter.h"
-
-#include <vector>
+#include <cstdint>
 
 IGAME_NAMESPACE_BEGIN
 class Scene;
@@ -33,10 +33,66 @@ public:
     bool IsDrawable() override { return true; }       // 标识可以被渲染
     virtual void ConvertToDrawableData();             //转化为可渲染模式（当前对象及其所有子对象）
     void ForceReConvertToDrawableData();              // 强制触发重新映射
+
+    /**
+     * @brief 惰性转换（读取路径优化）。
+     *
+     * 读取文件时 AddSubDataObject 不再立刻执行 ConvertToDrawableData()（体积网格的
+     * 表面抽取 + 建渲染壳，百万单元量级约 100 ms），而是标记为"待转换"；等到第一次
+     * 真正需要渲染（Scene::DrawFrame → SyncGpuBuffers）或第一次取渲染壳
+     * （GetRenderableObject）时再执行。这样"打开文件/读取"的耗时只包含读盘+解析+挂载，
+     */
+    void MarkDrawableConversionDeferred();
+    void EnsureDrawableData();                        // 有待转换则立即执行
+    bool IsDrawableConversionDeferred() const { return m_DrawableConversionDeferred; }
     virtual bool IsUseSinglePassWireframeRendering(); // 是否使用单通道线框渲染
     IGenum GetDataObjectType() const override;
     IGsize GetRealMemorySize() override;
 
+    // Opt-in static display cache. Unlike ReleaseDrawableResources(), keep
+    // extracted surface, LOD, colors and CPU drawing arrays. The owning GL
+    // context must be current if any handle is live. Eviction must still use
+    // ReleaseDrawableResources() to break derived-object ownership cycles.
+    void ReleaseGpuResourcesKeepCpuData();
+    // Upload a validated, GPU-detached prepared graph without CPU conversion.
+    // Requires a current owning GL context; does not enable empty attributes.
+    bool UploadPreparedCpuData();
+    // C/S-only preparation without a Scene attachment or any GL allocation.
+    // Uses the same converters (including shell/LOD) as normal rendering.
+    // Caller configures scalar/view state first and owns failure cleanup.
+    bool PrepareRemoteCpuDisplayData(std::string& reason);
+
+    struct CpuDisplayCacheState {
+        std::vector<std::uint64_t> signature;
+        std::uint64_t estimatedBytes{0};
+        bool ready{true};
+        std::string notReadyReason;
+    };
+    // Metadata-only inspection, no mesh scan, conversion or GL calls. Supports
+    // the ordinary (non-meshlet) surface path. Estimate includes original and
+    // derived arrays/capacity and can conservatively double-count shared data;
+    // it is not process RSS or a hard process-memory limit.
+    CpuDisplayCacheState InspectCpuDisplayCache();
+
+    // Explicit CPU-only cache boundary. Recursively release GL objects and
+    // derived CPU draw arrays, including shell/LOD/meshlet ownership cycles.
+    // Original points, cells, attributes and display settings are retained.
+    // If HasGpuResources() is true, the owning GL context MUST be current.
+    // Safe without GL for data that has never been uploaded; next draw rebuilds.
+    void ReleaseDrawableResources();
+    bool HasGpuResources() const;
+
+    // Per-dataset opt-in. Local files keep main's upload and wireframe path.
+    // Propagates to existing children, extracted surfaces and interaction LOD.
+    void SetRemoteRenderingEnabled(bool enabled);
+    bool GetRemoteRenderingEnabled() const { return m_RemoteRenderingEnabled; }
+
+    // Cell attributes may also supply a complete point RGBA buffer.
+    bool HasPointColorsForCellData() const {
+        return m_Colors && m_Positions &&
+               m_Colors->GetDimension() == 4 && m_Colors->GetNumberOfElements() > 0 &&
+               m_Colors->GetNumberOfElements() == m_Positions->GetNumberOfElements();
+    }
     bool IsUseColor();        //是否使用颜色
     bool IsUseNormalSmooth(); //是否使用法线平滑
 
@@ -68,16 +124,6 @@ public:
 
     FloatArray::Pointer GetRenderPoints();            // 获取当前渲染用的顶点数据
     void SetRenderPoints(FloatArray::Pointer points); // 直接设置顶点数据
-
-    /**
-     * @brief 点样式（IG_POINTS）能否按"逐点颜色"绘制。
-     *
-     * 活动属性挂在单元上时，颜色只存在于展开后的单元几何（m_CellColors）里；点样式绘制的是
-     * m_Positions，颜色只能取自 m_Colors。各网格类型的 SetAttributeWithCellData 会同时生成
-     * 与点数等长的逐点颜色（cell→point 取入射单元颜色的平均，见 CellToPointColorBuilder），
-     * 这里判断这份数据是否可用：不可用时渲染侧保持旧的纯白行为，避免读到不匹配的顶点色。
-     */
-    bool HasPointColors() const;
     // // 设置多边形偏移
     // void SetPolygonOffsetParameters(float factor, float units);
     // void GetPolygonOffsetParameters(float& factor, float& units);
@@ -90,6 +136,8 @@ public:
     // 设置和获取显示对象
     void SetRenderableObject(DataObject::Pointer dataObject);
     DrawObject::Pointer GetRenderableObject(bool useSimplified = false);
+    void SetAutoBuildInteractionLod(bool enabled);
+    bool GetAutoBuildInteractionLod() const;
 
     // 设置/获取"始终置顶"标志位
     void SetAlwaysOnTop(bool enable);
@@ -97,6 +145,10 @@ public:
 
     void SetShellRenderingOption(bool option);
     bool GetShellRenderingOption();
+    void SetOpacityMappingEnabled(bool enabled);
+    bool GetOpacityMappingEnabled() {
+        return GetColorMapper() ? GetColorMapper()->GetOpacityMappingEnabled() : false;
+    }
 
     /**
      * @brief 设置是否启用加速渲染模式。
@@ -113,10 +165,6 @@ public:
     void SetRenderWithMeshlet(bool val);
     bool GetRenderWithMeshlet() const;
 
-    // 三角形 -> 源单元号(逐三角形),供渲染时对单元数据逐面上色
-    void SetTriangleToCell(UnsignedIntArray::Pointer map) { m_TriangleToCell = map; }
-    UnsignedIntArray* GetTriangleToCell() { return m_TriangleToCell.get(); }
-
     // 默认颜色（当未启用颜色映射时使用）
     void SetDefaultColor(const igm::vec3& color);
     igm::vec3 GetDefaultColor() const;
@@ -125,28 +173,32 @@ public:
     igm::vec3 GetLineColor() const;
 
 protected:
-    /**
-     * @brief 单元颜色 -> 逐点颜色累加器（等价 VTK 的 cell→point 颜色转换）。
-     *
-     * 活动属性挂在单元上时，着色结果只存在于"展开后的单元几何"（m_CellPositions/m_CellColors），
-     * 而"点样式"（IG_POINTS）绘制的是 m_Positions，颜色只能取自 m_Colors；m_Colors 为空时
-     * 渲染侧过去只能把点画成纯白（Model::Draw 的点绘制分支 + Vertex.vert 的 useColor==0 回退）。
-     * 各网格类型的 SetAttributeWithCellData 在展开单元几何的同时用本累加器把单元颜色归约到点上，
-     * 使点样式也能按当前单元属性上色。
-     */
+    // OpenGL资源管理
     struct CellToPointColorBuilder {
-        IGsize numberOfPoints{0};
-        std::vector<float> sum;     // 3 * numberOfPoints，入射单元颜色之和
-        std::vector<igIndex> count; // numberOfPoints，入射单元个数
-
-        void Initialize(IGsize pointCount);
-        /* 把一个单元的颜色累加到它引用的各个点上（越界的点索引被忽略）。*/
-        void AddCell(const igIndex* pointIds, int idCount, const float rgb[3]);
-        /* 生成逐点颜色（维度 3，元素个数 = numberOfPoints）；没有入射单元的点使用 fallback。*/
-        FloatArray::Pointer Build(const igm::vec3& fallback) const;
+        std::vector<std::array<double, 4>> sums;
+        std::vector<IGsize> counts;
+        void Initialize(IGsize n) { sums.resize(n); counts.resize(n, 0); }
+        void AddCell(const igIndex* ids, int n, const float rgba[4]) {
+            for (int i = 0; i < n; ++i) {
+                const igIndex id = ids[i];
+                if (id < 0 || static_cast<IGsize>(id) >= counts.size()) continue;
+                for (int c = 0; c < 4; ++c) sums[id][c] += rgba[c];
+                ++counts[id];
+            }
+        }
+        FloatArray::Pointer Build(const igm::vec3& fallback) const {
+            auto colors = FloatArray::New();
+            colors->SetDimension(4);
+            for (size_t i = 0; i < counts.size(); ++i) {
+                if (counts[i]) {
+                    const double n = static_cast<double>(counts[i]);
+                    colors->AddElement4(sums[i][0] / n, sums[i][1] / n, sums[i][2] / n, sums[i][3] / n);
+                } else colors->AddElement4(fallback.x, fallback.y, fallback.z, 1.0f);
+            }
+            return colors;
+        }
     };
 
-    // OpenGL资源管理
     void CreateDrawBuffer();
     void SyncGpuBuffers();
     // VAO配置辅助方法
@@ -157,7 +209,11 @@ protected:
 
     Object::Pointer m_ReConvertHelper = Object::New();
     bool m_AttributeChanged = false;
+    bool m_RemoteRenderingEnabled = false;
+    bool m_ForceGpuBufferUpload = false;
+    bool m_RestoreMeshletColoring = false;
     bool m_ReConvertToDrawableData; // 是否需要重新转换数据
+    bool m_DrawableConversionDeferred = false; // 读取路径延迟的“转可绘制数据”
 
     bool m_AutoUpdateDrawData;    // 是否自动更新GPU数据
     bool m_ShellRendering = true; // 是否启用抽壳渲染
@@ -187,19 +243,23 @@ protected:
     UnsignedIntArray::Pointer m_PointIndices;
     UnsignedIntArray::Pointer m_LineIndices;
     UnsignedIntArray::Pointer m_TriangleIndices;
-    // 三角形 -> 源单元号(逐三角形),由 ConvertToDrawableData 填充
-    UnsignedIntArray::Pointer m_TriangleToCell;
     // 单通道线框渲染
     bool m_UseSinglePassWireframeRendering{true};
+    bool m_ForceExplicitWireframeGeometry{false};
+    bool m_AutoBuildInteractionLod{true};
     UnsignedCharArray::Pointer m_TriangleEdgeMasks;
     GLBuffer::Pointer m_EdgeMaskBuffer;
     GLTextureBuffer::Pointer m_EdgeMaskTexture;
+    int m_ConstantEdgeMask{-1};
+    bool m_EdgeMaskAvailable{false};
     // 单元数据
     FloatArray::Pointer m_CellPositions;
     FloatArray::Pointer m_CellColors;
     UnsignedCharArray::Pointer m_CellTriangleEdgeMasks;
     GLBuffer::Pointer m_CellEdgeMaskBuffer;
     GLTextureBuffer::Pointer m_CellEdgeMaskTexture;
+    int m_ConstantCellEdgeMask{-1};
+    bool m_CellEdgeMaskAvailable{false};
 
     unsigned int m_ViewStyle; // 视图样式
     bool m_Visibility;        //是否可见
@@ -243,6 +303,8 @@ protected:
 
     void BuildSimplifiedRenderableObject();
     void SyncRenderableState(const DrawObject::Pointer& renderableObject);
+    bool NeedsExplicitWireframeGeometry(IGenum viewStyle);
+    void MarkWireframeGeometryDirtyIfNeeded(IGenum viewStyle);
 };
 //递归处理所有子对象的模板函数实现
 template<typename Functor, typename... Args>

@@ -36,7 +36,7 @@ void TransformFilter::SetScale(float sx,float sy,float sz){
     m_ScaleZ = sz;
 }
 
-/** 
+/**
  * void TransformFilter::SetMatrix(const float matrix[4][4]){
     for (int i = 0; i < 4; ++i){
         for (int j = 0; j < 4; ++j){
@@ -169,8 +169,8 @@ bool TransformFilter::Execute(){
 
             auto newAttributeSet = AttributeSet::New();
             if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){
-                 return false; 
-            } 
+                 return false;
+            }
             volumeOutput->SetAttributeSet(newAttributeSet);
 
             output = volumeOutput;
@@ -191,10 +191,10 @@ bool TransformFilter::Execute(){
             }
             structuredOutput->SetPoints(newPoints);
 
-            auto newAttributeSet = AttributeSet::New(); 
-            if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){ 
-                return false; 
-            } 
+            auto newAttributeSet = AttributeSet::New();
+            if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){
+                return false;
+            }
             structuredOutput->SetAttributeSet(newAttributeSet);
 
             output = structuredOutput;
@@ -342,7 +342,7 @@ bool TransformFilter::Execute(){
                 }
                 attribute.UpdateAllDataRange();
             }else if (type == IG_NORMAL){
-                
+
                 if (!invertible){continue;}
                 if (array->GetDimension() < 3){continue;}
 

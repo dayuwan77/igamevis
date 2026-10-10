@@ -24,25 +24,25 @@ bool BoundaryMeshQualityFilter::IsDegenerateFace(igIndex faceId) const {
 
     // 计算面面积（使用叉积的模长）
     if (npts < 3) return true;
-    
+
     Point p0 = m_VolumeMesh->GetPoint(ptIds[0]);
     Point p1 = m_VolumeMesh->GetPoint(ptIds[1]);
     Point p2 = m_VolumeMesh->GetPoint(ptIds[2]);
-    
+
     Vector3f v01 = p1 - p0;
     Vector3f v02 = p2 - p0;
     Vector3f cross = v01.cross(v02);
-    
+
     // 面积为零
     if (cross.norm() < 1e-12f) return true;
-    
+
     // 检查是否有重复点
     for (int i = 0; i < npts; ++i) {
         for (int j = i + 1; j < npts; ++j) {
             if (ptIds[i] == ptIds[j]) return true;
         }
     }
-    
+
     return false;
 }
 
@@ -51,13 +51,13 @@ bool BoundaryMeshQualityFilter::IsDegenerateVolume(Volume* vol) const {
     if (vol == nullptr) return true;
     int npts = vol->GetNumberOfPoints();
     if (npts < 4) return true;
-    
+
     // 简单检查：获取体单元的顶点，如果所有顶点都在同一平面上或体积为零则为退化
     Point p[4];
     for (int i = 0; i < 4 && i < npts; ++i) {
         p[i] = vol->GetPoint(i);
     }
-    
+
     if (npts >= 4) {
         // 计算四面体体积（使用混合积）
         Vector3f v1 = p[1] - p[0];
@@ -66,7 +66,7 @@ bool BoundaryMeshQualityFilter::IsDegenerateVolume(Volume* vol) const {
         double volScalar = std::abs(v1.dot(v2.cross(v3))) / 6.0;
         if (volScalar < 1e-12) return true;
     }
-    
+
     return false;
 }
 
@@ -142,7 +142,7 @@ bool BoundaryMeshQualityFilter::Execute() {
     // 映射：原始点ID -> 新点ID
     std::vector<igIndex> pointIdMapping(m_VolumeMesh->GetNumberOfPoints(), -1);
     Points::Pointer newPoints = Points::New();
-    
+
     for (igIndex faceId : boundaryFaceIds) {
         igIndex ptIds[IGAME_CELL_MAX_SIZE];
         int npts = m_VolumeMesh->GetFacePointIds(faceId, ptIds);
@@ -160,7 +160,7 @@ bool BoundaryMeshQualityFilter::Execute() {
     for (igIndex faceId : boundaryFaceIds) {
         igIndex origPtIds[IGAME_CELL_MAX_SIZE];
         int npts = m_VolumeMesh->GetFacePointIds(faceId, origPtIds);
-        
+
         // 转换为新点ID
         igIndex newPtIds[IGAME_CELL_MAX_SIZE];
         for (int i = 0; i < npts; ++i) {
@@ -206,10 +206,10 @@ bool BoundaryMeshQualityFilter::Execute() {
         }
 
         igIndex faceId = boundaryFaceIds[i];
-        
+
         // 检查退化面
         bool isDegenerate = IsDegenerateFace(faceId);
-        
+
         if (isDegenerate) {
             // 退化面写入 NaN
             metricArray->AddValue(NaN);
@@ -300,7 +300,7 @@ double BoundaryMeshQualityFilter::ComputeMetricForBoundaryFace(igIndex faceId) {
     // 获取体单元、面及对应的几何信息
     Volume* vol = m_VolumeMesh->GetVolume(volId);
     if (vol == nullptr) return 0.0;
-    
+
     // 检查体单元是否为退化单元
     if (IsDegenerateVolume(vol)) {
         return std::numeric_limits<double>::quiet_NaN();

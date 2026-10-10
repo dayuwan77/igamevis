@@ -1,3 +1,9 @@
+// Source: dayuwan77/igamevis at eccac729b57aeacbe9312d7d5189f6990bb4eebd.
+// Integration gap: e7ec6571 imported the filter but omitted its example.
+// Preserve the numerical/attribute checks below and reject invalid inputs;
+// visual examples support --no-render so CI requires a real exit status.
+// Integration commit: test: add examples for first-batch standard filters
+// Find it: git log --diff-filter=A --format="%h %s" -- Examples/Filter/FeatureExtraction/FeatureEdgesVisualization.cpp
 #include <FeatureExtraction/iGameFeatureEdgesFilter.h>
 
 #include <iGameDrawObject.h>
@@ -11,20 +17,28 @@
 #include <iostream>
 #include <string>
 
-int main(
-    int argc,
-    char** argv) {
-    if (argc != 2) {
-        std::cerr
-            << "Usage: "
-            << "testFeatureEdgesVisualization.exe "
-            << "<model-file>"
-            << std::endl;
-        return 1;
+// Regression: merge bd5b333c removed argument parsing but retained the noRender
+// check, breaking CI compilation. Preserve the default model, accept one model
+// path and --no-render in either order, and reject unknown or extra arguments.
+// In headless mode, all mesh/attribute checks must finish before returning.
+// Fix: pending commit (Restore FeatureEdges visualization CLI parsing).
+int main(int argc, char** argv) {
+    bool noRender = false;
+    bool hasModelPath = false;
+    std::string fileName = "./Models/FeatureEdges_Cube.vtk";
+    for (int i = 1; i < argc; ++i) {
+        const std::string argument = argv[i];
+        if (argument == "--no-render") {
+            noRender = true;
+        } else if (!argument.empty() && argument[0] != '-' && !hasModelPath) {
+            fileName = argument;
+            hasModelPath = true;
+        } else {
+            std::cerr << "Usage: " << argv[0]
+                      << " [model-file] [--no-render]" << std::endl;
+            return 1;
+        }
     }
-
-    const std::string fileName =
-        argv[1];
 
     std::cout
         << "Input file: "
@@ -192,6 +206,8 @@ int main(
         << "Edge Ids attribute index: "
         << edgeIdsIndex
         << std::endl;
+
+    if (noRender) return 0;
 
     auto scene =
         iGame::Scene::New();

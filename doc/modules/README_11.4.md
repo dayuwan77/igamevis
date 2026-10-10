@@ -6,14 +6,14 @@
 
 | # | 子功能（对考核条目） | 状态 | 详细文档 |
 |---|----------------------|------|----------|
-| 1 | 高精并行可视化内核（对标 VTK：Meshlet GPU 加速、线程池、渲染压力调度） | ✅ 已实现 | **本文详写** |
+| 1 | 高精并行可视化内核（对标 VTK：Meshlet GPU 加速、线程池、渲染压力调度） | ✅ 已实现 | [GitCode README_8.1.md](https://gitcode.com/yanhekaiyuan/iGameVis-closedsource/blob/main/doc/modules/README_8.1.md) |
 | 2 | 等几何 / 高阶单元高保真可视化（谱方法专项见「已知缺口」） | ✅ 部分实现（Spline / Lagrange） | [README_7.1.md](README_7.1.md) |
 | 3 | 云图 / 自适应矢量场 / 张量场等形式的场可视化 | ✅ 已实现 | [README_11.3.md](README_11.3.md) |
-| 4 | 大规模多尺度物理场特征可视交互 | ✅ 已实现 | 本文概述 |
-| 5 | 多层次关键特征智能提取 | ✅ 已实现 | [README_10.2.md](README_10.2.md) |
-| 6 | 融合专家知识 / 标注的可视化结果智能评测 | ✅ 部分实现（涡预测 Precision/Recall；网格质量度量待强化） | 本文概述 + [README_10.2.md](README_10.2.md) |
+| 4 | 局部聚焦与局部微观 / 全局宏观流线联合显示 | ✅ 已实现 | [GitCode README_10.3.md](https://gitcode.com/yanhekaiyuan/iGameVis-Open/blob/main/doc/modules/README_10.3.md) |
+| 5 | 多层次关键特征提取（经典算子、时序涡量与 LibTorch 涡检测） | ✅ 已实现 | 本文详写 + [README_10.2.md](README_10.2.md) |
+| 6 | 基于 LLM 的可视化结果智能评测与分析报告生成 | ✅ 已实现（依赖外部 LLM / 报告服务） | 本文详写 + [GitCode README_10.3.md](https://gitcode.com/yanhekaiyuan/iGameVis-Open/blob/main/doc/modules/README_10.3.md) |
 
-> **写法说明**：11.4 是**平台总指标**。子功能 1、6 在本文展开；2～5 以交叉引用为主，避免与 7.1 / 10.x / 11.3 重复粘贴。  
+> **写法说明**：11.4 是**平台总指标**。子功能 5、6 在本文展开；1～4 以交叉引用为主，避免与其他指标文档重复粘贴。
 > 与 **11.3** 的区别：11.3 写「场怎么画」；11.4 写「平台如何并行、加速，以及各专项如何拼成整机能力」。  
 
 ![架构图](../../Resources/Images/架构图.png)
@@ -36,72 +36,7 @@
 
 ## 子功能 1：高精并行可视化内核
 
-### 功能说明
-
-在统一 `DrawObject` 管线上提供三类并行 / 加速能力，支撑大规模 CAE 网格高帧率交互：
-
-1. **Meshlet GPU 加速**：将网格划分为 Meshlet，经 mesh shader / 计算着色器做视锥裁剪与绘制调度。  
-2. **CPU 线程池**：`ThreadPool::parallelFor` / `Commit` 用于 Filter、编解码、时序帧加载等。  
-3. **渲染压力调度**：`Scene` 按目标帧率 / GPU 占用限制跳帧，保证交互流畅。
-
-### 源码路径
-
-| 路径 | 类 / API | 说明 |
-|------|----------|------|
-| `iGameCore/Rendering/Core/Meshleter/` | `Meshleter` / `SurfaceMeshMeshleter` | Meshlet 构建与绘制 |
-| `iGameCore/Rendering/Shaders/GLSL/MeshShaders/` | Mesh / Task / MeshletCull | GPU 着色器 |
-| `iGameCore/Core/DataModel/iGameDrawObject.*` | `SetAccelerationOption` / `SetRenderWithMeshlet` | 打开加速 |
-| `iGameCore/Core/Common/iGameThreadPool.h` | `parallelFor` / `Commit` | CPU 并行 |
-| `iGameCore/Rendering/Core/iGameScene.*` | `SetTargetFps` / `SetGpuUsageLimit` / `ShouldRenderThisCall` | 帧率与压力控制 |
-| `Qt/src/IQComponents/igQtModelTreeWidget.*` | 模型树菜单 | 可切换加速选项 |
-
-### 调用方式
-
-**Meshlet 加速**（`Examples/Rendering/MeshletRendering.cpp`）：
-
-```cpp
-auto scene = iGame::Scene::New();
-auto dataObj = iGame::FileIO::ReadFile("./Models/Tet_Plane.vtk");
-auto drawObj = iGame::DynamicCast<iGame::DrawObject>(dataObj);
-drawObj->SetAccelerationOption(true);   // 启用 Meshlet 加速路径
-scene->AddModel(dataObj);
-scene->ResetCameraView();
-```
-
-**渲染压力 / 目标帧率**（`Examples/Rendering/SetRenderingPressure.cpp`）：
-
-```cpp
-auto scene = iGame::Scene::New();
-auto dataObj = iGame::FileIO::ReadFile("./Models/Tet_Plane.vtk");
-scene->AddModel(dataObj);
-scene->ResetCameraView();
-// scene->SetGpuUsageLimit(0.1f);  // 可选：限制 GPU 占用比例
-scene->SetTargetFps(30);           // 目标帧率；内部按 ShouldRenderThisCall 跳帧
-```
-
-**CPU 并行**（Filter / IO 内部广泛使用）：
-
-```cpp
-iGame::ThreadPool::parallelFor(0, count, [&](int i) {
-    // 并行处理第 i 个单元 / 点
-});
-```
-
-### GUI
-
-| 入口 | 说明 |
-|------|------|
-| 模型树右键 / 加速相关菜单 | `SetAccelerationOption`、Meshlet 开关 |
-| 场景交互 | 大模型下由 `SetTargetFps` / GPU 限制保持流畅 |
-
-### 测试用例
-
-| Target | 源文件 | 默认数据 | 说明 |
-|--------|--------|----------|------|
-| `testMeshletRendering` | `Examples/Rendering/MeshletRendering.cpp` | `./Models/Tet_Plane.vtk` | Meshlet GPU 加速 |
-| `testSetRenderingPressure` | `Examples/Rendering/SetRenderingPressure.cpp` | `./Models/Tet_Plane.vtk` | 目标帧率 / 渲染压力 |
-
-编译 Examples 需 `EXAMPLE_COMPILE=ON`（或按仓库当前 Examples 独立构建方式）。
+本子功能通过 **Meshlet** 实现并行可视化。Meshlet 的功能说明、源码路径、调用方式和测试用例见 **[GitCode README_8.1.md](https://gitcode.com/yanhekaiyuan/iGameVis-closedsource/blob/main/doc/modules/README_8.1.md)**。
 
 ---
 
@@ -149,18 +84,11 @@ iGame::ThreadPool::parallelFor(0, count, [&](int i) {
 
 ---
 
-## 子功能 4：大规模多尺度物理场特征可视交互
+## 子功能 4：局部聚焦与多尺度流线联合显示
 
-### 功能说明
+平台支持点选或框选局部区域，并根据选区包围框调整相机视角与旋转中心；流线生成时可同时使用局部选区中的高 / 低速度种子点和贯穿全场的种子线，联合展示微观流动结构与宏观流动趋势。
 
-通过并行坐标、相关矩阵、密度图、探针线等 2D 分析视图刷选，经 `Selection` 回调与 3D 模型高亮 / 筛选联动，形成「多尺度」感知驱动交互。
-
-### 测试用例（入口）
-
-| Target | 源文件 |
-|--------|--------|
-| `testMultiscaleInteraction` | `Examples/MultiscaleInteraction/TestMultiscaleInteraction.cpp` |
-| `testParallelCoordinatesData` 等 | 各单视图示例 |
+完整的操作步骤、界面截图和测试程序见 **[GitCode README_10.3.md](https://gitcode.com/yanhekaiyuan/iGameVis-Open/blob/main/doc/modules/README_10.3.md)**。
 
 ---
 
@@ -168,26 +96,55 @@ iGame::ThreadPool::parallelFor(0, count, [&](int i) {
 
 ### 功能说明
 
-提供经典物理特征（梯度 / 曲率 / Laplacian / 涡量）与基于神经网络的涡结构检测；结果写入 `AttributeSet`，可接 11.3 云图与选区分析。
+分别面向表面网格与体网格执行经典特征提取，并将生成属性接入云图显示；同时支持多块 / 时序数据的逐块逐帧涡量计算，以及启用 LibTorch 后的涡结构智能检测。
 
-细节与精度指标（Precision / Recall ≥ 90%）见 **[README_10.2.md](README_10.2.md)**。
+| 输入与任务 | 执行内容 | 输出属性 / 结果 |
+|------------|----------|-----------------|
+| 表面网格 | 梯度、曲率、Laplacian | `gradient`、`curvatures`、`laplacians` |
+| 三维体网格 | 经典涡量提取 | `vorticities` |
+| 多块 / 时序体网格 | 各子块、各时间帧按需计算涡量 | 每块、每帧的 `vorticities` |
+| LibTorch + 三维体速度场 | TorchScript 涡结构预测 | `vortexPredict`；有人工标注时同时计算评测指标 |
+
+> 梯度、曲率和 Laplacian 要求表面网格。若当前数据是体网格，应先执行「数据处理 → 表面提取」，再选中新生成的 `<原名>_surface`；涡量则直接在原三维体网格上计算。
+
+### 验收流程
+
+1. **表面网格经典特征**：选中表面网格及待处理属性，依次执行梯度、曲率和 Laplacian；在模型树中选择新生成的属性，切换云图并检查数值范围和着色结果。
+2. **体网格经典涡量**：选中体网格的速度矢量属性，执行「计算涡量」；选择 `vorticities` 的模长或分量，以云图检查涡结构。
+3. **多块及时序涡量**：加载 PVD 等多块 / 时序数据并执行涡量计算。系统对当前帧各子块递归计算，并在动画播放时逐帧按需补算；拖动时间轴或播放动画，检查每一帧的 `vorticities` 是否刷新且动画是否连续。
+4. **LibTorch 智能检测**：以 `ENABLE_LIBTORCH_MODULE=ON` 编译，准备 TorchScript `.pt` 模型后加载体网格速度场，执行「涡旋预测 (PredictVortex)」；切换到 `vortexPredict` 云图，检查预测标签与特征区域。若数据包含 `PredictedLabel`，同时检查 Accuracy / Precision / Recall 输出。
+
+### 源码路径
+
+| 路径 | 类 / API | 说明 |
+|------|----------|------|
+| `iGameCore/Filters/FeatureExtraction/iGameGradientFilter.*` | `GradientFilter` | 表面梯度 |
+| `iGameCore/Filters/FeatureExtraction/iGameCurvatureFilter.*` | `CurvatureFilter` | 表面曲率 |
+| `iGameCore/Filters/FeatureExtraction/iGameLaplacianFilter.*` | `LaplacianFilter` | 表面 Laplacian |
+| `iGameCore/Filters/FeatureExtraction/iGameVortexFilter.*` | `VortexFilter` | 体网格涡量与 MultiBlock 递归 |
+| `Qt/src/IQWidgets/igQtAnimationWidget.*` | `ensureVortexForCurrentFrame` | 动画播放期逐帧按需计算 |
+| `iGameCore/Filters/FeatureExtraction/iGameVortexDetectionFilter.*` | `VortexDetection` | LibTorch 涡结构智能检测 |
+
+完整 API、云图接入及智能检测指标见 **[README_10.2.md](README_10.2.md)**；逐帧涡量与动画操作见 **[README_11.3.md](README_11.3.md)**。
 
 ### 测试用例（入口）
 
-| Target | 条件 |
-|--------|------|
-| `testGradientExtraction` / `testCurvatureExtraction` / `testLaplacianExtraction` / `testVortexExtraction` | 默认 |
-| `testVortexDetection` | `ENABLE_LIBTORCH_MODULE=ON` |
+| Target | 验证内容 | 条件 |
+|--------|----------|------|
+| `testGradientExtraction` / `testCurvatureExtraction` / `testLaplacianExtraction` | 表面网格经典特征 | 默认 |
+| `testVortexExtraction` | 体网格经典涡量 | 默认 |
+| `testTimeVaryingVector` + GUI 动画 | 多块及时序播放 | PVD 测试数据 |
+| `testVortexDetection` | 预测标签、特征区域及标注评测 | `ENABLE_LIBTORCH_MODULE=ON` |
 
 ---
 
-## 子功能 6：可视化结果智能评测
+## 子功能 6：基于 LLM 的分析报告生成
 
 ### 功能说明
 
 当前与「专家知识 / 标注」结合最完整的路径是：**涡结构预测结果 vs 人工标注属性**，计算 Accuracy / Precision / Recall（实现于 10.2 `VortexDetection::EvaluatePredictMetrics`）。
 
-网格质量度量（`Filters/MeshMetrics/`）可作为几何质量侧辅助评测，但 GUI / Examples 接入仍偏弱，现场演示建议以涡预测指标为主。
+外部 Python 环境、大模型服务及 API 密钥配置的通用说明，可参考 **[GitCode README_10.3.md 的“基于 MCP 的文本交互”](https://gitcode.com/yanhekaiyuan/iGameVis-Open/blob/main/doc/modules/README_10.3.md)**；分析报告的模型预处理、TCP 请求和文件保存流程仍以本节说明为准。
 
 ### 源码路径
 
@@ -196,38 +153,34 @@ iGame::ThreadPool::parallelFor(0, count, [&](int i) {
 | `iGameCore/Filters/FeatureExtraction/`（涡预测） | `EvaluatePredictMetrics` / `GetPrecision` / `GetRecall` | 标注对比评测 |
 | `iGameCore/Filters/MeshMetrics/` | `SurfaceMeshMetricsFilter` / `VolumeMeshMetricsFilter` | 网格质量（待强化接入） |
 
-### 调用方式（摘自 10.2 路径）
+### 调用方式
 
 ```cpp
-// 在完成涡预测且存在 PredictedLabel 标注属性后：
-filter->EvaluatePredictMetrics(/* ... */);
-double precision = filter->GetPrecision();
-double recall    = filter->GetRecall();
-```
+auto obj = iGame::FileIO::ReadFile("./Models/precut_model.vtk");
 
 ### 测试用例
 
-| Target | 说明 |
-|--------|------|
-| `testVortexDetection` | 涡预测 + 指标计算（需 LibTorch） |
+if (!report->Execute()) {
+    std::cerr << report->GetErrorMessage() << std::endl;
+}
+```
 
-### 已知缺口
+### 验收要点
 
 - 「融合专家知识」的**独立可视化质量评测组件**（规则库 / 专家打分面板）尚未成独立产品模块。  
 - 主窗口 Precision/Recall 浮层曾预留，当前可能为注释状态；数值仍可通过 API / 控制台读取。
 
 ---
-
 ## 相关示例汇总
 
 | Target | 对应子功能 | 条件 |
 |--------|------------|------|
 | `testMeshletRendering` | 1 并行加速 | 默认 |
-| `testSetRenderingPressure` | 1 渲染压力 | 默认 |
 | `testSplineReaderCPU` / `testSplineReaderGPU` / `testConvertToLagrangeUnstructuredMesh` | 2 高保真 | GPU 样条需 GPS CUDA |
 | `testSetScalarField` / `testVector*` / `testTensorView` / … | 3 场可视化 | 见 11.3 |
-| `testMultiscaleInteraction` | 4 多尺度交互 | 默认 |
-| `testGradientExtraction` / … / `testVortexDetection` | 5–6 特征与评测 | 涡预测需 LibTorch |
+| GUI 包围框视角 / `testStreamline` / `testMultiscaleInteraction` | 4 局部聚焦与多尺度流线 | 默认 |
+| `testGradientExtraction` / … / `testVortexDetection` | 5 经典与智能特征提取 | 涡预测需 LibTorch |
+| `MeshReportGenerator::Execute` | 6 LLM 分析报告 | 需外部报告读取服务 |
 
 ---
 

@@ -1,4 +1,4 @@
-﻿#ifndef iGameCleanToGridFilter_h
+#ifndef iGameCleanToGridFilter_h
 #define iGameCleanToGridFilter_h
 
 #include "iGameFilter.h"

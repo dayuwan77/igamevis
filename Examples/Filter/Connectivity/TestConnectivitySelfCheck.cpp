@@ -11,6 +11,7 @@
 #include <iGameUnstructuredMesh.h>
 
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 using namespace iGame;
@@ -270,6 +271,175 @@ void TestFailures() {
     }
 }
 
+// BUG: attributes went through double and silently changed 64-bit IDs above 2^53.
+// Trigger: multi-component point/cell arrays, including signed and unsigned extrema, then copy/extract.
+// Expected: exact native values, original type and independent buffers for every supported numeric type.
+// Fix commit: 待提交 (用户要求仅本地修改，不提交).
+template<class Array, class Value>
+void CheckExactAttributeCopy(Value first, Value second) {
+    auto src = MakeThreeIslands();
+    auto filter = ConnectivityFilter::New();
+    filter->SetExtractionMode(ConnectivityFilter::SPECIFIED_REGIONS);
+    filter->AddSpecifiedRegion(2);
+    auto point = Array::New(); point->SetName("ExactPoint"); point->SetDimension(2);
+    point->Resize(src->GetNumberOfPoints());
+    auto cell = Array::New(); cell->SetName("ExactCell"); cell->SetDimension(2);
+    cell->Resize(src->GetNumberOfFaces());
+    for (IGsize t = 0; t < point->GetNumberOfElements(); ++t) {
+        point->RawPointer(t)[0] = t % 2 ? second : first;
+        point->RawPointer(t)[1] = t % 2 ? first : second;
+    }
+    for (IGsize t = 0; t < cell->GetNumberOfElements(); ++t) {
+        cell->RawPointer(t)[0] = t % 2 ? second : first;
+        cell->RawPointer(t)[1] = t % 2 ? first : second;
+    }
+    src->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_POINT, point);
+    src->GetAttributeSet()->AddAttribute(IG_VECTOR, IG_CELL, cell);
+    filter->SetInput(src);
+    Expect(filter->Execute(), "typed attribute Execute succeeds");
+    auto out = DynamicCast<SurfaceMesh>(filter->GetOutput());
+    if (!out) { Expect(false, "typed copy output exists"); return; }
+    auto p = DynamicCast<Array>(out->GetAttributeSet()->GetAttribute("ExactPoint").pointer);
+    auto c = DynamicCast<Array>(out->GetAttributeSet()->GetAttribute("ExactCell").pointer);
+    bool exact = p && c && p->GetNumberOfElements() == 3 && c->GetNumberOfElements() == 1;
+    for (IGsize t = 0; exact && t < p->GetNumberOfElements(); ++t)
+        for (int d = 0; d < 2; ++d) exact = exact && p->RawPointer(t)[d] == point->RawPointer(t + 7)[d];
+    for (IGsize t = 0; exact && t < c->GetNumberOfElements(); ++t)
+        for (int d = 0; d < 2; ++d) exact = exact && c->RawPointer(t)[d] == cell->RawPointer(3)[d];
+    Expect(exact, "point/cell values and array types are exact after copy/extraction");
+    if (p && c) {
+        const auto originalPoint = point->RawPointer(7)[0];
+        const auto originalCell = cell->RawPointer(3)[0];
+        p->RawPointer(0)[0] = originalPoint == first ? second : first;
+        c->RawPointer(0)[0] = originalCell == first ? second : first;
+        Expect(point->RawPointer(7)[0] == originalPoint && cell->RawPointer(3)[0] == originalCell,
+               "changing the output does not change input attribute buffers");
+    }
+}
+
+void TestExactAttributes() {
+    std::printf("[case] native numeric attributes retain exact values\n");
+    CheckExactAttributeCopy<FloatArray>(1.25f, -2.5f);
+    CheckExactAttributeCopy<DoubleArray>(1.0 / 3.0, -2.25);
+    CheckExactAttributeCopy<IntArray>(std::numeric_limits<int>::max(), std::numeric_limits<int>::lowest());
+    CheckExactAttributeCopy<UnsignedIntArray>(std::numeric_limits<unsigned int>::max(), 0u);
+    CheckExactAttributeCopy<CharArray>(char(3), char(0));
+    CheckExactAttributeCopy<UnsignedCharArray>(static_cast<unsigned char>(255), static_cast<unsigned char>(0));
+    CheckExactAttributeCopy<ShortArray>(std::numeric_limits<short>::max(), std::numeric_limits<short>::lowest());
+    CheckExactAttributeCopy<UnsignedShortArray>(std::numeric_limits<unsigned short>::max(), static_cast<unsigned short>(0));
+    CheckExactAttributeCopy<LongLongArray>(9007199254740993LL, std::numeric_limits<long long>::lowest());
+    CheckExactAttributeCopy<UnsignedLongLongArray>(std::numeric_limits<unsigned long long>::max(), 9007199254740993ULL);
+}
+
+// BUG: old RegionId arrays shadowed freshly generated arrays on repeated execution.
+// Trigger: rerun a colored output with the opposite numbering order, and extract sorted IDs.
+// Expected: one point and one cell RegionId; sorted IDs select the same region shown by All Regions.
+// Equal-sized regions retain traversal order in either sort direction. Fix commit: 待提交.
+void TestRepeatAndSortedSelection() {
+    auto first = ConnectivityFilter::New(); first->SetInput(MakeThreeIslands());
+    first->SetExtractionMode(ConnectivityFilter::ALL_REGIONS);
+    first->SetRegionIdAssignmentMode(ConnectivityFilter::CELL_COUNT_ASCENDING);
+    Expect(first->Execute(), "initial ascending numbering succeeds");
+    auto original = DynamicCast<SurfaceMesh>(first->GetOutput());
+    auto next = ConnectivityFilter::New(); next->SetInput(original);
+    next->SetExtractionMode(ConnectivityFilter::ALL_REGIONS);
+    next->SetRegionIdAssignmentMode(ConnectivityFilter::CELL_COUNT_DESCENDING);
+    Expect(next->Execute(), "rerun descending numbering succeeds");
+    auto output = DynamicCast<SurfaceMesh>(next->GetOutput());
+    if (!output) return;
+    int pointIds = 0, cellIds = 0;
+    auto attrs = output->GetAttributeSet()->GetAllAttributes();
+    for (IGsize i = 0; i < attrs->GetNumberOfElements(); ++i) {
+        auto& attr = attrs->GetElement(i);
+        if (attr.pointer && attr.pointer->GetName() == "RegionId") {
+            pointIds += attr.attachmentType == IG_POINT; cellIds += attr.attachmentType == IG_CELL;
+        }
+    }
+    Expect(pointIds == 1 && cellIds == 1, "rerun replaces old point/cell RegionId arrays");
+    auto ids = FindRegionId(output, IG_CELL);
+    Expect(ids && ids->GetValue(0) == 0 && ids->GetValue(2) == 1 && ids->GetValue(3) == 2,
+           "descending IDs are current and ties retain traversal order");
+    Expect(FindRegionId(original, IG_CELL)->GetValue(0) == 2, "rerun retains original IDs in input");
+    for (int assignment : {ConnectivityFilter::UNSPECIFIED, ConnectivityFilter::CELL_COUNT_ASCENDING,
+                           ConnectivityFilter::CELL_COUNT_DESCENDING}) {
+        auto extract = ConnectivityFilter::New(); extract->SetInput(MakeThreeIslands());
+        extract->SetExtractionMode(ConnectivityFilter::SPECIFIED_REGIONS);
+        extract->SetRegionIdAssignmentMode(assignment); extract->AddSpecifiedRegion(0);
+        Expect(extract->Execute(), "sorted specified region succeeds");
+        auto part = DynamicCast<SurfaceMesh>(extract->GetOutput());
+        const int count = assignment == ConnectivityFilter::CELL_COUNT_ASCENDING ? 1 : 2;
+        Expect(part && part->GetNumberOfFaces() == count && FindRegionId(part, IG_CELL)->GetValue(0) == 0,
+               "specified id 0 selects the sorted region and retains id 0");
+        extract->SetColorRegions(false);
+        Expect(extract->Execute(), "sorted extraction also succeeds without generated IDs");
+        part = DynamicCast<SurfaceMesh>(extract->GetOutput());
+        Expect(part && part->GetNumberOfFaces() == count && !FindRegionId(part, IG_CELL),
+               "coloring switch does not alter sorted selection");
+    }
+    next->SetColorRegions(false);
+    Expect(next->Execute(), "disabling new RegionId generation succeeds");
+    output = DynamicCast<SurfaceMesh>(next->GetOutput());
+    Expect(output && FindRegionId(output, IG_CELL)->GetValue(0) == 2,
+           "without generation, existing IDs are copied unchanged");
+}
+
+// BUG: an ineligible start face could absorb an eligible neighbor, changing regions when faces reordered.
+// Trigger: mixed scalar eligibility, swapped face order, strict/full scalar mode and seeded extraction.
+// Expected: ineligible faces stay separate in All Regions; seeds must be eligible; any means a vertex hits.
+// Fix commit: 待提交.
+void TestScalarOrderAndBoundaries() {
+    auto mesh = MakeChainWithScalar({10,10,10,0,0});
+    auto f = ConnectivityFilter::New(); f->SetInput(mesh); f->SetScalarConnectivity(true);
+    f->SetScalarArrayName("v"); f->SetScalarRange(0,1); f->SetExtractionMode(ConnectivityFilter::ALL_REGIONS);
+    Expect(f->Execute() && f->GetNumberOfExtractedRegions() == 2,
+           "ineligible start does not absorb eligible neighbor");
+    auto faces = CellArray::New(); faces->AddCellId3(2,3,4); faces->AddCellId3(0,1,2); mesh->SetFaces(faces);
+    Expect(f->Execute() && f->GetNumberOfExtractedRegions() == 2,
+           "face-order swap retains region count");
+    f->SetExtractionMode(ConnectivityFilter::CELL_SEEDED_REGIONS); f->AddSeed(1);
+    Expect(!f->Execute() && !f->GetOutput(), "ineligible seed fails without stale output");
+    f->InitializeSeedList(); f->AddSeed(0);
+    Expect(f->Execute(), "eligible seed succeeds");
+    auto out = DynamicCast<SurfaceMesh>(f->GetOutput());
+    Expect(out && out->GetNumberOfFaces() == 1, "eligible seed does not expand into ineligible face");
+    f->SetExtractionMode(ConnectivityFilter::ALL_REGIONS); f->SetFullScalarConnectivity(true);
+    Expect(f->Execute() && f->GetNumberOfExtractedRegions() == 2, "full scalar mode rejects partially eligible faces");
+    f->SetFullScalarConnectivity(false); f->SetInput(MakeChainWithScalar({0,2,2,0,2})); f->SetScalarRange(0.5,1.5);
+    Expect(f->Execute() && f->GetNumberOfExtractedRegions() == 2,
+           "overlapping min/max does not count as an actual vertex hit");
+    f->SetScalarRange(2,0);
+    Expect(f->Execute() && f->GetNumberOfExtractedRegions() == 1, "reversed finite range works");
+    f->SetScalarRange(0,std::numeric_limits<double>::quiet_NaN());
+    Expect(!f->Execute() && !f->GetOutput(), "nonfinite scalar range is rejected");
+    f->SetScalarRange(0,1); f->SetInput(MakeChainWithScalar({0,0}));
+    Expect(!f->Execute(), "short scalar array is rejected before indexing");
+}
+
+// BUG: invalid parameters could silently select a region or leave previous outputs accessible.
+// Expected: reject nonfinite coordinates/invalid sorted IDs; keep failures clear of stale output.
+// Fix commit: 待提交.
+void TestAdditionalFailuresAndFan() {
+    auto f = ConnectivityFilter::New(); f->SetInput(MakeThreeIslands());
+    f->SetExtractionMode(ConnectivityFilter::ALL_REGIONS); Expect(f->Execute(), "reuse begins with a valid output");
+    f->SetExtractionMode(ConnectivityFilter::CLOSEST_POINT_REGION);
+    f->SetClosestPoint(std::numeric_limits<double>::quiet_NaN(),0,0);
+    Expect(!f->Execute() && !f->GetOutput(), "nonfinite closest point fails and clears output");
+    f->SetExtractionMode(ConnectivityFilter::SPECIFIED_REGIONS); f->AddSpecifiedRegion(3);
+    Expect(!f->Execute(), "out-of-range region ID fails");
+    f->SetExtractionMode(ConnectivityFilter::ALL_REGIONS); f->SetRegionIdAssignmentMode(999);
+    Expect(!f->Execute(), "invalid numbering mode fails");
+    auto fan = SurfaceMesh::New(); auto pts = Points::New(); auto faces = CellArray::New(); pts->AddPoint(Point(0,0,0));
+    for (int i=0; i<4000; ++i) {
+        pts->AddPoint(Point(i+1,0,0)); pts->AddPoint(Point(i+1,1,0)); faces->AddCellId3(0,2*i+1,2*i+2);
+    }
+    fan->SetPoints(pts); fan->SetFaces(faces);
+    f->SetInput(fan); f->SetRegionIdAssignmentMode(ConnectivityFilter::UNSPECIFIED);
+    Expect(f->Execute() && f->GetNumberOfExtractedRegions() == 1,
+           "high-valence vertex traversal retains one region without duplicate expansion");
+    auto out = DynamicCast<SurfaceMesh>(f->GetOutput());
+    Expect(out && out->GetNumberOfFaces() == 4000, "high-valence traversal retains all faces");
+}
+
 } // namespace
 
 int main() {
@@ -280,6 +450,10 @@ int main() {
     TestReassignment();
     TestScalarConnectivity();
     TestFailures();
+    TestExactAttributes();
+    TestRepeatAndSortedSelection();
+    TestScalarOrderAndBoundaries();
+    TestAdditionalFailuresAndFan();
 
     std::printf("total checks: %d, failures: %d\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

@@ -1465,48 +1465,37 @@ void VolumeMesh::ConvertToDrawableData() {
 
 void VolumeMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray::Pointer attrRange,
                                           igIndex dimension) {
-    if (!m_ColorMapper->GetStable()) {
-        double minimal_val = attrRange->GetValue(2 + dimension * 2 + 0);
-        double maximal_val = attrRange->GetValue(2 + dimension * 2 + 1);
-        if (minimal_val < maximal_val) {
-            m_ColorMapper->SetRange(minimal_val, maximal_val);
-        } else {
-            m_ColorMapper->InitRange(attr, dimension);
+    // 派生网格（抽壳/简化）只读范围，不写范围（原因见 iGameSurfaceMesh.cpp 同名注释）
+    if (m_IsMainRenderableObject && m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
+        if (!m_ColorMapper->GetStable()) {
+            double minimal_val = attrRange->GetValue(2 + dimension * 2 + 0);
+            double maximal_val = attrRange->GetValue(2 + dimension * 2 + 1);
+            if (minimal_val < maximal_val) {
+                m_ColorMapper->SetRange(minimal_val, maximal_val);
+            } else {
+                m_ColorMapper->InitRange(attr, dimension);
+            }
         }
     }
 
-    FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension);
-    if (colors == nullptr) {
-        // 单元属性取色失败时不能保留上一个属性生成的逐点颜色，否则点样式会显示过期颜色
-        m_Colors = FloatArray::New();
-        m_Colors->SetDimension(3);
-        m_Colors->Modified();
-        return;
-    }
+    FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension, 4);
+    if (colors == nullptr) { return; }
 
     FloatArray::Pointer newPositions = FloatArray::New();
     FloatArray::Pointer newColors = FloatArray::New();
     UnsignedCharArray::Pointer newEdgeMasks = UnsignedCharArray::New();
     newPositions->SetDimension(3);
-    newColors->SetDimension(3);
+    newColors->SetDimension(4);
     newEdgeMasks->SetDimension(3);
 
-    float color[3]{};
-    // 点样式（IG_POINTS）绘制的是 m_Positions / m_Colors，单元属性的颜色却只在 m_CellColors 里，
-    // 渲染侧过去只好把点画成纯白。这里同时生成逐点颜色（cell->point 取入射单元颜色平均）。
     CellToPointColorBuilder pointColors;
     pointColors.Initialize(this->GetNumberOfPoints());
-    igIndex volumePointIds[IGAME_CELL_MAX_SIZE]{};
+    float color[4]{};
     for (int i = 0; i < this->GetNumberOfVolumes(); i++) {
         Volume* volume = this->GetVolume(i);
         const igIndex* face;
         colors->GetElement(i, color);
-        const int volumePointCount =
-                volume->m_PointIds ? volume->GetNumberOfPoints() : 0;
-        for (int j = 0; j < volumePointCount && j < IGAME_CELL_MAX_SIZE; ++j) {
-            volumePointIds[j] = volume->m_PointIds->GetId(j);
-        }
-        if (volumePointCount > 0) { pointColors.AddCell(volumePointIds, volumePointCount, color); }
+        pointColors.AddCell(volume->m_PointIds->RawPointer(), volume->GetNumberOfPoints(), color);
         for (int j = 0; j < volume->GetNumberOfFaces(); j++) {
             int size = volume->GetFacePointIds(j, face);
             for (int k = 1; k < size - 1; k++) {
@@ -1517,15 +1506,18 @@ void VolumeMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray
                 auto& p2 = volume->m_Points->GetPoint(face[k + 1]);
                 newPositions->AddElement3(p2[0], p2[1], p2[2]);
 
-                newColors->AddElement3(color[0], color[1], color[2]);
-                newColors->AddElement3(color[0], color[1], color[2]);
-                newColors->AddElement3(color[0], color[1], color[2]);
+                newColors->AddElement4(color[0], color[1], color[2], color[3]);
+                newColors->AddElement4(color[0], color[1], color[2], color[3]);
+                newColors->AddElement4(color[0], color[1], color[2], color[3]);
 
                 int mask = size == 3 ? 7 : k == 1 ? 3 : k == size - 2 ? 6 : 2;
                 newEdgeMasks->AddValue(mask);
             }
         }
     }
+
+    m_Colors = pointColors.Build(this->GetDefaultColor());
+    m_Colors->Modified();
 
     m_CellPositionSize = newPositions->GetNumberOfElements();
 
@@ -1537,8 +1529,5 @@ void VolumeMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray
 
     m_CellTriangleEdgeMasks = newEdgeMasks;
     m_CellTriangleEdgeMasks->Modified();
-
-    m_Colors = pointColors.Build(this->GetDefaultColor());
-    m_Colors->Modified();
 }
 IGAME_NAMESPACE_END
