@@ -32,6 +32,7 @@
 #include "TensorView/iGameTensorBase.h"
 #include "TensorView/iGameTensorFilter.h"
 #include "TensorView/iGameTensorRepresentation.h"
+#include "TensorView/iGameYieldCriteriaFilter.h"
 #include "Tests/iGameFilterPoints.h"
 #include "Tests/iGameSurfaceMeshFilterTest.h"
 #include "Tests/iGameVolumeMeshFilterTest.h"

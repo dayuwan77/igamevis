@@ -5361,6 +5361,85 @@ void igQtMainWindow::initAllFilters() {
                     dialog->close();
                 });
             });
+
+    // ---------- 屈服准则 (Yield Criteria)：追加在“新增filter/第二批”菜单末尾 ----------
+    connect(developingFiltersBatch2->addAction(QStringLiteral("屈服准则 (Yield Criteria)")),
+            &QAction::triggered, this, [this](bool) {
+                auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+                auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+                if (!currentModel) {
+                    showDarkFramelessMessage(QStringLiteral("屈服准则"), QStringLiteral("请先选择一个模型。"));
+                    return;
+                }
+                auto object = currentModel->GetDataObject();
+                if (object == nullptr || iGame::DynamicCast<iGame::PointSet>(object).IsNull()) {
+                    showDarkFramelessMessage(QStringLiteral("屈服准则"),
+                                             QStringLiteral("当前对象不支持屈服准则（需要网格 / 点集）"));
+                    return;
+                }
+
+                // 候选张量数组：6 / 9 分量的数组（不强制要求被标记为张量类型）
+                std::vector<QString> tensorNames;
+                if (auto attrSet = object->GetAttributeSet()) {
+                    const size_t numAttrs = attrSet->GetNumberOfAttributes();
+                    for (size_t i = 0; i < numAttrs; ++i) {
+                        auto& attr = attrSet->GetAttribute(static_cast<IGsize>(i));
+                        if (attr.isDeleted || attr.pointer == nullptr) continue;
+                        const int dim = attr.pointer->GetDimension();
+                        if (dim == 6 || dim == 9) {
+                            tensorNames.push_back(QString::fromStdString(attr.pointer->GetName()));
+                        }
+                    }
+                }
+                if (tensorNames.empty()) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("屈服准则"),
+                            QStringLiteral("当前模型没有 6 或 9 分量的张量数组（例如应力）"));
+                    return;
+                }
+
+                auto* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("屈服准则"));
+                dialog->setFilterDescription(
+                        QStringLiteral("对张量数组求主应力，按所选准则输出结果数组"));
+                const int tensorId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                          QStringLiteral("张量属性"), tensorNames);
+                const std::vector<QString> criteria = {QStringLiteral("主应力 (Principal Stress)"),
+                                                       QStringLiteral("Tresca 准则"),
+                                                       QStringLiteral("von Mises 准则")};
+                const int criterionId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                             QStringLiteral("屈服准则"), criteria);
+                dialog->show();
+                dialog->setApplyFunctor([=, this]() {
+                    bool ok = false;
+                    const int tensorIndex = dialog->getComboIndex(tensorId, ok);
+                    if (!ok || tensorIndex < 0 || tensorIndex >= static_cast<int>(tensorNames.size())) {
+                        showDarkFramelessMessage(QStringLiteral("错误"), QStringLiteral("请选择有效的张量属性。"));
+                        return;
+                    }
+                    const int criterionIndex = dialog->getComboIndex(criterionId, ok);
+                    if (!ok || criterionIndex < 0 || criterionIndex >= 3) {
+                        showDarkFramelessMessage(QStringLiteral("错误"), QStringLiteral("请选择有效的屈服准则。"));
+                        return;
+                    }
+
+                    auto filter = YieldCriteriaFilter::New();
+                    filter->SetTensorArrayName(tensorNames[tensorIndex].toStdString());
+                    filter->SetCriterion(criterionIndex == 0 ? YieldCriteriaFilter::PRINCIPAL_STRESS
+                                            : (criterionIndex == 1 ? YieldCriteriaFilter::TRESCA
+                                                                   : YieldCriteriaFilter::VON_MISES));
+                    filter->SetInput(object);
+                    if (filter->Execute()) {
+                        modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), ItemSource::Algorithm);
+                        modelTreeWidget->updateCloudPicture();
+                        rendererWidget->update();
+                        dialog->close();
+                    } else {
+                        showDarkFramelessMessage(QStringLiteral("错误"),
+                                                 QString::fromStdString(filter->GetStatusMessage()));
+                    }
+                });
+            });
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {

@@ -707,6 +707,9 @@ igame_add_example(testAppendAttributes Filter/AppendAttributes/TestAppendAttribu
 igame_add_example(testReverseSense Filter/ReverseSense/TestReverseSense.cpp)
 igame_add_example(testReverseSenseSelfCheck Filter/ReverseSense/TestReverseSenseSelfCheck.cpp)
 
+# YieldCriteria: principal stress / Tresca / von Mises from a 6- or 9-component tensor array.
+igame_add_example(testYieldCriteria Filter/Tensor/TestYieldCriteria.cpp)
+
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
     set(IGAME_EXAMPLE_TARGETS "")
