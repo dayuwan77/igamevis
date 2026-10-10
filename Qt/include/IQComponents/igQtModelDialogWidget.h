@@ -17,6 +17,7 @@
 #include <QTreeWidget>
 #include <functional>
 #include <iostream>
+#include <vector>
 
 class QDockWidget;
 
@@ -63,6 +64,24 @@ public slots:
 
     void setTreeDockCollapsed(bool collapsed);
     bool isTreeDockCollapsed() const { return m_treeCollapsed; }
+
+    /**
+     * 【单输入 filter 用】当前选中的单个数据对象。
+     *
+     * - 选中顶层模型  -> 该模型的 DataObject
+     * - 选中多块子块  -> 该子块的 DataObject（不是父模型）
+     * - 无任何选中    -> 回退为当前模型的 DataObject（保持既有行为）
+     */
+    iGame::DataObject::Pointer GetCurrentDataObject();
+
+    /**
+     * 【多输入 filter 用】当前选中的一组数据对象（如多选合组）。
+     *
+     * - 顶层模型行与多块子块行都会被映射为各自的 DataObject
+     * - 属性行会被忽略
+     * - 未多选时最多返回 1 个；需 Ctrl / Shift 配合多选
+     */
+    std::vector<iGame::DataObject::Pointer> GetSelectedDataObjects();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
