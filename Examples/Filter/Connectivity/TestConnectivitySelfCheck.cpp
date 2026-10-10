@@ -274,7 +274,7 @@ void TestFailures() {
 // BUG: attributes went through double and silently changed 64-bit IDs above 2^53.
 // Trigger: multi-component point/cell arrays, including signed and unsigned extrema, then copy/extract.
 // Expected: exact native values, original type and independent buffers for every supported numeric type.
-// Fix commit: 待提交 (用户要求仅本地修改，不提交).
+// Fix commit: 3947ff2d86205e3b2205b24bc73876d076d8dbee.
 template<class Array, class Value>
 void CheckExactAttributeCopy(Value first, Value second) {
     auto src = MakeThreeIslands();
@@ -334,7 +334,7 @@ void TestExactAttributes() {
 // BUG: old RegionId arrays shadowed freshly generated arrays on repeated execution.
 // Trigger: rerun a colored output with the opposite numbering order, and extract sorted IDs.
 // Expected: one point and one cell RegionId; sorted IDs select the same region shown by All Regions.
-// Equal-sized regions retain traversal order in either sort direction. Fix commit: 待提交.
+// Equal-sized regions retain traversal order in either sort direction. Fix commit: 3947ff2d86205e3b2205b24bc73876d076d8dbee.
 void TestRepeatAndSortedSelection() {
     auto first = ConnectivityFilter::New(); first->SetInput(MakeThreeIslands());
     first->SetExtractionMode(ConnectivityFilter::ALL_REGIONS);
@@ -386,7 +386,7 @@ void TestRepeatAndSortedSelection() {
 // BUG: an ineligible start face could absorb an eligible neighbor, changing regions when faces reordered.
 // Trigger: mixed scalar eligibility, swapped face order, strict/full scalar mode and seeded extraction.
 // Expected: ineligible faces stay separate in All Regions; seeds must be eligible; any means a vertex hits.
-// Fix commit: 待提交.
+// Fix commit: 3947ff2d86205e3b2205b24bc73876d076d8dbee.
 void TestScalarOrderAndBoundaries() {
     auto mesh = MakeChainWithScalar({10,10,10,0,0});
     auto f = ConnectivityFilter::New(); f->SetInput(mesh); f->SetScalarConnectivity(true);
@@ -417,7 +417,7 @@ void TestScalarOrderAndBoundaries() {
 
 // BUG: invalid parameters could silently select a region or leave previous outputs accessible.
 // Expected: reject nonfinite coordinates/invalid sorted IDs; keep failures clear of stale output.
-// Fix commit: 待提交.
+// Fix commit: 3947ff2d86205e3b2205b24bc73876d076d8dbee.
 void TestAdditionalFailuresAndFan() {
     auto f = ConnectivityFilter::New(); f->SetInput(MakeThreeIslands());
     f->SetExtractionMode(ConnectivityFilter::ALL_REGIONS); Expect(f->Execute(), "reuse begins with a valid output");
