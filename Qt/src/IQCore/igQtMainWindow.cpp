@@ -35,6 +35,7 @@
 #include "DataProcessing/Tests/simplifier.h"
 #include "DataProcessing/iGameMeshSimplificationFilter.h"
 #include "DataProcessing/iGameMeshSimplificationFilterPro.h"
+#include "DataProcessing/iGameDecimatePolylineFilter.h"
 #include "DataProcessing/iGameMeshTriangulationFilter.h"
 #include "DataProcessing/iGameSurfaceMeshTopologyChecker.h"
 #include "DataProcessing/Simplification/iGameMeshSaliency.h"
@@ -5164,6 +5165,191 @@ void igQtMainWindow::initAllFilters() {
         dlg->show();
     });
 
+    // 9.28 新增 filter 统一追加到“开发中filter/第二批”菜单末尾。
+    QAction* decimatePolylineAction =
+            developingFiltersBatch2->addAction(QStringLiteral("折线简化 (Decimate Polyline)"));
+
+    decimatePolylineAction->setObjectName(QStringLiteral("action_developing_decimate_polyline"));
+    decimatePolylineAction->setData(QStringLiteral("decimate_polyline"));
+    connect(decimatePolylineAction, &QAction::triggered, this, [this](bool) {
+                auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+                auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+                auto input = currentModel ? currentModel->GetDataObject() : nullptr;
+                if (!DecimatePolylineFilter::CanProcessInput(input)) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("折线简化失败"),
+                            QStringLiteral("当前数据不支持该算法。"));
+                    return;
+                }
+
+                auto* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("折线简化 (Decimate Polyline)"));
+                dialog->setMinimumWidth(520);
+                dialog->setFilterDescription(
+                        QStringLiteral("与 ParaView 一致，支持角度、自定义点字段和距离三种策略；"
+                                       "每条折线独立简化，端点始终保留。"));
+                const int reductionId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                        QStringLiteral("目标缩减率 (0..1)"), QStringLiteral("0.9"));
+                const int maximumErrorId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                        QStringLiteral("最大误差 (Maximum Error)"),
+                        QStringLiteral("1.7976931348623157e+308"));
+                const int strategyId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                        QStringLiteral("简化策略 (Decimation Strategy)"),
+                        std::vector<QString>{QStringLiteral("角度策略 (Angle)"),
+                                             QStringLiteral("自定义字段策略 (Custom Field)"),
+                                             QStringLiteral("距离策略 (Distance)")});
+                std::vector<QString> customFieldNames;
+                auto inputPointSet = DynamicCast<PointSet>(input);
+                auto attributes = input->GetAttributeSet();
+                auto allAttributes = attributes ? attributes->GetAllAttributes() : nullptr;
+                if (allAttributes) {
+                    for (IGsize i = 0; i < allAttributes->GetNumberOfElements(); ++i) {
+                        const auto& attribute = allAttributes->GetElement(i);
+                        if (attribute.isDeleted || attribute.attachmentType != IG_POINT ||
+                            !attribute.pointer || attribute.pointer->GetDimension() < 1 ||
+                            attribute.pointer->GetName().empty() ||
+                            !inputPointSet || attribute.pointer->GetNumberOfElements() <
+                                                      inputPointSet->GetNumberOfPoints()) {
+                            continue;
+                        }
+                        switch (attribute.pointer->GetArrayType()) {
+                        case IG_FloatArray:
+                        case IG_DoubleArray:
+                        case IG_IntArray:
+                        case IG_UnsignedIntArray:
+                        case IG_CharArray:
+                        case IG_UnsignedCharArray:
+                        case IG_ShortArray:
+                        case IG_UnsignedShortArray:
+                        case IG_LongLongArray:
+                        case IG_UnsignedLongLongArray:
+                            customFieldNames.push_back(
+                                    QString::fromStdString(attribute.pointer->GetName()));
+                            break;
+                        default: break;
+                        }
+                    }
+                }
+                const int customFieldId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                        QStringLiteral("点字段 (Field Name)"),
+                        customFieldNames.empty()
+                                ? std::vector<QString>{QStringLiteral("<无可用点字段>")}
+                                : customFieldNames);
+                auto* strategyCombo = qobject_cast<QComboBox*>(dialog->getWidget(strategyId));
+                auto* customFieldCombo = qobject_cast<QComboBox*>(dialog->getWidget(customFieldId));
+                if (strategyCombo) strategyCombo->setCurrentIndex(2);
+
+                // ParaView exposes FieldName as a child property of the custom-field
+                // strategy. Keep the whole row hidden for Angle/Distance and reveal it
+                // only when Custom Field is selected.
+                auto findRowLabel = [](QWidget* value) -> QLabel* {
+                    if (!value || !value->parentWidget()) return nullptr;
+                    const auto grids = value->parentWidget()->findChildren<QGridLayout*>();
+                    for (auto* grid : grids) {
+                        const int itemIndex = grid->indexOf(value);
+                        if (itemIndex < 0) continue;
+                        int row = 0, column = 0, rowSpan = 0, columnSpan = 0;
+                        grid->getItemPosition(itemIndex, &row, &column, &rowSpan, &columnSpan);
+                        for (int c = 0; c < grid->columnCount(); ++c) {
+                            auto* item = grid->itemAtPosition(row, c);
+                            if (!item || item->widget() == value) continue;
+                            if (auto* label = qobject_cast<QLabel*>(item->widget())) return label;
+                        }
+                    }
+                    return nullptr;
+                };
+                auto* customFieldLabel = findRowLabel(customFieldCombo);
+                auto setCustomFieldVisible = [customFieldCombo, customFieldLabel](bool visible) {
+                    if (customFieldLabel) customFieldLabel->setVisible(visible);
+                    if (customFieldCombo) customFieldCombo->setVisible(visible);
+                };
+                setCustomFieldVisible(false);
+                if (strategyCombo && customFieldCombo) {
+                    connect(strategyCombo, qOverload<int>(&QComboBox::currentIndexChanged), dialog,
+                            [setCustomFieldVisible](int index) {
+                                setCustomFieldVisible(index == 1);
+                            });
+                }
+                dialog->show();
+
+                dialog->setApplyFunctor([=, this]() {
+                    bool reductionOk = false;
+                    bool maximumErrorOk = false;
+                    bool strategyOk = false;
+                    const double targetReduction = dialog->getDouble(reductionId, reductionOk);
+                    const double maximumError = dialog->getDouble(maximumErrorId, maximumErrorOk);
+                    const int strategy = dialog->getComboIndex(strategyId, strategyOk);
+                    if (!reductionOk || !std::isfinite(targetReduction) ||
+                        targetReduction < 0.0 || targetReduction > 1.0) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("目标缩减率必须是 0 到 1 之间的数值。"));
+                        return;
+                    }
+                    if (!maximumErrorOk || !std::isfinite(maximumError) || maximumError < 0.0) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("最大误差必须是非负数值。"));
+                        return;
+                    }
+                    if (!strategyOk || strategy < 0 || strategy > 2) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("请选择有效的简化策略。"));
+                        return;
+                    }
+                    if (strategy == 1 && customFieldNames.empty()) {
+                        showDarkFramelessMessage(
+                                QStringLiteral("参数错误"),
+                                QStringLiteral("自定义字段策略需要至少一个数值型点数据数组。"));
+                        return;
+                    }
+
+                    auto filter = DecimatePolylineFilter::New();
+                    filter->SetInput(input);
+                    filter->SetTargetReduction(targetReduction);
+                    filter->SetMaximumError(maximumError);
+                    if (strategy == 0) {
+                        filter->SetDecimationStrategy(
+                                DecimatePolylineFilter::DecimationStrategy::Angle);
+                    } else if (strategy == 1) {
+                        filter->SetDecimationStrategy(
+                                DecimatePolylineFilter::DecimationStrategy::CustomField);
+                        if (customFieldCombo) {
+                            filter->SetCustomFieldName(
+                                    customFieldCombo->currentText().toStdString());
+                        }
+                    } else {
+                        filter->SetDecimationStrategy(
+                                DecimatePolylineFilter::DecimationStrategy::Distance);
+                    }
+                    if (!filter->Execute()) {
+                        showDarkFramelessMessage(
+                                QStringLiteral("执行出错"),
+                                QStringLiteral("Poly Data 必须包含显式 LINES；自定义字段策略还要求"
+                                               "选择有效的数值型点数据数组。"));
+                        return;
+                    }
+
+                    auto output = filter->GetOutput();
+                    output->SetName(input->GetName() + "_DecimatePolyline");
+                    if (auto outputDrawObject = DynamicCast<DrawObject>(output)) {
+                        // A line-only result is clearest when both retained vertices and segments are shown.
+                        outputDrawObject->SetViewStyle(IG_POINTS | IG_WIREFRAME);
+                        outputDrawObject->SetPointSize(7.0f);
+                        outputDrawObject->SetLineWidth(3.0f);
+                    }
+                    // ParaView hides the source when a filter result is applied. The eye icon can
+                    // still be used to show it again for an overlay comparison.
+                    if (auto* inputItem = modelTreeWidget->getItemFromObject(input)) {
+                        inputItem->changeVisibility(false);
+                    }
+                    modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+                    rendererWidget->update();
+                    dialog->close();
+                });
+            });
     // ---------- 管道生成 (Tube)：追加在“开发中filter/第二批”菜单末尾 ----------
     QAction* tubeAction = developingFiltersBatch2->addAction(QStringLiteral("管道生成 (Tube)"));
     connect(tubeAction, &QAction::triggered, this,

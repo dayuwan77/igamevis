@@ -4,6 +4,7 @@
 #include "Convert/iGameConvertToVertexFilter.h"
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Convert/iGameConvertToVolumeMeshFilter.h"
+#include "DataProcessing/iGameDecimatePolylineFilter.h"
 #include "Elevation/iGameElevationFilter.h"
 #include "ExtractEnclosedPoints/iGameExtractEnclosedPointsFilter.h"
 #include "ExtractSubset/iGameExtractSubsetFilter.h"
