@@ -7,6 +7,7 @@
 #include "Elevation/iGameElevationFilter.h"
 #include "ExtractEnclosedPoints/iGameExtractEnclosedPointsFilter.h"
 #include "ExtractSubset/iGameExtractSubsetFilter.h"
+#include "IntegrateVariables/iGameIntegrateVariablesFilter.h"
 #include "IsoVolume/iGameIsoVolumeFilter.h"
 #include "MaskPoints/iGameMaskPointsFilter.h"
 #include "MeshCodec/iGameMeshDecoderFilter.h"
