@@ -1,6 +1,7 @@
 #include "iGameSceneManager.h"
 #include <IQComponents/Dialog/igQtParallelCoordinatesSortVariableDialog.h>
 #include <IQWidgets/igQtParallelCoordinatesWidget.h>
+#include <IQWidgets/igQtRenderWidget.h>
 #include <QElapsedTimer>
 #include <QRgb>
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <tuple>
 #include <unordered_set>
 #include <iGameTimer.h>
+#include <BuildAdjacencyRelation/iGameBuildAdjacencyRelationFilter.h>
 
 /**
  * @class   igQtParallelCoordinatesWidget
@@ -265,7 +267,35 @@ void igQtParallelCoordinatesWidget::DrawRangeChooseRect() {
     painter.drawRect(QRect(m_RangeChooseStartPoint, m_RangeChooseEndPoint));
 }
 
-void igQtParallelCoordinatesWidget::RangeChooseButtonClicked(bool checked) { m_RangeChooseOn = checked; }
+void igQtParallelCoordinatesWidget::RangeChooseButtonClicked(bool checked) {
+    static auto PreVisitFunc = [](iGame::Model::Pointer model) {
+        if (model == nullptr) return;
+        auto dataObj = model->GetDataObject();
+        if (dataObj == nullptr) return;
+        auto type = dataObj->GetDataObjectType();
+        switch (type) {
+            case IG_SURFACE_MESH:
+            case IG_STRUCTURED_MESH:
+            case IG_VOLUME_MESH: {
+                auto buildAdjacencyRelationFilter = BuildAdjacencyRelationFilter::New();
+                buildAdjacencyRelationFilter->SetInput(dataObj);
+                buildAdjacencyRelationFilter->Execute();
+            } break;
+            case IG_UNSTRUCTURED_MESH: {
+                auto mesh = DynamicCast<UnstructuredMesh>(dataObj);
+                if (mesh == nullptr) return;
+                auto selection = mesh->GetSelection();
+                if (selection == nullptr) return;
+                auto& cellFaceExtracter = selection->GetCellFaceExtracter();
+                cellFaceExtracter.PreVisit(mesh);
+            } break;
+            default:
+                return;
+        }
+    };
+    PreVisitFunc(m_Model);
+    m_RangeChooseOn = checked;
+}
 
 void igQtParallelCoordinatesWidget::mousePressEvent(QMouseEvent* event) {
     QWidget::mousePressEvent(event);
@@ -356,10 +386,9 @@ void igQtParallelCoordinatesWidget::UpdateUnChoosedColor() {
 }
 
 void igQtParallelCoordinatesWidget::UpdateBackgroundColor() {
-    //########################### White ###########################
-    m_BackgroundColor = {242, 242, 242};
+    const QColor c = igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::CardBg);
+    m_BackgroundColor = {c.red(), c.green(), c.blue()};
     return;
-    //########################### White ###########################
     if (m_CurrentModelDataIndex < 0 || m_ParallelCoordinatesDatas.size() <= m_CurrentModelDataIndex ||
         m_ColorVariableIndex < 0 ||
         m_ParallelCoordinatesDatas[m_CurrentModelDataIndex]->GetVariableNum() <= m_ColorVariableIndex) {
@@ -647,7 +676,7 @@ void igQtParallelCoordinatesWidget::DrawStrs(std::vector<QRect>& variableMaxFont
                                              std::vector<QRect>& variableNameFontPoints) {
     auto& Data = m_ParallelCoordinatesDatas[m_CurrentModelDataIndex];
     QPainter painter(this);
-    QPen pen;
+    QPen pen(igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text));
     pen.setWidth(10);
     QFont font;
     font.setPointSize(8);
@@ -667,7 +696,7 @@ void igQtParallelCoordinatesWidget::DrawStrs(std::vector<QRect>& variableMaxFont
 void igQtParallelCoordinatesWidget::DrawLinkImage(QRect& linkImageArea) {
     QPainter painter(this);
     if (m_ImageLoading) {
-        QPen pen;
+        QPen pen(igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text));
         pen.setWidth(10);
         QFont font;
         font.setPointSize(8);
@@ -995,4 +1024,12 @@ void igQtParallelCoordinatesWidget::GetDrawWidgetRect(QRect& frame) {
     QRect drawWidgetRect = ui->ParallelCoordinatesDrawView->rect();
     drawWidgetRect.moveTo(ui->ParallelCoordinatesDrawView->mapTo(this, QPoint(0, 0)));
     frame = drawWidgetRect;
+}
+
+void igQtParallelCoordinatesWidget::changeEvent(QEvent* e) {
+    if (e && e->type() == QEvent::StyleChange) {
+        UpdateBackgroundColor();
+        update();
+    }
+    QWidget::changeEvent(e);
 }

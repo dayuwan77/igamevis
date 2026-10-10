@@ -1,3 +1,11 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/Shrink/TestShrink.cpp
+// Regression: Apply with point attributes crashed when a copied range was empty.
+// Keep scalar/vector arrays and their values after duplicating cell vertices; fix feat: integrate third-batch standard filters.
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <Shrink/iGameShrinkFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameCellArray.h>
@@ -388,7 +396,7 @@ bool TestPointAttribute3Component() {
 	return ok;
 }
 
-}  
+}
 
 int main() {
 	bool ok = true;

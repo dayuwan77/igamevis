@@ -1,3 +1,9 @@
+// Source: dayuwan77/igamevis at eccac729b57aeacbe9312d7d5189f6990bb4eebd.
+// Integration gap: e7ec6571 imported the filter but omitted its example.
+// Preserve the numerical/attribute checks below and reject invalid inputs;
+// visual examples support --no-render so CI requires a real exit status.
+// Integration commit: test: add examples for first-batch standard filters
+// Find it: git log --diff-filter=A --format="%h %s" -- Examples/Filter/AttributeManipulation/TestRandomVectors.cpp
 #include <AttributeManipulation/iGameRandomVectorsFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameFileIO.h>
@@ -97,6 +103,26 @@ int main(int argc, char** argv) {
         std::cerr << "Result: FAIL\n";
         std::cerr << "filter should produce a new mesh, not modify the input in place\n";
         return 1;
+    }
+    // Mixed-size input cells previously acquired an extra leading zero offset
+    // during cloning. Check connectivity as well as the generated vectors.
+    // Fix commit: test: add examples for first-batch standard filters (lookup above).
+    auto inputCells = obj->GetCellArray();
+    auto outputCells = output->GetCellArray();
+    if (inputCells && inputCells->GetNumberOfCells() > 0) {
+        if (!outputCells || inputCells->GetNumberOfCells() != outputCells->GetNumberOfCells()) return 1;
+        for (IGsize i = 0; i < inputCells->GetNumberOfCells(); ++i) {
+            const igIndex* inputIds = nullptr;
+            const igIndex* outputIds = nullptr;
+            const int count = inputCells->GetCellIds(i, inputIds);
+            if (outputCells->GetCellIds(i, outputIds) != count) {
+                std::cerr << "FAIL: cloned cell size differs from input\n";
+                return 1;
+            }
+            for (int j = 0; j < count; ++j) {
+                if (inputIds[j] != outputIds[j]) return 1;
+            }
+        }
     }
     if (!CheckBrownianVectors(output, minSpeed, maxSpeed, reason)) {
         std::cerr << "Result: FAIL\n";

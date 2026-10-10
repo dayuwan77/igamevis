@@ -64,10 +64,16 @@ bool RunModel(const std::string& fileName) {
 } // namespace
 
 int main() {
+    // 回归背景：合并新版 main 后，原先使用的 vase2、pyramid_roof 和
+    // AIGen_Tet_TwistedRod 测试模型已从仓库删除，干净构建会因读取失败而退出。
+    // 这里改用上游仍维护的二维非结构网格、混合维度网格和多边形表面网格，保证
+    // Integrate Variables 在无属性、有点/单元属性及 SurfaceMesh 输入上都能成功执行。
+    // 修复与本测试更新同次提交，提交主题：Merge upstream/main into feature/integrate_variables
+    // 查询命令：git log --format="%h %s" -- Examples/Filter/FeatureExtraction/IntegrateVariables.cpp
     const std::string models[] = {
-        "./Models/vase2.vtk",
-        "./Models/SurfaceNormalsFilter_pyramid_roof.vtk",
-        "./Models/AIGen_Tet_TwistedRod.vtk",
+        "./Models/OutlineCorners_Plane.vtk",
+        "./Models/ExtractCellsByType_mixed.vtk",
+        "./Models/GhostCell_Pyramid.vtk",
     };
 
     for (const auto& model : models) {

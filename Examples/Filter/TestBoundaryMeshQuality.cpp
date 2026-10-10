@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestBoundaryMeshQuality.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <BoundaryMeshQuality/iGameBoundaryMeshQualityFilter.h>
 #include <Core/iGameScene.h>
 #include <iGameFileIO.h>
@@ -76,6 +82,7 @@ int main() {
         }
 
         // 对输出 mesh 本身调 ConvertToDrawableData，使新增属性上色
+        if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) continue;
         outputDrawObj->ConvertToDrawableData();
 
         // 属性 index 0 即为本轮计算出的指标数组（每个边界面对应一个元素）

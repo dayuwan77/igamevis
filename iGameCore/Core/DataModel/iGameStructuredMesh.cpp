@@ -2,6 +2,8 @@
 #include "ModelSurface/iGameModelGeometryFilter.h"
 #include "iGameFaceTable.h"
 #include "iGameScene.h"
+#include <array>
+#include <vector>
 IGAME_NAMESPACE_BEGIN
 
 StructuredMesh::~StructuredMesh() {}
@@ -140,14 +142,15 @@ void StructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleA
         m_CellPositionSize = 0;
         // 同理不能保留上一个属性生成的逐点颜色，否则点样式会显示过期颜色
         m_Colors = FloatArray::New();
-        m_Colors->SetDimension(3);
+        m_Colors->SetDimension(4);
         m_Colors->Modified();
         return;
     }
 
     /* 与 VolumeMesh 保持一致：只有色带范围被用户手工固定（SetRangeStable）时才保留当前范围，
        否则每次切换属性都按该属性自身的数据范围重设色带，避免沿用上一个属性的范围。 */
-    if (!m_ColorMapper->GetStable()) {
+    if (m_IsMainRenderableObject && (!attrRange || m_ColorMapper->GetMTime() <= attrRange->GetMTime()) &&
+        !m_ColorMapper->GetStable()) {
         double minimal_val = attrRange ? attrRange->GetValue(2 + dimension * 2 + 0) : 0.0;
         double maximal_val = attrRange ? attrRange->GetValue(2 + dimension * 2 + 1) : 0.0;
         if (attrRange && minimal_val < maximal_val) {
@@ -157,11 +160,11 @@ void StructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleA
         }
     }
 
-    FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension);
+    FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension, 4);
     if (colors == nullptr) {
         m_CellPositionSize = 0;
         m_Colors = FloatArray::New();
-        m_Colors->SetDimension(3);
+        m_Colors->SetDimension(4);
         m_Colors->Modified();
         return;
     }
@@ -171,10 +174,10 @@ void StructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleA
     FloatArray::Pointer newColors = FloatArray::New();
     UnsignedCharArray::Pointer newEdgeMasks = UnsignedCharArray::New();
     newPositions->SetDimension(3);
-    newColors->SetDimension(3);
+    newColors->SetDimension(4);
     newEdgeMasks->SetDimension(3);
 
-    float color[3]{};
+    float color[4]{};
     // 点样式（IG_POINTS）绘制的是 m_Positions / m_Colors，单元属性的颜色却只在 m_CellColors 里，
     // 渲染侧过去只好把点画成纯白。这里同时生成逐点颜色（cell->point 取入射单元颜色平均）。
     CellToPointColorBuilder pointColors;
@@ -191,9 +194,9 @@ void StructuredMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleA
             newPositions->AddElement3(p1[0], p1[1], p1[2]);
             newPositions->AddElement3(p2[0], p2[1], p2[2]);
 
-            newColors->AddElement3(rgb[0], rgb[1], rgb[2]);
-            newColors->AddElement3(rgb[0], rgb[1], rgb[2]);
-            newColors->AddElement3(rgb[0], rgb[1], rgb[2]);
+            newColors->AddElement4(rgb[0], rgb[1], rgb[2], rgb[3]);
+            newColors->AddElement4(rgb[0], rgb[1], rgb[2], rgb[3]);
+            newColors->AddElement4(rgb[0], rgb[1], rgb[2], rgb[3]);
 
             newEdgeMasks->AddValue(k == 1 ? 3 : 6);
         }

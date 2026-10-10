@@ -38,7 +38,7 @@ iGameVis 是基于 `iGameCore` 核心库与可选 `Qt` 前端模块构建的 CAE
 
 ## 文件导入
 
-文件导入路径不能包含中文字符。
+常用内置格式（VTK、OBJ、OFF、MESH、STL、PLY、VTU、VTS、VTP、PVD、VTM、IGC、IGCM）的导入路径支持中文字符。依赖第三方 SDK 或外部转换器的格式仍建议使用英文路径。
 
 ## 环境要求
 
@@ -82,7 +82,7 @@ cmake --build . --target clean
 
 ```shell
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 12
+cmake --build build --config Release --parallel 12
 cmake --build build --target install
 ```
 
@@ -105,7 +105,11 @@ emcc -v # 检查版本，需使用 3.1.25
 cmake --build . --parallel 8
 python3 -m http.server # 启动 http-server 后访问 http://localhost:8000/Qt_OpenGL.html
 ```
-
+## 运行
+```shell
+cd build #请在build目录下，通过命令行运行iGameVis.exe
+release/iGameVis.exe
+```
 ## 使用说明
 
 详细操作流程见 `iGameVisNoticeToUsers.md`
