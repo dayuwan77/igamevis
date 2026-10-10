@@ -79,8 +79,6 @@
 #include <IQCore/igQtFileLoader.h>
 #include <IQCore/igQtOpenGLWidgetManager.h>
 #include <IQCore/igQtRemoteModelLibrary.h>
-#include <IQWidgets/igQtResampleWithDataSetWidget.h>
-#include <IQWidgets/igQtRenameArraysWidget.h>
 #include <IQWidgets/ColorManager/igQtColorManagerWidget.h>
 #include <IQWidgets/igQtAiChat/igQtAiChatWidget.h>
 #include <IQWidgets/igQtAiChat/igQtCommandManager.h>
@@ -1883,10 +1881,12 @@ void igQtMainWindow::initAllFilters() {
         {"process_ids", "进程标识符", StandardFilterCategory::DataAttributes, false},
         {"random_attributes", "随机属性", StandardFilterCategory::DataAttributes, false},
         {"random_vectors", "随机向量", StandardFilterCategory::DataAttributes, false},
+        {"rename_arrays", "重命名数组", StandardFilterCategory::DataAttributes, false},
         {"reflect", "反射", StandardFilterCategory::Transform, false},
         {"remove_ghost_information", "移除幽灵信息", StandardFilterCategory::DataAttributes, false},
         {"resample_to_image", "重采样到图像", StandardFilterCategory::Sampling, true},
         {"resample_to_line", "重采样到直线", StandardFilterCategory::Sampling, false},
+        {"resample_with_dataset", "重采样至数据集", StandardFilterCategory::Sampling, false},
         {"shrink", "收缩", StandardFilterCategory::Geometry, true},
         {"slice_with_plane", "平面切片", StandardFilterCategory::Extraction, true},
         {"surface_normals", "表面法向量", StandardFilterCategory::DataAttributes, true},
@@ -3675,20 +3675,6 @@ void igQtMainWindow::initAllFilters() {
     // 第二批开发入口与第一批并列，后续新增 filter 可添加到此菜单。
     QMenu* developingFiltersBatch2 = ui->menu_filters->addMenu(QStringLiteral("开发中filter/第二批"));
     developingFiltersBatch2->setObjectName(QStringLiteral("menu_developing_filters_batch2"));
-    QAction* resampleWithDataSetAction = developingFiltersBatch2->addAction(
-            QStringLiteral("重采样至数据集 (Resample With DataSet)"));
-    connect(resampleWithDataSetAction, &QAction::triggered, this, [this]() {
-        ensureResampleWithDataSetPanel();
-        openLeftToolPanel(LeftToolPanelId::ResampleWithDataSet);
-        if (ResampleWithDataSetWidget) ResampleWithDataSetWidget->BindCurrentModel();
-    });
-    QAction* renameArraysAction = developingFiltersBatch2->addAction(
-            QStringLiteral("重命名数组 (Rename Arrays)"));
-    connect(renameArraysAction, &QAction::triggered, this, [this]() {
-        ensureRenameArraysPanel();
-        openLeftToolPanel(LeftToolPanelId::RenameArrays);
-        if (RenameArraysWidget) RenameArraysWidget->BindCurrentModel();
-    });
     auto addDevelopmentAction = [this](QMenu* menu, QAction* approved, const QString& label) {
         if (!approved) return;
         QAction* action = menu->addAction(label);
@@ -3745,6 +3731,8 @@ void igQtMainWindow::initAllFilters() {
         {"point_volume_interpolator", "点体积插值 (Point Volume Interpolator)"},
         {"angular_periodic", "角度周期复制 (Angular Periodic)"},
         {"resample_to_line", "重采样至直线(ResampleToLine)"},
+        {"resample_with_dataset", "重采样至数据集 (Resample With DataSet)"},
+        {"rename_arrays", "重命名数组 (Rename Arrays)"},
         {"point_set_to_octree_image", "点集转八叉树图像 (PointSetToOctree)"},
         {"resample_to_image", "重采样到图像 (ResampleToImage)"},
         {"random_attributes", "随机属性生成 (Random Attributes)"},
@@ -5143,8 +5131,6 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
     case LeftToolPanelId::Selection: return ui->dockWidget_SelectionField;
     case LeftToolPanelId::VariableDensity: return ui->dockWidget_VariableDensityField;
     case LeftToolPanelId::DataChange: return ui->dockWidget_DataChangeField;
-    case LeftToolPanelId::ResampleWithDataSet: return ResampleWithDataSetDockWidget;
-    case LeftToolPanelId::RenameArrays: return RenameArraysDockWidget;
     case LeftToolPanelId::Count: return nullptr;
     }
     return nullptr;
@@ -5163,36 +5149,6 @@ QWidget* igQtMainWindow::wrapContentInScrollArea(QWidget* content, QWidget* pare
     scroll->setWidget(content);
     if (centerFlowField) scroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
     return scroll;
-}
-
-void igQtMainWindow::ensureResampleWithDataSetPanel() {
-    if (ResampleWithDataSetWidget) return;
-    ResampleWithDataSetDockWidget = new QDockWidget(this);
-    ResampleWithDataSetDockWidget->setObjectName(QStringLiteral("dockWidget_ResampleWithDataSet"));
-    ResampleWithDataSetDockWidget->setWindowTitle(QStringLiteral("重采样至数据集"));
-    ResampleWithDataSetDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
-    ResampleWithDataSetDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
-    ResampleWithDataSetWidget = new igQtResampleWithDataSet(modelTreeWidget, ResampleWithDataSetDockWidget);
-    ResampleWithDataSetWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    ResampleWithDataSetWidget->setMinimumWidth(300);
-    ResampleWithDataSetDockWidget->setWidget(ResampleWithDataSetWidget);
-    addDockWidget(Qt::LeftDockWidgetArea, ResampleWithDataSetDockWidget);
-    ResampleWithDataSetDockWidget->hide();
-}
-
-void igQtMainWindow::ensureRenameArraysPanel() {
-    if (RenameArraysWidget) return;
-    RenameArraysDockWidget = new QDockWidget(this);
-    RenameArraysDockWidget->setObjectName(QStringLiteral("dockWidget_RenameArrays"));
-    RenameArraysDockWidget->setWindowTitle(QStringLiteral("重命名数组"));
-    RenameArraysDockWidget->setAllowedAreas(Qt::LeftDockWidgetArea);
-    RenameArraysDockWidget->setFeatures(QDockWidget::DockWidgetClosable);
-    RenameArraysWidget = new igQtRenameArrays(modelTreeWidget, RenameArraysDockWidget);
-    RenameArraysWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    RenameArraysWidget->setMinimumWidth(300);
-    RenameArraysDockWidget->setWidget(RenameArraysWidget);
-    addDockWidget(Qt::LeftDockWidgetArea, RenameArraysDockWidget);
-    RenameArraysDockWidget->hide();
 }
 
 void igQtMainWindow::applyLeftToolStackVerticalSplit() {
@@ -5278,14 +5234,6 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
     case LeftToolPanelId::DataChange:
         relocateContentToLeftTab(ui->dockWidget_DataChangeField, ui->widget_DataChangeField, QStringLiteral("路径图"), id,
                                  false);
-        break;
-    case LeftToolPanelId::ResampleWithDataSet:
-        relocateContentToLeftTab(ResampleWithDataSetDockWidget, ResampleWithDataSetWidget,
-                                 QStringLiteral("重采样至数据集"), id, false);
-        break;
-    case LeftToolPanelId::RenameArrays:
-        relocateContentToLeftTab(RenameArraysDockWidget, RenameArraysWidget,
-                                 QStringLiteral("重命名数组"), id, false);
         break;
     case LeftToolPanelId::Count:
         break;

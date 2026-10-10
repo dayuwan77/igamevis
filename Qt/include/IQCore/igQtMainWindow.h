@@ -43,8 +43,6 @@ class igQtSliceWidget;
 class igQtProgressBarWidget;
 class igQtModelDialogWidget;
 class igQtModelClipWidget;
-class igQtResampleWithDataSet;
-class igQtRenameArrays;
 class igQtDeformationWidget;
 class igQtElevationFilterPanel;
 class igQtAiChatWidget;
@@ -70,8 +68,6 @@ public:
         Selection,
         VariableDensity,
         DataChange,
-        ResampleWithDataSet,
-        RenameArrays,
         Count
     };
 
@@ -107,10 +103,6 @@ public:
     QDockWidget* SliceDockWidget = nullptr;
     QDockWidget* ContourDockWidget = nullptr;
     igQtModelClipWidget* SliceWidget = nullptr;
-    QDockWidget* ResampleWithDataSetDockWidget{nullptr};
-    igQtResampleWithDataSet* ResampleWithDataSetWidget{nullptr};
-    QDockWidget* RenameArraysDockWidget{nullptr};
-    igQtRenameArrays* RenameArraysWidget{nullptr};
     QDockWidget* DeformationDockWidget = nullptr;
     igQtDeformationWidget* DeformationWidget = nullptr;
 
@@ -191,7 +183,7 @@ private:
     QDockWidget* m_leftFieldDock = nullptr;
     QTabWidget* m_leftFieldTabs = nullptr;
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-            {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+            {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
@@ -200,8 +192,6 @@ private:
     void onLeftToolTabCloseRequested(int index);
     /** 工具面板与 Properties 垂直比例（需在工具 Dock 已 show 后调用） */
     void applyLeftToolStackVerticalSplit();
-    void ensureResampleWithDataSetPanel();
-    void ensureRenameArraysPanel();
 
     /** 与菜单「算法处理 / 特征提取」等一致：无边框 QMessageBox + 暗色圆角边框。 */
     void showDarkFramelessMessage(const QString& title, const QString& text, bool useInformationIcon = false);
