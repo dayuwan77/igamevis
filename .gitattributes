@@ -15,3 +15,19 @@ Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
 Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
 Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
 Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text
+
+# Keep upstream's small plain-text example fixtures outside Git LFS.
+Examples/Models/ElevationSlopeTerrain.vtk -filter -diff -merge text
+Examples/Models/ElevationTerraces.vtk -filter -diff -merge text
+Examples/Models/ExtractEnclosedPoints_Points_Cloud1.vtk -filter -diff -merge text
+Examples/Models/ExtractEnclosedPoints_Surface_Sphere.vtk -filter -diff -merge text
+Examples/Models/FeatureEdges_Cube.vtk -filter -diff -merge text
+Examples/Models/FeatureEdges_NonManifold.vtk -filter -diff -merge text
+Examples/Models/GhostCell_Pyramid.vtk -filter -diff -merge text
+Examples/Models/GhostCell_TwoTets.vtk -filter -diff -merge text
+Examples/Models/LinearExtrusion_ClosedCube.vtk -filter -diff -merge text
+Examples/Models/LinearExtrusion_OpenSurface.vtk -filter -diff -merge text
+Examples/Models/OutlineCorners_Box.vtk -filter -diff -merge text
+Examples/Models/rectangle_structured_2d.vtk -filter -diff -merge text
+Examples/Models/test_mesh.vtk -filter -diff -merge text
+Examples/Models/tube_test.vtk -filter -diff -merge text

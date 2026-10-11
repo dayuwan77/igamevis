@@ -22,6 +22,7 @@
 #include <QRect>
 #include <QTimer>
 #include <array>
+#include "AxisAlignedReflection/iGameAxisAlignedReflectionFilter.h"
 #undef QT_NO_OPENGL
 
 class QMenu;
@@ -143,6 +144,8 @@ public:
     // Remote Model Library dialog (C/S package catalog and cache controls)
     igQtRemoteModelLibrary* remoteModelLibrary{nullptr};
 
+    int m_outlineCount{0};
+
 private slots:
     void updateRecentFilePaths();
     void updateColorBarShow();
@@ -193,23 +196,15 @@ private:
     // 左侧工具 Tab（按需添加；下方 Properties 常驻）
     QDockWidget* m_leftFieldDock = nullptr;
     QTabWidget* m_leftFieldTabs = nullptr;
-    // 按单元类型提取：左侧面板 + 壳 Dock + 常驻 filter
-    // 首次提取生成独立新模型 ExtractCellsByType_n（不覆盖输入模型）；
-    // 改勾选重提取时，原地更新该新模型（模型树不新增节点）
-    QDockWidget* m_extractCellsByTypeShell = nullptr;
-    igQtExtractCellsByTypeWidget* m_extractCellsByTypeWidget = nullptr;
-    iGame::ExtractCellsByTypeFilter::Pointer m_extractCellsByTypeFilter;
-    iGame::Model::Pointer m_extractCellsByTypeModel;
-    // 提取分量：独立置顶弹窗（首次打开时懒创建），不占用左侧工具面板；
-    // 面板由用户点 X 关闭，关闭后再次打开复用同一面板（保留上次选择与结果节点）
-    QDialog* m_extractComponentDialog = nullptr;
-    igQtExtractComponentWidget* m_extractComponentWidget = nullptr;
     // 线性拉伸：独立置顶弹窗（首次打开时懒创建），不占用左侧工具面板；
     // 面板由用户点 X 关闭，关闭后再次打开复用同一面板（保留上次参数与结果节点）
     QDialog* m_linearExtrusionDialog = nullptr;
     igQtLinearExtrusionWidget* m_linearExtrusionWidget = nullptr;
-    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    // 轴对齐反射：右侧 Dock（首次打开懒创建）+ 当前 filter / 结果模型 / 执行计数
+    QDockWidget* m_axisAlignedReflectionDock = nullptr;
+    iGame::AxisAlignedReflectionFilter::Pointer m_axisAlignedReflectionFilter;
+    iGame::Model::Pointer m_axisAlignedReflectionModel;
+    int m_axisAlignedReflectionCount{0};
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,

@@ -35,6 +35,9 @@
 #include "Tests/iGameFilterPoints.h"
 #include "Tests/iGameSurfaceMeshFilterTest.h"
 #include "Tests/iGameVolumeMeshFilterTest.h"
+#include "SurfaceNormals/iGameSurfaceNormalsFilter.h"
+#include "Subdivide/iGameSubdivide.h"
+#include "MyFilter/iGameValidateCellsFilter.h"
 #include "VariableCorrelation/iGameGenerateVariableCorrelationDataFilter.h"
 #include "VariableDensity/iGameGenerateVariableDensityDataFilter.h"
 #include "VolumeMeshAlgorithm/iGameTetraDecimation.h"
@@ -44,12 +47,15 @@
 #include "FeatureExtraction/iGameLaplacianFilter.h"
 #include "FeatureExtraction/iGameFeatureEdgesFilter.h"
 #include "FeatureExtraction/iGameOutlineCornerFilter.h"
+#include "Outline/iGameOutlineFilter.h"
 #include "FeatureExtraction/iGameVortexDetectionFilter.h"
 #include "FeatureExtraction/iGameVortexFilter.h"
 
 #include "Animation/iGameAttrDiff.h"
 #include "AttributeManipulation/iGameRandomVectorsFilter.h"
 
+#include "AppendReduce/iGameAppendReduceFilter.h"
+#include "Tube/iGameTube.h"
 #include "Attribute/iGameExtractComponentFilter.h"
 #include "AxisAlignedReflection/iGameAxisAlignedReflectionFilter.h"
 #include "CellSize/iGameCellSizeFilter.h"
@@ -61,11 +67,8 @@
 #include "MergeVectorComponents/iGameMergeVectorComponentsFilter.h"
 #include "PointAndCellIds/iGamePointAndCellIdsFilter.h"
 #include "ProcessGet/iGameGenerateProcessIdsFilter.h"
-#include "PointLineInterpolator/iGamePointLineInterpolatorFilter.h"
-
-#include "AppendReduce/iGameAppendReduceFilter.h"
-
 #include "ResampleToLine/iGameResampleToLine.h"
 #include "TriangleStrip/iGameTriangleStripFilter.h"
+#include "ReverseSense/iGameReverseSenseFilter.h"
 
 #include "Animation/iGameTemporalStatistics.h"
