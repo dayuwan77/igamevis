@@ -577,6 +577,8 @@ igame_add_example(testDeformationCode Filter/Deformation/TestStressDeformationFi
 igame_add_example(testContourLine Filter/TestContourLine.cpp)
 # Modeling：线性拉伸（Linear Extrusion）
 igame_add_example(testLinearExtrusion Filter/TestLinearExtrusion.cpp)
+# Modeling：带状面（Ribbon）
+igame_add_example(testRibbon Filter/TestRibbon.cpp)
 
 # ������ #5 + �е����� #28 ���ײ�������
 igame_add_example(testGhostCellModel Filter/GhostCell/TestGhostCellModel.cpp)

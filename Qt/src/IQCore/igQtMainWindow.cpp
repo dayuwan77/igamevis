@@ -5414,6 +5414,130 @@ void igQtMainWindow::initAllFilters() {
                     dialog->close();
                 });
             });
+    // ---------- 带状面 (Ribbon)：追加在“开发中filter/第二批”菜单末尾 ----------
+    QAction* ribbonAction = developingFiltersBatch2->addAction(QStringLiteral("带状面 (Ribbon)"));
+    connect(ribbonAction, &QAction::triggered, this,
+            [this](bool checked) {
+                auto* scene = rendererWidget->GetScene();
+                if (scene == nullptr || scene->GetCurrentModel() == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("无可用模型"),
+                                             QStringLiteral("请先加载并选择一个网格模型。"));
+                    return;
+                }
+                auto model = scene->GetCurrentModel();
+                auto obj = model->GetDataObject();
+                if (obj == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("无可用数据"),
+                                             QStringLiteral("当前模型没有可用的网格数据。"));
+                    return;
+                }
+
+                igQtFilterDialogDockWidget* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("带状面 (Ribbon)"));
+                dialog->setFilterDescription(QStringLiteral(
+                    "把线/折线沿“切向 × 线法向”构成的框架扫成有向带状面。<br>"
+                    "半宽决定带宽：带宽 = 2 × 半宽；偏转角相对线法向旋转带面（0° 时带面垂直于线法向与切向）。<br>"
+                    "输入需要包含线单元（IG_LINE / IG_POLY_LINE），其他单元类型会被忽略并在结果提示中说明。"));
+
+                const int widthId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                         QStringLiteral("半宽 (Width)"), "0.5");
+                const int angleId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                         QStringLiteral("偏转角/度 (Angle)"), "0");
+                const int useDefId = dialog->addParameter(
+                        igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                        QStringLiteral("使用默认线法向 (Use Default Normal)"), "true");
+                const int nxId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                      QStringLiteral("默认法向 X (Normal X)"), "0");
+                const int nyId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                      QStringLiteral("默认法向 Y (Normal Y)"), "0");
+                const int nzId = dialog->addParameter(igQtFilterDialogDockWidget::QT_LINE_EDIT,
+                                                      QStringLiteral("默认法向 Z (Normal Z)"), "1");
+
+                // 加宽面板，避免说明文字与标签过度换行
+                dialog->setFixedWidth(660);
+
+                auto* useDefCheck = qobject_cast<QCheckBox*>(dialog->getWidget(useDefId));
+                if (useDefCheck != nullptr) {
+                    useDefCheck->setToolTip(QStringLiteral(
+                        "勾选时全部点使用下方默认法向；取消勾选则优先取输入的点法向（IG_NORMAL），"
+                        "输入没有点法向时回退到默认法向并在结果提示中说明。"));
+                }
+                const QString normalEditTip = QStringLiteral(
+                    "仅在勾选上方“使用默认线法向”后作为带面的定向依据；切线与该法向平行的那条折线会被跳过。");
+                for (int id: {nxId, nyId, nzId}) {
+                    if (QWidget* editor = dialog->getWidget(id)) { editor->setToolTip(normalEditTip); }
+                }
+                if (QWidget* angleEdit = dialog->getWidget(angleId)) {
+                    angleEdit->setToolTip(QStringLiteral("单位度，取值 0–360；超出范围会被夹到区间内（与 VTK 一致）。"));
+                }
+
+                dialog->setApplyFunctor([this, dialog, obj, widthId, angleId, useDefId, nxId, nyId, nzId]() {
+                    bool wok = false;
+                    bool aok = false;
+                    bool uok = false;
+                    bool xok = false;
+                    bool yok = false;
+                    bool zok = false;
+
+                    const double width = dialog->getDouble(widthId, wok);
+                    const double angle = dialog->getDouble(angleId, aok);
+                    const bool useDefaultNormal = dialog->getChecked(useDefId, uok);
+                    const double nx = dialog->getDouble(nxId, xok);
+                    const double ny = dialog->getDouble(nyId, yok);
+                    const double nz = dialog->getDouble(nzId, zok);
+
+                    if (!wok || width <= 0.0) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("半宽必须是大于 0 的数字（带宽 = 2 × 半宽）。"));
+                        return;
+                    }
+                    if (!aok) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("偏转角不是有效数字。"));
+                        return;
+                    }
+                    if (xok && yok && zok && nx == 0.0 && ny == 0.0 && nz == 0.0) {
+                        showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                                 QStringLiteral("默认法向不能是零向量。"));
+                        return;
+                    }
+
+                    RibbonFilter::Pointer filter = RibbonFilter::New();
+                    filter->SetInput(obj);
+                    filter->SetWidth(width);
+                    filter->SetAngle(angle);
+                    filter->SetUseDefaultNormal(uok ? useDefaultNormal : true);
+                    if (xok && yok && zok) { filter->SetDefaultNormal(Vector3d(nx, ny, nz)); }
+
+                    if (!filter->Execute()) {
+                        // 失败原因（无输入 / 无线单元 / 全被跳过 / 零宽度或零法向）由 filter 写在 m_Message 里
+                        const std::string message = filter->GetMessage();
+                        showDarkFramelessMessage(
+                                QStringLiteral("带状面生成失败"),
+                                message.empty() ? QStringLiteral("请检查输入是否包含线/折线单元（IG_LINE / IG_POLY_LINE）。")
+                                                : QString::fromStdString(message));
+                        return;
+                    }
+
+                    auto outMesh = DynamicCast<SurfaceMesh>(filter->GetOutput());
+                    if (!outMesh) {
+                        showDarkFramelessMessage(QStringLiteral("带状面生成失败"),
+                                                 QStringLiteral("算法未产生有效结果。"));
+                        return;
+                    }
+
+                    modelTreeWidget->addDataObjectToModelTree(outMesh, ItemSource::Algorithm);
+                    rendererWidget->update();
+                    // 非致命提示（忽略的非线单元、被跳过的折线）只在确实发生时弹一次，
+                    // 与 Tube 一致：先弹模态提示再关闭面板，避免 close dock 触发布局重建后再开模态对话框
+                    if (!filter->GetMessage().empty()) {
+                        showDarkFramelessMessage(QStringLiteral("带状面生成完成"),
+                                                 QString::fromStdString(filter->GetMessage()), true);
+                    }
+                    dialog->close();
+                });
+                dialog->show();
+            });
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {

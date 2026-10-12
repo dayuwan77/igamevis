@@ -68,5 +68,6 @@
 #include "PointAndCellIds/iGamePointAndCellIdsFilter.h"
 #include "ProcessGet/iGameGenerateProcessIdsFilter.h"
 #include "ResampleToLine/iGameResampleToLine.h"
+#include "Modeling/iGameRibbonFilter.h"
 #include "TriangleStrip/iGameTriangleStripFilter.h"
 #include "ReverseSense/iGameReverseSenseFilter.h"
