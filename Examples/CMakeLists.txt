@@ -496,6 +496,16 @@ igame_add_example(testConvertToLagrangeUnstructuredMesh Filter/Convert/TestConve
 
 # IO (optional modules)
 igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
+
+# Transform
+igame_add_example(testTransform Filter/TestTransform.cpp)
+# MeshQuality
+igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
+# Time Series
+igame_add_example(testTemporalShiftScale Filter/TimeSeries/TestTemporalShiftScale.cpp)
+#Data Processing
+igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
+igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 igame_add_example(testSpectralReaderCPU ../iGameCore/IO/Spectral/tests/SpectralReaderValidation.cxx)
 igame_add_example(testVTKXMLDataArrayDecoderValidation IO/VTKXMLDataArrayDecoderValidation.cpp)
 igame_add_example(testVertexReaderValidation IO/VertexReaderValidation.cpp)
