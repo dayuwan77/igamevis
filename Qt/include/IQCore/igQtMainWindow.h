@@ -56,6 +56,7 @@ class igQtPointSetToOctreeWidget;
 class igQtGlobalIdWidget;
 class igQtTriangleStripWidget;
 class igQtExtractCellsByTypeWidget;
+class igQtExtractTimeStepsWidget;
 class igQtAxisAlignedReflectionWidget;
 class igQtPointAndCellIdsWidget;
 class igQtExtractComponentWidget;
@@ -80,6 +81,7 @@ public:
         Selection,
         VariableDensity,
         DataChange,
+        ExtractTimeSteps,
         Count
     };
 
@@ -196,6 +198,9 @@ private:
     // 左侧工具 Tab（按需添加；下方 Properties 常驻）
     QDockWidget* m_leftFieldDock = nullptr;
     QTabWidget* m_leftFieldTabs = nullptr;
+    // 保留指定时间步：左侧工具面板（对齐 ParaView 的 Extract Time Steps，只裁剪时间轴）
+    QDockWidget* m_extractTimeStepsShell = nullptr;
+    igQtExtractTimeStepsWidget* m_extractTimeStepsWidget = nullptr;
     // 线性拉伸：独立置顶弹窗（首次打开时懒创建），不占用左侧工具面板；
     // 面板由用户点 X 关闭，关闭后再次打开复用同一面板（保留上次参数与结果节点）
     QDialog* m_linearExtrusionDialog = nullptr;
@@ -205,7 +210,7 @@ private:
     iGame::AxisAlignedReflectionFilter::Pointer m_axisAlignedReflectionFilter;
     iGame::Model::Pointer m_axisAlignedReflectionModel;
     int m_axisAlignedReflectionCount{0};
-    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
