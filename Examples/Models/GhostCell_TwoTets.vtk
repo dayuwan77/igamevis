@@ -1,0 +1,21 @@
+# vtk DataFile Version 3.0
+GhostCell demo: two tetrahedra sharing a face, ghost flags on CELL data (vtkGhostType)
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 float
+0.0 0.0 0.0
+2.0 0.0 0.0
+0.0 2.0 0.0
+0.0 0.0 2.0
+2.0 2.0 2.0
+CELLS 2 10
+4 0 1 2 3
+4 1 2 3 4
+CELL_TYPES 2
+10
+10
+CELL_DATA 2
+SCALARS vtkGhostType int 1
+LOOKUP_TABLE default
+32
+1

@@ -860,21 +860,26 @@ void SurfaceMesh::GetDrawableArray(FloatArray::Pointer& positions, UnsignedIntAr
     triangleEdgeMasks->Reset();
     triangleEdgeMasks->SetDimension(1);
 
-    // set line indices
-    if (this->GetEdges() == nullptr) { this->BuildEdges(); }
+    // Surface rendering does not consume the explicit edge list. Build it
+    // lazily when wireframe is requested; SetViewStyle marks the draw data
+    // dirty so switching representation later remains correct.
+    const bool needLineIndices = NeedsExplicitWireframeGeometry(m_ViewStyle);
+    if (needLineIndices && this->GetEdges() == nullptr) { this->BuildEdges(); }
 
     if (m_Clipper->IsAllDisable()) {
         // set triangle indices
         int i, ncell;
         igIndex cell[IGAME_CELL_MAX_SIZE]{};
 
-        lineIndices->Reserve(this->GetNumberOfEdges());
-        for (i = 0; i < this->GetNumberOfEdges(); i++) {
-            ncell = this->GetEdgePointIds(i, cell);
-            if (cell[0] < 0 || cell[1] < 0) {
-                igError("The index of the edge is negative.");
-            } else {
-                lineIndices->AddElement2(static_cast<iguIndex>(cell[0]), static_cast<iguIndex>(cell[1]));
+        if (needLineIndices) {
+            lineIndices->Reserve(this->GetNumberOfEdges());
+            for (i = 0; i < this->GetNumberOfEdges(); i++) {
+                ncell = this->GetEdgePointIds(i, cell);
+                if (cell[0] < 0 || cell[1] < 0) {
+                    igError("The index of the edge is negative.");
+                } else {
+                    lineIndices->AddElement2(static_cast<iguIndex>(cell[0]), static_cast<iguIndex>(cell[1]));
+                }
             }
         }
 
@@ -961,12 +966,14 @@ void SurfaceMesh::GetDrawableArray(FloatArray::Pointer& positions, UnsignedIntAr
         int i, ncell;
         igIndex cell[IGAME_CELL_MAX_SIZE]{};
 
-        for (i = 0; i < this->GetNumberOfEdges(); i++) {
-            ncell = this->GetEdgePointIds(i, cell);
-            if (cell[0] < 0 || cell[1] < 0) {
-                igError("The index of the edge is negative.");
-            } else {
-                lineIndices->AddElement2(static_cast<iguIndex>(cell[0]), static_cast<iguIndex>(cell[1]));
+        if (needLineIndices) {
+            for (i = 0; i < this->GetNumberOfEdges(); i++) {
+                ncell = this->GetEdgePointIds(i, cell);
+                if (cell[0] < 0 || cell[1] < 0) {
+                    igError("The index of the edge is negative.");
+                } else {
+                    lineIndices->AddElement2(static_cast<iguIndex>(cell[0]), static_cast<iguIndex>(cell[1]));
+                }
             }
         }
 
@@ -1006,8 +1013,10 @@ void SurfaceMesh::GetDrawableArray(FloatArray::Pointer& positions, UnsignedIntAr
 
 void SurfaceMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArray::Pointer attrRange,
                                            igIndex dimension) {
-    if (m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
-
+    // 抽壳/简化网格（m_IsMainRenderableObject == false）只读范围、不写范围：
+    // 它们的数据是派生/子集（简化网格还会把 cell 属性平均到点上），
+    // 一旦允许它们写共享 mapper，就会把整帧范围改小 → 高值钳到色标上端（全红）。
+    if (m_IsMainRenderableObject && m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
         if (!m_ColorMapper->GetStable()) {
             double magnitude_min = attrRange->GetValue(0);
             double magnitude_max = attrRange->GetValue(1);
@@ -1024,23 +1033,26 @@ void SurfaceMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArra
     // Previously: attrRange->SetValue(0, m_ColorMapper->GetRange()[0]);
     // Previously: attrRange->SetValue(1, m_ColorMapper->GetRange()[1]);
 
-    FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension);
+    FloatArray::Pointer colors = m_ColorMapper->MapScalars(attr, dimension, 4);
     if (colors == nullptr) { return; }
 
     FloatArray::Pointer newPositions = FloatArray::New();
     FloatArray::Pointer newColors = FloatArray::New();
     UnsignedCharArray::Pointer newEdgeMasks = UnsignedCharArray::New();
     newPositions->SetDimension(3);
-    newColors->SetDimension(3);
+    newColors->SetDimension(4);
     newEdgeMasks->SetDimension(3);
     IGsize fcnt = this->GetNumberOfFaces();
     IGsize faceIdNum = this->GetFaces()->GetNumberOfCellIds();
     newPositions->Reserve(faceIdNum - fcnt * 2);
     newColors->Reserve(faceIdNum - fcnt * 2);
-    float color[3]{};
+    CellToPointColorBuilder pointColors;
+    pointColors.Initialize(this->GetNumberOfPoints());
+    float color[4]{};
     for (int i = 0; i < this->GetNumberOfFaces(); i++) {
         Face* face = this->GetFace(i);
         colors->GetElement(i, color);
+        pointColors.AddCell(face->m_PointIds->RawPointer(), face->GetCellSize(), color);
         for (int j = 1; j < face->GetCellSize() - 1; j++) {
             auto& p0 = face->m_Points->GetPoint(0);
             newPositions->AddElement3(p0[0], p0[1], p0[2]);
@@ -1049,14 +1061,17 @@ void SurfaceMesh::SetAttributeWithCellData(ArrayObject::Pointer attr, DoubleArra
             auto& p2 = face->m_Points->GetPoint(j + 1);
             newPositions->AddElement3(p2[0], p2[1], p2[2]);
 
-            newColors->AddElement3(color[0], color[1], color[2]);
-            newColors->AddElement3(color[0], color[1], color[2]);
-            newColors->AddElement3(color[0], color[1], color[2]);
+            newColors->AddElement4(color[0], color[1], color[2], color[3]);
+            newColors->AddElement4(color[0], color[1], color[2], color[3]);
+            newColors->AddElement4(color[0], color[1], color[2], color[3]);
 
             int mask = face->GetCellSize() == 3 ? 7 : j == 1 ? 3 : j == face->GetCellSize() - 2 ? 6 : 2;
             newEdgeMasks->AddValue(mask);
         }
     }
+    m_Colors = pointColors.Build(this->GetDefaultColor());
+    m_Colors->Modified();
+
     m_CellPositionSize = newPositions->GetNumberOfElements();
 
     m_CellPositions = newPositions;

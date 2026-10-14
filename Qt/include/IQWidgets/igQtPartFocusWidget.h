@@ -40,11 +40,15 @@ public slots:
 
 signals:
     void SIGNAL_FocusApplied();
+    void SIGNAL_SelectedPartsChanged(const QVector<int>& partIds);
 
 private slots:
     void onFocusCamera();
     void onSetSelectionBox();
     void onFocusBoth();
+
+protected:
+    void changeEvent(QEvent* e) override;
 
 private:
     // 计算选中 part 的合并包围盒，返回 false 表示无有效 part

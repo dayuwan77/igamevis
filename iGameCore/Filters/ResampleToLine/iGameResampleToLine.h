@@ -1,149 +1,173 @@
-﻿#pragma once
+#pragma once
 #ifndef iGameResampleToLine_h
 #define iGameResampleToLine_h
+
+#include "iGameCellCenter.h"
 #include "iGameDrawObject.h"
-#include "iGameSceneManager.h"
-
-
-#include "Eigen/Dense"
-#include "Eigen/Eigenvalues"
 #include "iGameFilter.h"
 #include "iGamePointSet.h"
+#include "iGameSceneManager.h"
 #include "iGameSurfaceMesh.h"
-#include "iGameVolumeMesh.h"
-#include "iGameStructuredMesh.h"
 #include "iGameUnstructuredMesh.h"
-#include <cmath>
-#include <unordered_set>
-#include <algorithm>
-#include <iGameCellCenter.h>
-#include <iGameVector.h>
+#include "iGameVector.h"
+#include "iGameVolumeMesh.h"
+
+#include <string>
 #include <vector>
+
 IGAME_NAMESPACE_BEGIN
+
+/**
+ * @brief 重采样至直线（Resample to line）
+ *
+ * 沿给定线段均匀生成采样点，为每个采样点定位其所在的单元并插值：
+ *   1) 线性面单元（三角形 / 四边形 / 多边形）：线性插值（重心坐标 / 双线性 / 扇形三角化）；
+ *   2) 体单元（四面体 / 六面体 / 三棱柱 / 金字塔 / 多面体）：均值坐标（Mean Value
+ *      Coordinates）插值；四面体的均值坐标即重心坐标，直接用解析解；
+ *   3) 二次 / 高次单元：二次形函数 + 参数坐标 Newton 反解，覆盖 10 类：
+ *      6 节点三角形 / 8 节点四边形 / 10 节点四面体 / 20 节点六面体 /
+ *      15 节点三棱柱（楔形） / 13 节点金字塔 /
+ *      9 节点双二次四边形 / 6 节点二次-线性四边形 / 12 节点二次-线性楔形 / 27 节点三二次六面体；
+ *      其中后四类的节点序与形函数按 VTK 硬编码，与 vtkBiQuadraticQuad / vtkQuadraticLinearQuad /
+ *      vtkQuadraticLinearWedge / vtkTriQuadraticHexahedron 源码逐行一致。
+ * 仍未实现的类型（18 节点双二次-二次楔形、24 节点双二次-二次六面体、19 节点三二次金字塔、
+ * 含棱中点的 QuadraticPolygon、Lagrange* 任意阶）退化处理：面单元按角点线性、
+ * 体单元按「角点线性 + 均值坐标」，并在 GetMessage() 中给出 degraded high-order cells 数量提示。
+ *
+ * 采样点不在任何单元内（超出容差）时不再吸附最近单元，而是标记为无效：
+ * 新增点数据属性 "validpointmask"（UnsignedCharArray），1 = 该采样点可插值，0 = 无效；
+ * 无效采样点各插值属性填 0（与 VTK vtkProbeFilter 行为一致）。
+ *
+ * 容差默认自动计算（包围盒对角线 × 1e-6，紧容差），也可用 SetTolerance() 手动指定。
+ *
+ * 输出：
+ *   output 0 : UnstructuredMesh 折线（IG_LINE 单元），与既有流程兼容;
+ *   output 1 : SurfaceMesh 折线（点 + 边），真正的折线数据，可直接渲染为折线。
+ */
 class ResampleToLine : public Filter {
 public:
     I_OBJECT(ResampleToLine);
     static Pointer New() { return new ResampleToLine; }
+
     bool Execute() override;
+
+    /* ---------------- 参数设置 ---------------- */
+
+    /** 设置采样线段：起点 p0、终点 p1、采样点数量 x */
     void setOrigTarget(const Point& p0, const Point& p1, const int& x) {
         orig = p0;
         target = p1;
         n = x;
     }
-    
+    void setOrigTarget(const Vector3d& p0, const Vector3d& p1, const int& x);
+    void SetOrigTarget(const Point& p0, const Point& p1) {
+        orig = p0;
+        target = p1;
+    }
+    void SetSampleNumber(int x) { n = x; }
+    int GetSampleNumber() const { return n; }
+
+    /** 是否使用自动容差（默认开启） */
+    void SetAutoTolerance(bool flag) { m_AutoTolerance = flag; }
+    bool IsAutoTolerance() const { return m_AutoTolerance; }
+
+    /**
+     * 手动指定容差（相对于模型包围盒对角线长度）。
+     * t <= 0 时恢复自动容差（包围盒对角线 × 1e-6）。
+     */
+    void SetTolerance(double t) {
+        if (t > 0.0) {
+            m_AutoTolerance = false;
+            m_Tolerance = t;
+        } else {
+            m_AutoTolerance = true;
+            m_Tolerance = -1.0;
+        }
+    }
+    /** 手动容差；自动容差时返回 -1 */
+    double GetTolerance() const { return m_AutoTolerance ? -1.0 : m_Tolerance; }
+    /** 上一次 Execute() 实际使用的容差（绝对长度） */
+    double GetEffectiveTolerance() const { return m_EffectiveTolerance; }
 
     std::string GetMessage() const { return m_Message; }
 
+    /* ---------------- 结果查询 ---------------- */
+
+    /** output 1: 折线（SurfaceMesh，点 + 边） */
+    SurfaceMesh::Pointer GetPolyLine() const { return m_PolyLine; }
+    /** output 0: 折线（UnstructuredMesh，IG_LINE 单元） */
+    UnstructuredMesh::Pointer GetLineMesh() const { return m_LineMesh; }
+    /** 每个采样点命中的单元 id，-1 表示无效（不在任何单元内） */
+    const std::vector<igIndex>& GetSampleCellIds() const { return m_SampleCellIds; }
+    /** 每个采样点是否有效（1 = 可插值，0 = 无效），与 validpointmask 属性一致 */
+    const std::vector<unsigned char>& GetSampleValidMask() const { return m_SampleValidMask; }
+    /** 本次执行中退化为线性角点处理的二次/高次单元数量 */
+    IGsize GetUnsupportedQuadraticCellCount() const { return m_UnsupportedQuadraticCellCount; }
+
 private:
-    Point orig = {-1.0f, -0.983795f, -0.35714f}, target = {1.0f, 0.983795f, 0.35714f};
-    int n = 40;
-    int g_nx = 50, g_ny = 50, g_nz = 50;
-    float maxdistSq = 1e-6f;
-    StructuredMesh::Pointer resample_to_line_UnstructuredMesh(const UnstructuredMesh::Pointer mesh, const Point& p0,
-                                                              const Point& p1, int n, double maxDistance = 1e-6);
-    bool buildLine(StructuredMesh::Pointer& mesh);
-    bool rayTriangleIntersect(const Point& orign, const Point& dir, const Point& v0, const Point& v1, const Point& v2,
-                              double& t, double& u, double& v);
-    std::array<float, 3> GetPosition_face(Face* f, int num);
-    double GetArea(Vector3d a, Vector3d b, Vector3d c);
-    SurfaceMesh::Pointer TriangulateSurfaceMesh(SurfaceMesh::Pointer mesh);
-    
-    struct AABB {
-        Point min, max;
-        //初始化结构体
-        AABB() : min({std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()}),
-              max({std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
-                   std::numeric_limits<float>::lowest()}) {}
-
-        void expand(const Point& p) { 
-            min[0] = std::min(min[0], p[0]);
-            min[1] = std::min(min[1], p[1]);
-            min[2] = std::min(min[2], p[2]);
-            max[0] = std::max(max[0], p[0]);
-            max[1] = std::max(max[1], p[1]);
-            max[2] = std::max(max[2], p[2]);
-        }
-
-        void expand(const AABB& box) {
-            expand(box.min);
-            expand(box.max);
-        }
-
-        Point center() const { return (min + max) * 0.5f; }
-        int longestAxis() const {
-            Point extents = max - min;
-            if (extents[0] >= extents[1] && extents[0] >= extents[2]) return 0;
-            if (extents[1] >= extents[0] && extents[1] >= extents[2]) return 1;
-            return 2;
-        }
-        double minDistSq(const Point& p) const {
-            auto dx = std::max({min[0] - p[0], 0.0f, p[0] - max[0]});
-            auto dy = std::max({min[1] - p[1], 0.0f, p[1] - max[1]});
-            auto dz = std::max({min[2] - p[2], 0.0f, p[2] - max[2]});
-            return dx * dx + dy * dy + dz * dz;
-        }
-        bool contains(const Point& p) const {
-            return p[0] >= min[0] && p[0] <= max[0] && p[1] >= min[1] && p[1] <= max[1] && p[2] >= min[2] &&
-                   p[2] <= max[2];
-        }
+    /** 单个采样点的定位与插值权重 */
+    struct SampleLocation {
+        igIndex cellId{-1};            // 命中的单元 id，-1 = 无效
+        Point point{0.f, 0.f, 0.f};    // 采样点
+        std::vector<igIndex> pointIds; // 命中单元的点 id（与权重一一对应）
+        std::vector<double> weights;   // 插值权重
     };
 
-    struct BVHNode {
-        AABB box;
-        std::unique_ptr<BVHNode> left;
-        std::unique_ptr<BVHNode> right;
-        std::vector<int> triangleIndices; // 存储三角形索引的数组
-        bool isLeaf() const { return left == nullptr && right == nullptr; }
-    };
+    /* ---------------- 几何搜索 ---------------- */
+    std::vector<std::vector<igIndex>> BuildUniformGrid(const UnstructuredMesh::Pointer& mesh,
+                                                       const BoundingBox& bbox, igIndex nx, igIndex ny, igIndex nz);
+    bool LocateSample(const UnstructuredMesh::Pointer& mesh, const Point& p, const BoundingBox& bbox,
+                      const std::vector<std::vector<igIndex>>& grid, igIndex nx, igIndex ny, igIndex nz,
+                      double distTol, SampleLocation& out);
 
-    struct NearestResult {
-        double distanceSq = std::numeric_limits<double>::max();
-        Point closestPoint;
-        int triangleIndex = -1;
-        double w0, w1, w2; // Barycentric coordinates
-    };
-    //AABB triangleAABB(const SurfaceMesh::Pointer Mesh, int faceida, int faceidb, int faceidc);
-    //std::unique_ptr<BVHNode> buildBVH(SurfaceMesh::Pointer& mesh, std::vector<int>& triangleIndices, int depth);
-    std::vector<std::vector<int>> builduniformGrid(const BoundingBox& bbox, const UnstructuredMesh::Pointer& mesh, int nx, int ny,
-                                                   int nz);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c, Point& closest,
-                                 float& distSq);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c,
-                                                const Point& d, Point& closest, float& distSq);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c,
-                                                const Point& d, const Point& e, Point& closest, float& distSq);
-    void closestPointOnTriangle(const Point& p, const Point& a, const Point& b, const Point& c, const Point& d,
-                                const Point& e, const Point& f, Point& closest, float& distSq);
-    bool findNearest(const UnstructuredMesh::Pointer& mesh, const Point& p, Point& closest, int& cellid, int& faceid,
-                     float& distSq, const std::vector<std::vector<int>>& grid, const BoundingBox& bbox);
-    float Interpolate(const Point& target, const std::vector<Point>& points, const std::vector<float>& values,
-                      float power = 2.f);
-    bool IsPointInCell(const Point& p, const std::vector<Point>& cellPoints);
-    float NearestVal(const Point& target, const std::vector<Point>& points, const std::vector<float>& values);
+    /* ---------------- 单元权重 ---------------- */
+    bool ComputeCellWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
+                            std::vector<double>& weights);
+    bool ComputeLinearFaceWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
+                                  std::vector<double>& weights);
+    bool ComputeMeanValueWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
+                                 std::vector<double>& weights);
+    bool ComputeQuadraticWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol,
+                                 std::vector<double>& weights);
+    /** 高次体单元退化：用线性角点单元的面表做均值坐标插值 */
+    bool ComputeDegradedVolumeWeights(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p,
+                                     double distTol, std::vector<double>& weights);
+    bool IsPointInVolumeCell(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, double distTol);
+    double DistanceToCellBoundary(const UnstructuredMesh::Pointer& mesh, igIndex cellId, const Point& p, Point& closest);
 
-protected:
-    ResampleToLine()
-    {
+    /* ---------------- 属性处理 ---------------- */
+    void InterpolatePointData(AttributeSet* inSet, AttributeSet::Pointer outSet,
+                              const std::vector<SampleLocation>& locations, int sampleNum);
+    void CopyCellData(AttributeSet* inSet, AttributeSet::Pointer outSet,
+                      const std::vector<SampleLocation>& locations, int sampleNum);
+    void AddValidPointMask(AttributeSet::Pointer outSet, int sampleNum);
+
+    /* ---------------- 输出构建 ---------------- */
+    void BuildPolyLineOutputs(const Points::Pointer& samples, AttributeSet::Pointer attrSet, int sampleNum);
+
+    ResampleToLine() {
         SetNumberOfInputs(1);
-        SetNumberOfOutputs(1);
+        SetNumberOfOutputs(2);
     }
     ~ResampleToLine() override = default;
 
-    SurfaceMesh::Pointer surface_Mesh{};
-    VolumeMesh::Pointer volume_Mesh{};
-    AttributeSet* attributeSet{nullptr};
+    Point orig{-1.0f, -0.983795f, -0.35714f};
+    Point target{1.0f, 0.983795f, 0.35714f};
+    int n{40};
 
-    int curIndex{-1};
-    std::string name;
+    // 容差：默认自动（包围盒对角线 × kAutoToleranceRatio）
+    bool m_AutoTolerance{true};
+    double m_Tolerance{-1.0};
+    double m_EffectiveTolerance{0.0};
 
-    int dim{-1};
-    int m_currentAttributeDimension{-1};
-    std::string m_Message{"Not Surface Mesh !"};
+    std::string m_Message{"Not Unstructured Mesh !"};
+    IGsize m_UnsupportedQuadraticCellCount{0};
+
+    SurfaceMesh::Pointer m_PolyLine{};
+    UnstructuredMesh::Pointer m_LineMesh{};
+    std::vector<igIndex> m_SampleCellIds;
+    std::vector<unsigned char> m_SampleValidMask;
 };
-
-
-
 
 IGAME_NAMESPACE_END
 #endif
-

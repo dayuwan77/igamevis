@@ -1,5 +1,8 @@
 #pragma once
 
+#include "iGameDataObject.h"
+#include "iGameModel.h"
+
 #include <QWidget>
 
 class QDockWidget;
@@ -28,7 +31,7 @@ public:
 
 signals:
     void cancelRequested();
-    void idsGenerated();
+    void idsGenerated(iGame::DataObject::Pointer output);
 
 private slots:
     void apply();
@@ -39,5 +42,5 @@ private:
     void initConnections();
 
     Ui::igQtPointAndCellIds* ui;
-    iGame::Model* m_currentModel{nullptr};
+    iGame::Model::Pointer m_currentModel;
 };

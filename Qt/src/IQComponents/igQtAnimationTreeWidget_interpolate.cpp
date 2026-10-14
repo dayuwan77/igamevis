@@ -4,12 +4,15 @@
 
 #include <IQComponents/igQtAnimationTreeWidget_interpolate.h>
 #include <QDebug>
+#include <algorithm>
 igQtAnimationTreeWidget_interpolate::igQtAnimationTreeWidget_interpolate(QWidget *parent) : igQtAnimationTreeWidget(parent) {
 //    setHeaderLabels({"插值时间序列", "值"});
 }
 
 
 void igQtAnimationTreeWidget_interpolate::updateInterpolateSequence(int num) {
+    if (timeSequence.size() < 2 || num < 2) return;
+
     interpolate_timeSequence.clear();
     interpolate_timeSequence.reserve(num);
     keyframe_sum = num;
@@ -60,6 +63,9 @@ void igQtAnimationTreeWidget_interpolate::updateInterpolateSequence(int num) {
             ratio = 1.0f;
         }
 
+        // Endpoints can drift outside [0,1] by float roundoff; the configured
+        // time range is already validated, so do not extrapolate a final frame.
+        ratio = std::max(0.0f, std::min(1.0f, ratio));
         interpolate_sequence.emplace_back(start_keyframe_idx, ratio);
         interpolate_timeSequence.push_back(t);
     }
@@ -94,12 +100,16 @@ void igQtAnimationTreeWidget_interpolate::updateData() {
     this->topLevelItem(1)->setText(1, QString::asprintf("%.10f", interpolate_timeSequence[current_Keyframe_index]));
 }
 
-void igQtAnimationTreeWidget_interpolate::updateInterpolateData(float _start, float _end, int keyframeNum) {
-    if((startTime != _start || endTime != _end || keyframe_sum != keyframeNum) && startTime < endTime) {
+bool igQtAnimationTreeWidget_interpolate::updateInterpolateData(float _start, float _end, int keyframeNum) {
+    if (timeSequence.size() < 2 || keyframeNum < 2 || _start >= _end) return false;
+    if (_start < timeSequence.front() || _end > timeSequence.back()) return false;
+
+    if((startTime != _start || endTime != _end || keyframe_sum != keyframeNum)) {
         startTime = _start;
         endTime = _end;
         updateInterpolateSequence(keyframeNum);
     }
+    return true;
 }
 
 void igQtAnimationTreeWidget_interpolate::updateCurrentKeyframe(int idx) {

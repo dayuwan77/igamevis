@@ -5,8 +5,13 @@
 
 #pragma once
 #include <ui_Animation.h>
+#include <IQCore/igQtAnimationFilterManager.h>
+#include <IQCore/igQtAnimationPipeline.h>
+#include <IQCore/igQtAnimationOutputCache.h>
 #include <IQCore/igQtExportModule.h>
 #include <iGameDataObject.h>
+#include <iGameModel.h>
+#include <QMap>
 class igQtAnimationVcrController;
 class IG_QT_MODULE_EXPORT igQtAnimationWidget : public QWidget{
 
@@ -14,14 +19,13 @@ class IG_QT_MODULE_EXPORT igQtAnimationWidget : public QWidget{
 
 public:
     igQtAnimationWidget(QWidget* parent = nullptr);
+    ~igQtAnimationWidget() override;
 
     // 检查动画是否正在播放（用于阻止播放期间重新初始化组件）
     bool IsPlaying() const { return m_IsAnimationPlaying; }
 
-    // 声明「至少需要缓存多少帧」。
-    // 逐帧计算出的派生属性（如涡量）只存在于帧对象上，一旦缓存被清空，
-    // 下次切帧会从磁盘重新读出不含该属性的新对象，既丢结果又会造成父子属性数不一致。
-    // 设置后 initAnimationComponents 不再把缓存重置为 0。
+    // 设置最终输出缓存容量；N 表示最多 N 个输出，0 关闭缓存。
+    // 同一源模型的界面刷新不会重置用户设置。
     void setPreferredCacheNum(int n);
 
     // 开启 / 关闭「播放时按需计算涡量」。
@@ -38,12 +42,37 @@ public:
     int ensureVortexForCurrentFrame(iGame::DataObject::Pointer obj, const std::string& sourceAttrName,
                                     int frameIndexForDisplay = -1);
 
+    // 播放时按需计算属性差值(diff)，开启后每次切帧都会检查当前帧是否已有 <源属性名>_diff_<类型>：
+    // 命中缓存直接复用，否则用 iGameAttrDiff 与前一帧做差再继续渲染。
+    void SetDiffAutoCompute(bool enabled, const std::string& sourceAttrName = std::string());
+    bool IsDiffAutoCompute() const { return m_DiffAutoCompute; }
+    // 0 带符号差(cur-prev)，1 绝对差，2 相对变化率
+    void SetDiffMode(int mode);
+    // 确保obj的当前帧已有 <源属性名>_diff_<类型>，已存在直接返回，
+    // 不存在才计算。frameIndex 是真实帧号（>=0）：第 0 帧写全 0，第 i 帧对比第 i-1 帧。
+    // 返回 diff 在父容器 AttributeSet 中的索引；失败返回 -1。
+    int EnsureTimeDifferenceForCurrentFrame(iGame::DataObject::Pointer obj,
+                                            const std::string& sourceAttrName,
+                                            int frameIndex);
+    std::string GetDiffOutputName(const std::string& sourceAttrName) const;
+
+    // 当前显示帧在“源时间序列”中的下标（0 基）。
+    // 供「数据转换」等需要“作用于当前帧而不是第一帧”的功能读取。
+    int currentFrameIndex() const;
+    // Playback and exporters request the same configured output sequence/cache.
+    bool renderAnimationOutputFrame(int index, bool exporting = false);
+    int animationOutputFrameCount() const;
+
 public slots:
     void initAnimationComponents();
 
     bool saveAnimation();
 
     void ClearAnimationVCRInfo();
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 private slots:
     void playAnimation_snap(unsigned int keyframe_idx);
     void playAnimation_interpolate(int keyframe_0, float t);
@@ -51,11 +80,19 @@ private slots:
     void updateAnimationComponentsKeyframeSum(int keyframeSum);
     void changeAnimationMode();
     void onCacheNumChanged(int cacheNum);  // 缓存数量变化槽函数
+    void onAnimationFilterChanged(int index);
+    void onPipelineSelectionChanged();
+    void addSelectedFilterToPipeline();
+    void removeSelectedPipelineStep();
+    void moveSelectedPipelineStep(bool up);
+    void clearAnimationPipeline();
+    void openAnimationFilterParameters();
 
 
 signals:
     void UpdateScene();
     void AnimationFrameChanged();  // Signal when animation frame changes, triggers scalar UI update
+    void AnimationDataChanged();   // 原地修改属性的 Filter 执行后通知模型树刷新
 
     void PlayAnimation_snap(int keyframe_idx);
 
@@ -63,13 +100,54 @@ signals:
 
 
 private:
+    bool bindAnimationSource();
+    bool displayAnimationFrame(const igQtAnimationFrameRequest& request, bool exporting = false);
+    void invalidateAnimationOutputs();
+    void updateCacheChoices(int frameCount);
+    void updateAnimationModeControls();
+    QString selectedAnimationFilterId() const;
+    iGame::DataObject::Pointer animationFilterInput() const;
+    bool animationPipelineInputInfo(int row, igQtAnimationDataInfo& input, QString& error) const;
+    void updateAnimationFilterSummary();
+    void applyPipelineDisplaySettings(iGame::Scene* scene,
+                                      iGame::DataObject::Pointer displayObject,
+                                      iGame::DataObject::Pointer sourceObject);
+    void restoreAnimationFilterSource();
+
     Ui::Animation* ui;
     igQtAnimationVcrController* VcrController;
     bool m_IsAnimationPlaying{false}; // 动画播放状态标记
-    int m_PreferredCacheNum{0};       // 外部声明的最小缓存帧数，见 setPreferredCacheNum
+    int m_SourceFrameCount{0};         // 原始时间模式使用的帧数
+    float m_SourceStartTime{0.0f};
+    float m_SourceEndTime{0.0f};
+    float m_InterpolateStartTime{0.0f};
+    float m_InterpolateEndTime{0.0f};
+    int m_InterpolateFrameCount{0};    // 插值时间模式使用的输出帧数
+    int m_PreferredCacheNum{0};       // 新源模型的默认最终输出缓存容量
     bool m_VortexAutoCompute{false};  // 播放时按需补算涡量，见 setVortexAutoCompute
     std::string m_VortexSourceAttr;   // 计算涡量所用的源矢量属性名
     // 上次绑定按需计算的模型；用于「切换模型时自动关闭」，
     // 而在同一模型上选属性（同样会触发 initAnimationComponents）时保持开启
     iGame::DataObject* m_VortexBoundModel{nullptr};
+    
+    bool m_DiffAutoCompute{false};     // 播放时按需补算 diff
+    std::string m_DiffSourceAttr;      // 计算 diff 所用的源属性名
+    int m_DiffMode{0};                 // 0 带符号差(cur-prev)，1 绝对差，2 相对变化率
+    iGame::DataObject* m_DiffBoundModel{nullptr};  // 绑定模型，切换模型时自动关闭
+    igQtAnimationFilterManager m_AnimationFilterManager;
+    igQtAnimationPipelineSteps m_AnimationPipeline;
+    unsigned long long m_AnimationPipelineRevision{0};
+    unsigned long long m_DisplayedPipelineRevision{0};
+    QString m_AnimationPipelineDisplayAttribute;
+    int m_AnimationPipelineDisplayDimension{-1};
+    iGame::Model::Pointer m_AnimationFilterSourceModel{nullptr};
+    iGame::DataObject::Pointer m_AnimationFilterSourceObject{nullptr};
+    iGame::DataObject::Pointer m_AnimationDisplayedObject{nullptr};
+    iGame::DataObject* m_AnimationInitializedSource{nullptr};
+    igQtAnimationOutputCache m_AnimationOutputCache;
+    int m_DisplayedSourceFrame{0};
+    QString m_AnimationFrameError;
+
+protected:
+    void changeEvent(QEvent* e) override;
 };

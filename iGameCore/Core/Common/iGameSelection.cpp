@@ -550,9 +550,6 @@ void Selection::SelectionCallBackEvent(IGenum itemType, const std::vector<igInde
         case IG_CHANGE: {
             for (auto& func : m_CallBackFunctor) { func.second(itemType, ids, ope); }
         } break;
-        case IG_DRAGPOINT: {
-            for (auto& func : m_CallBackFunctor) { func.second(itemType, ids, ope); }
-        } break;
         default:
             break;
     }
@@ -621,9 +618,6 @@ void Selection::SelectionCallBackEvent(IGenum itemType, const igIndex& id, Opera
             for (auto& func: m_BoxSelectInitCallBackFunctor) { func.second(itemType, pMinMax.first, pMinMax.second); }
         } break;
         case IG_CHANGE: {
-            for (auto& func: m_CallBackFunctor) { func.second(itemType, {id}, ope); }
-        } break;
-        case IG_DRAGPOINT: {
             for (auto& func: m_CallBackFunctor) { func.second(itemType, {id}, ope); }
         } break;
         default:

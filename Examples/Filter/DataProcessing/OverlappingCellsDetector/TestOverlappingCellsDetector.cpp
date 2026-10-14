@@ -1,4 +1,10 @@
+// Regression: PR #170 deleted this example and its build target. Keep the
+// algorithm edge cases and model fixtures runnable after merging upstream.
+// Also retain PR #99's independent-output checks: execution must not mutate input.
+// Fix: Merge filter model regressions into interaction fixes.
+// Find: git log --diff-filter=A --oneline -- Examples/Filter/DataProcessing/OverlappingCellsDetector/TestOverlappingCellsDetector.cpp
 #include <DataProcessing/OverlappingCellsDetector/iGameOverlappingCellsDetectorFilter.h>
+#include <iGameFileIO.h>
 #include <iGameStructuredMesh.h>
 
 #include <array>
@@ -43,8 +49,21 @@ bool RunCase(const char* caseName, const std::vector<std::pair<CellPoints, IGenu
         return false;
     }
 
-    // 验证正式输出：输入网格上附加了与 VTK 同名的 cell scalar。
-    auto* attribute = mesh->GetAttributeSet()->GetArrayPointer(
+    auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+    if (output.IsNull() || output.GetPointer() == mesh ||
+        output->GetNumberOfPoints() != mesh->GetNumberOfPoints() ||
+        output->GetNumberOfCells() != mesh->GetNumberOfCells()) {
+        std::cerr << caseName << ": output must be an independent topology copy\n";
+        return false;
+    }
+    if (mesh->GetAttributeSet()->GetAttributeIndex(
+                iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName()) >= 0) {
+        std::cerr << caseName << ": input mesh was modified\n";
+        return false;
+    }
+
+    // 验证正式输出：独立输出网格附加了与 VTK 同名的 cell scalar。
+    auto* attribute = output->GetAttributeSet()->GetArrayPointer(
             IG_SCALAR, IG_CELL,
             iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName());
     if (attribute == nullptr || attribute->GetNumberOfElements() != expectedCounts.size()) {
@@ -72,6 +91,26 @@ bool RunUnsupportedCase() {
     return true;
 }
 
+bool RunModelCase(const char* fileName, const std::vector<igIndex>& expectedCounts,
+                  const char* caseName) {
+    auto dataObject = iGame::FileIO::ReadFile(fileName);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(dataObject);
+    if (mesh.IsNull()) {
+        std::cerr << "[FAIL] read " << fileName << '\n';
+        return false;
+    }
+
+    auto filter = iGame::OverlappingCellsDetectorFilter::New();
+    filter->SetInput(mesh);
+    filter->SetTolerance(0.0);
+    if (!filter->Execute() || filter->GetNumberOfOverlapsPerCell() != expectedCounts) {
+        std::cerr << "[FAIL] " << caseName << ": unexpected NumberOfOverlapsPerCell values\n";
+        return false;
+    }
+    std::cout << "[PASS] " << caseName << '\n';
+    return true;
+}
+
 bool RunVolumeMeshCase(const CellPoints& firstCell, const CellPoints& secondCell) {
     auto mesh = iGame::VolumeMesh::New();
     auto points = iGame::Points::New();
@@ -87,7 +126,16 @@ bool RunVolumeMeshCase(const CellPoints& firstCell, const CellPoints& secondCell
         std::cerr << "VolumeMesh: expected overlapping cells to produce [1, 1]\n";
         return false;
     }
-    auto* attribute = mesh->GetAttributeSet()->GetArrayPointer(
+    auto output = iGame::DynamicCast<iGame::VolumeMesh>(filter->GetOutput());
+    if (output.IsNull() || output.GetPointer() == mesh ||
+        output->GetNumberOfPoints() != mesh->GetNumberOfPoints() ||
+        output->GetNumberOfVolumes() != mesh->GetNumberOfVolumes() ||
+        mesh->GetAttributeSet()->GetAttributeIndex(
+                iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName()) >= 0) {
+        std::cerr << "VolumeMesh: output must be independent and input unchanged\n";
+        return false;
+    }
+    auto* attribute = output->GetAttributeSet()->GetArrayPointer(
             IG_SCALAR, IG_CELL,
             iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName());
     if (attribute == nullptr || attribute->GetNumberOfElements() != 2) {
@@ -114,6 +162,17 @@ bool RunStructuredMeshCase() {
     filter->SetInput(mesh);
     if (!filter->Execute() || filter->GetNumberOfOverlapsPerCell() != std::vector<igIndex>{0, 0}) {
         std::cerr << "StructuredMesh: face-touching hexahedra must produce [0, 0]\n";
+        return false;
+    }
+    auto output = iGame::DynamicCast<iGame::StructuredMesh>(filter->GetOutput());
+    if (output.IsNull() || output.GetPointer() == mesh ||
+        output->GetNumberOfPoints() != mesh->GetNumberOfPoints() ||
+        output->GetNumberOfCells() != mesh->GetNumberOfCells() ||
+        mesh->GetAttributeSet()->GetAttributeIndex(
+                iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName()) >= 0 ||
+        output->GetAttributeSet()->GetAttributeIndex(
+                iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName()) < 0) {
+        std::cerr << "StructuredMesh: output must preserve type and be independent\n";
         return false;
     }
     std::cout << "[PASS] StructuredMesh face-touching hexahedra\n";
@@ -149,6 +208,10 @@ int main() {
                                          iGame::Point(0.7f, 0.7f, 1.1f)}};
 
     bool passed = true;
+    passed &= RunModelCase("./Models/OverlappingCellsDetectorValidation.vtk",
+                           {1, 1, 0, 0}, "model: overlapping and disjoint tetrahedra");
+    passed &= RunModelCase("./Models/OverlappingCellsDetectorFaceTouching.vtk",
+                           {0, 0}, "model: face-touching tetrahedra");
     passed &= RunCase("disjoint tetrahedra", {{referenceTetra, iGame::IG_TETRA},
                                                {{{iGame::Point(2.0f, 0.0f, 0.0f), iGame::Point(3.0f, 0.0f, 0.0f),
                                                   iGame::Point(2.0f, 1.0f, 0.0f), iGame::Point(2.0f, 0.0f, 1.0f)}},

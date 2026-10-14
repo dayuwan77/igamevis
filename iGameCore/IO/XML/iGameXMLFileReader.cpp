@@ -8,6 +8,7 @@
  */
 
 #include "iGameXMLFileReader.h"
+#include "iGameFileSystem.h"
 #include "iGameVolumeMesh.h"
 
 #include <tinyxml2.h>
@@ -112,13 +113,16 @@ bool iGameXMLFileReader::Open() {
 
 //	doc = new tinyxml2::XMLDocument(false, tinyxml2::Whitespace::COLLAPSE_WHITESPACE);
 	doc = new tinyxml2::XMLDocument(true, tinyxml2::ParseMode::MIXED_BINARY_XML);
-	if (doc->LoadFile(m_FilePath.c_str()) != tinyxml2::XML_SUCCESS) {
+    FILE* xmlFile = FileSystem::OpenFile(m_FilePath, "rb");
+	if (xmlFile == nullptr || doc->LoadFile(xmlFile) != tinyxml2::XML_SUCCESS) {
 //		printf("[XML parser]:Could not load file: %s . Error='%s'. Exiting.\n", m_FilePath.c_str(), doc->ErrorStr());
         IGAME_CORE_ERROR("[XML parser]:Could not load file: {} . Error='{}'. Exiting.", m_FilePath.c_str(), doc->ErrorStr());
+		if (xmlFile != nullptr) { std::fclose(xmlFile); }
 		delete doc;
 		doc = nullptr;
 		return false;
 	}
+    std::fclose(xmlFile);
 	root = doc->RootElement(); // <VTKFile>
 	if (root == nullptr) {
 		IGAME_CORE_ERROR("[XML parser]:Root element is null for file: {}", m_FilePath.c_str());
@@ -188,13 +192,38 @@ tinyxml2::XMLElement* iGameXMLFileReader::FindTargetItem(tinyxml2::XMLElement* r
 tinyxml2::XMLElement* iGameXMLFileReader::FindTargetAttributeItem(tinyxml2::XMLElement* root, const char* itemName, const char* attributeName,
 	const char* attributeData) {
 	if (root == nullptr) return nullptr;
-	if (strcmp(root->Value(), itemName) == 0 && strcmp(root->Attribute(attributeName), attributeData) == 0) {
-		return root;
+	if (strcmp(root->Value(), itemName) == 0) {
+        const char* value = root->Attribute(attributeName);
+        if (value == nullptr) {
+            igDebug("XML element <{}> has no '{}' attribute.", itemName, attributeName);
+        } else if (strcmp(value, attributeData) == 0) {
+            return root;
+        }
 	}
 	tinyxml2::XMLElement* res = FindTargetAttributeItem(root->FirstChildElement(), itemName, attributeName, attributeData);
 	if (res) return res;
 	res = FindTargetAttributeItem(root->NextSiblingElement(), itemName, attributeName, attributeData);
 	return res;
+}
+
+tinyxml2::XMLElement* iGameXMLFileReader::FindDirectChildAttributeItem(tinyxml2::XMLElement* parent,
+                                                                       const char* itemName,
+                                                                       const char* attributeName,
+                                                                       const char* attributeData) {
+    if (parent == nullptr) return nullptr;
+
+    for (tinyxml2::XMLElement* element = parent->FirstChildElement(itemName); element != nullptr;
+         element = element->NextSiblingElement(itemName)) {
+        const char* value = element->Attribute(attributeName);
+        if (value == nullptr) {
+            igDebug("XML element <{}> directly under <{}> has no '{}' attribute.", itemName, parent->Value(),
+                    attributeName);
+            continue;
+        }
+        if (strcmp(value, attributeData) == 0) return element;
+    }
+
+    return nullptr;
 }
 
 

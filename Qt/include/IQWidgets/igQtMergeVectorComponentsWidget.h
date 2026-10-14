@@ -19,6 +19,10 @@ public:
     // 主窗口打开面板时传入当前模型
     void SetOriginDataObject(iGame::DataObject::Pointer data);
 
+signals:
+    // 合并成功: output 为独立输出节点(输入网格的副本+合并向量), vectorName 为向量属性名
+    void MergeCompleted(iGame::DataObject::Pointer output, const std::string& vectorName);
+
 public slots:
     void OnDataTypeChanged();
     void OnExecute();

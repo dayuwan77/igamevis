@@ -24,6 +24,8 @@ public:
     bool copyInput() const;
     bool flipAllInputArrays() const;
     void resetParameters();
+    void setInput(iGame::DataObject::Pointer input) { m_input = input; }
+    iGame::DataObject::Pointer input() const { return m_input; }
 
 signals:
     void applyRequested();
@@ -32,4 +34,5 @@ private:
     void updateCenterEnabled();
 
     Ui::igQtAxisAlignedReflection* ui;
+    iGame::DataObject::Pointer m_input;
 };

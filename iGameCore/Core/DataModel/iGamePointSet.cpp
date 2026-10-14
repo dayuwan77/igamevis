@@ -16,12 +16,7 @@ IGsize PointSet::GetNumberOfPoints() { return m_Points ? m_Points->GetNumberOfPo
 
 const Point& PointSet::GetPoint(const IGsize ptId) const { return m_Points->GetPoint(ptId); }
 
-void PointSet::SetPoint(const IGsize ptId, const Point& p) {
-    m_Points->SetPoint(ptId, p);
-    // PointSet 自身也必须失效，确保交互修改会重建渲染缓存。
-    this->Modified();
-    this->ForceReConvertToDrawableData();
-}
+void PointSet::SetPoint(const IGsize ptId, const Point& p) { m_Points->SetPoint(ptId, p); }
 
 IGsize PointSet::AddPoint(const Point& p) {
     if (!InEditStatus()) { RequestEditStatus(); }
@@ -130,21 +125,24 @@ void PointSet::ConvertToDrawableData() {
 
 void PointSet::SetAttributeWithPointData(ArrayObject::Pointer attr, DoubleArray::Pointer attrRange, igIndex dimension) {
     /* 当pointMapper 外部更新（调整颜色映射的 Range）， 则不用调整ColorMap的范围*/
-    if (!m_ColorMapper->GetStable() && m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
-        int minIdx = 2 + dimension * 2 + 0;
-        int maxIdx = 2 + dimension * 2 + 1;
-        double minimal_val = attrRange->GetValue(minIdx);
-        double maximal_val = attrRange->GetValue(maxIdx);
-        
-        if (minimal_val < maximal_val) {
-            m_ColorMapper->SetRange(minimal_val, maximal_val);
-        } else {
-            m_ColorMapper->InitRange(attr, dimension);
+    // 派生网格（抽壳/简化）只读范围，不写范围（原因见 iGameSurfaceMesh.cpp 同名注释）
+    if (m_IsMainRenderableObject && m_ColorMapper->GetMTime() <= attrRange->GetMTime()) {
+        if (!m_ColorMapper->GetStable()) {
+            int minIdx = 2 + dimension * 2 + 0;
+            int maxIdx = 2 + dimension * 2 + 1;
+            double minimal_val = attrRange->GetValue(minIdx);
+            double maximal_val = attrRange->GetValue(maxIdx);
+            
+            if (minimal_val < maximal_val) {
+                m_ColorMapper->SetRange(minimal_val, maximal_val);
+            } else {
+                m_ColorMapper->InitRange(attr, dimension);
+            }
         }
     }
-    m_Colors = m_ColorMapper->MapScalars(attr, dimension);
-    m_Colors->Modified();
+    m_Colors = m_ColorMapper->MapScalars(attr, dimension, 4);
     if (m_Colors == nullptr) { return; }
+    m_Colors->Modified();
 }
 
 FlatArray<igIndex>::Pointer PointSet::GetPointMap() { return m_PointMap; }

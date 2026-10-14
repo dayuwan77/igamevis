@@ -1,9 +1,9 @@
 #include "iGameAnsysReader.h"
+#include "iGameExternalProcess.h"
 #include "Log/iGameLogger.h"
 #include "VTK XML/iGamePVDReader.h"
+#include <chrono>
 #include <filesystem>
-#include <fstream>
-#include <iGameFileIO.h>
 
 IGAME_NAMESPACE_BEGIN
 
@@ -15,13 +15,15 @@ bool AnsysReader::Parsing() {
 
     // Get the input file path (.rst or .rth)
     std::string ansysPath = this->GetFilePath();
-    fs::path inputPath(ansysPath);
+    // m_FilePath 为 UTF-8，先转成本地宽字符 path，避免窄字符串按 ACP 解码产生乱码
+    fs::path inputPath = FileSystem::PathFromUtf8(ansysPath);
 
-    // Create a temporary directory for the converted output
-    fs::path tempDir = fs::current_path() / "temp";
-    if (!fs::exists(tempDir)) { fs::create_directories(tempDir); }
-
-    std::string outputDir = tempDir.string();
+    // 创建独立临时输出子目录（带唯一后缀，避免不同模型/多次运行之间文件名冲突）
+    auto uniqueSuffix = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    fs::path tempDirName = inputPath.stem();
+    tempDirName += "_" + uniqueSuffix;
+    fs::path tempDir = fs::current_path() / "temp" / tempDirName;
+    fs::create_directories(tempDir);
 
     // Locate the converter executable
     std::vector<std::string> exePaths = {
@@ -32,8 +34,7 @@ bool AnsysReader::Parsing() {
     std::string exePath;
     bool exeFound = false;
     for (const auto& path: exePaths) {
-        std::ifstream file(path);
-        if (file.good()) {
+        if (fs::exists(FileSystem::PathFromUtf8(path))) {
             exePath = path;
             exeFound = true;
             break;
@@ -49,18 +50,22 @@ bool AnsysReader::Parsing() {
 
     IGAME_CORE_DEBUG("[AnsysReader] Using converter: {}", exePath);
 
-    // Run the converter: ansys_to_pvd.exe --input input.rst --output output.pvd
-    fs::path outputFilePath = tempDir / (inputPath.stem().string() + ".pvd");
-    std::string outputFile = outputFilePath.string();
+    // Run the converter: ansys_to_pvd_converter --input input.rst --output output.pvd
+    // 直接以宽字符命令行启动转换器（不经 cmd.exe），参数加引号，中文/空格路径均安全。
+    fs::path outputFileName = inputPath.stem();
+    outputFileName += ".pvd";
+    fs::path outputFilePath = tempDir / outputFileName;
+    // 公共 API 边界统一为 UTF-8
+    std::string outputFile = FileSystem::PathToUtf8(outputFilePath);
 
-    std::string arguments = "--input " + ansysPath + " --output " + outputFile;
-    std::string fullCommand = "\"" + exePath + "\" " + arguments;
+    std::vector<std::string> arguments = {"--input", ansysPath, "--output", outputFile};
+    IGAME_CORE_DEBUG("[AnsysReader] Running converter: {} --input {} --output {}", exePath, ansysPath, outputFile);
 
-    
-
-    IGAME_CORE_DEBUG("[AnsysReader] Running command: {}", fullCommand);
-
-    int returnCode = system(fullCommand.c_str());
+    int returnCode = 0;
+    if (!ExternalProcess::Run(exePath, arguments, returnCode)) {
+        IGAME_CORE_ERROR("[AnsysReader] Failed to start converter: {}", exePath);
+        return false;
+    }
     if (returnCode != 0) {
         IGAME_CORE_ERROR("[AnsysReader] Ansys to PVD conversion failed. Return code: {}", returnCode);
         return false;
@@ -84,28 +89,7 @@ bool AnsysReader::Parsing() {
 
     this->SetOutput(obj);
 
-    // Clean up temporary files
-    try {
-        if (fs::exists(outputFilePath)) {
-            fs::remove(outputFilePath);
-            IGAME_CORE_DEBUG("[AnsysReader] Removed temporary file: {}", outputFilePath.string());
-        }
-        // Remove any VTU files in the temp directory matching the base name
-        for (const auto& entry: fs::directory_iterator(tempDir)) {
-            std::string entryName = entry.path().string();
-            if (entryName.find(inputPath.stem().string()) != std::string::npos && entry.path().extension() == ".vtu") {
-                fs::remove(entry.path());
-                IGAME_CORE_DEBUG("[AnsysReader] Removed temporary file: {}", entry.path().string());
-            }
-        }
-        if (fs::exists(tempDir) && fs::is_empty(tempDir)) {
-            fs::remove(tempDir);
-            IGAME_CORE_DEBUG("[AnsysReader] Removed empty temp directory: {}", tempDir.string());
-        }
-    } catch (const std::exception& e) {
-        IGAME_CORE_WARN("[AnsysReader] Failed to clean up temporary files: {}", e.what());
-    }
-
+    // 保留 PVD/VTU 临时文件，供动画切帧时懒加载；程序下次启动时会统一清理 temp 目录。
     return true;
 }
 

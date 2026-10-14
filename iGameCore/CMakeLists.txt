@@ -22,7 +22,7 @@ file(GLOB_RECURSE IGAME_CORE_FILE CONFIGURE_DEPENDS ./*.h ./*.cpp)
 if (IGAME_BUILD_SHARED AND UNIX AND NOT APPLE)
     add_library(${MODULE_NAME} SHARED ${IGAME_CORE_FILE})
 else ()
-    add_library(${MODULE_NAME} STATIC ${IGAME_CORE_FILE} "IO/Fluent/iGameCASReader.h" "Filters/StreamView/iGameStreamlineSimplifier.h" "Filters/StreamView/iGameStreamlineSimplifier.cpp" "Filters/TriangleStrip/iGameTriangleStripFilter.cpp" "Filters/TriangleStrip/iGameTriangleStripFilter.h")
+    add_library(${MODULE_NAME} STATIC ${IGAME_CORE_FILE} "IO/Fluent/iGameCASReader.h" "Filters/StreamView/iGameStreamlineSimplifier.h" "Filters/StreamView/iGameStreamlineSimplifier.cpp")
 endif ()
 
 if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
@@ -81,6 +81,7 @@ list(APPEND ThirdParty_lib_dependency
         libzstd_static
         spdlog_header_only
         zlibstatic
+        cnpy
         nanoflann
 )
 
@@ -112,6 +113,25 @@ if (${AbqSDK_FOUND})
     message("Find abqsdk")
     target_compile_definitions(${MODULE_NAME} PUBLIC AbqSDK_ENABLE)
     target_link_libraries(${MODULE_NAME} PUBLIC ${ABQ_LIB_TARGETS})
+
+    get_filename_component(_ABQ_SDK_VERSION
+            "${AbqSDK_PRIVATE_PUBLIC_DIR}" NAME)
+    set_property(SOURCE
+            "${CMAKE_CURRENT_SOURCE_DIR}/IO/Abaqus/iGameODBReader.cpp"
+            APPEND PROPERTY COMPILE_DEFINITIONS
+            IGAME_ABAQUS_VERSION="${_ABQ_SDK_VERSION}")
+
+    # Abaqus is an optional runtime integration.  A release built with the
+    # SDK must still start on machines where Abaqus is not installed.  Delay
+    # the Windows imports until an ODB file is actually opened; ODBReader then
+    # locates and preloads the user's local Abaqus runtime.
+    if (MSVC AND WIN32)
+        target_link_libraries(${MODULE_NAME} PUBLIC delayimp)
+        foreach (_ABQ_DELAYLOAD_LIBRARY IN LISTS ABQ_LIB_LIST)
+            target_link_options(${MODULE_NAME} PUBLIC
+                    "/DELAYLOAD:${_ABQ_DELAYLOAD_LIBRARY}.dll")
+        endforeach ()
+    endif ()
 
     # Abaqus 2024 has legacy diamond inheritance in odb_Repository. MSVC's
     # C++20 conformance mode diagnoses its generated copy constructor as
@@ -234,6 +254,8 @@ endif ()
 # Exec Install iGameVis Core Module's CMake
 #--------------------------------------------------------------------
 include(Cmake/iGameCoreInstall.cmake)
+#--------------------------------------------------------------------
+
 if (ENABLE_LIBTORCH_MODULE)
     set(RESOURCES_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Resources/AI)
     set(RESOURCES_OUTPUT_DIR ${CMAKE_BINARY_DIR}/Resources/AI)

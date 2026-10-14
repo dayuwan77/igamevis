@@ -1,25 +1,36 @@
+// Source: dayuwan77/igamevis at eccac729b57aeacbe9312d7d5189f6990bb4eebd.
+// Integration gap: e7ec6571 imported the filter but omitted its example.
+// Preserve the numerical/attribute checks below and reject invalid inputs;
+// visual examples support --no-render so CI requires a real exit status.
+// Integration commit: test: add examples for first-batch standard filters
+// Find it: git log --diff-filter=A --format="%h %s" -- Examples/Filter/FeatureExtraction/FeatureEdges.cpp
 #include <FeatureExtraction/iGameFeatureEdgesFilter.h>
 
 #include <iGameFileIO.h>
 #include <iGameSurfaceMesh.h>
 #include <iGameUnstructuredMesh.h>
 
+#include <cstddef>
 #include <iostream>
 #include <string>
 
-int main(
-    int argc,
-    char** argv) {
-    if (argc != 2) {
-        std::cerr
-            << "Usage: testFeatureEdges.exe "
-            << "<model-file>"
-            << std::endl;
-        return 1;
-    }
+namespace {
 
+struct FeatureEdgesTestCase {
+    const char* name;
+    const char* fileName;
+    std::size_t expectedEdgeCount;
+};
+
+bool RunFeatureEdgesTest(
+    const FeatureEdgesTestCase& testCase) {
     const std::string fileName =
-        argv[1];
+        testCase.fileName;
+
+    std::cout
+        << "Running test: "
+        << testCase.name
+        << std::endl;
 
     auto input =
         iGame::FileIO::ReadFile(
@@ -30,12 +41,8 @@ int main(
             << "Failed to read input file: "
             << fileName
             << std::endl;
-        return 1;
+        return false;
     }
-
-    std::cout
-        << "Input mesh loaded successfully."
-        << std::endl;
 
     auto surfaceInput =
         DynamicCast<iGame::SurfaceMesh>(
@@ -48,13 +55,10 @@ int main(
 
         if (unstructuredInput != nullptr) {
             std::cerr
-                << "Input mesh is an "
-                << "UnstructuredMesh."
+                << "Input mesh is an UnstructuredMesh."
                 << std::endl;
-
             std::cerr
-                << "Please extract the surface mesh "
-                << "first, then run this test."
+                << "Please extract the surface mesh first."
                 << std::endl;
         }
         else {
@@ -63,7 +67,7 @@ int main(
                 << std::endl;
         }
 
-        return 1;
+        return false;
     }
 
     std::cout
@@ -85,7 +89,7 @@ int main(
         std::cerr
             << "Input surface mesh is empty."
             << std::endl;
-        return 1;
+        return false;
     }
 
     auto filter =
@@ -113,7 +117,7 @@ int main(
         std::cerr
             << "FeatureEdgesFilter execution failed."
             << std::endl;
-        return 1;
+        return false;
     }
 
     auto output =
@@ -124,20 +128,26 @@ int main(
         std::cerr
             << "FeatureEdgesFilter output is invalid."
             << std::endl;
-        return 1;
+        return false;
     }
 
     const auto edgeCount =
         output->GetNumberOfCells();
 
     std::cout
-        << "FeatureEdgesFilter finished."
-        << std::endl;
-
-    std::cout
         << "Output edge count: "
         << edgeCount
         << std::endl;
+
+    if (edgeCount != testCase.expectedEdgeCount) {
+        std::cerr
+            << "Unexpected output edge count. Expected "
+            << testCase.expectedEdgeCount
+            << ", got "
+            << edgeCount
+            << std::endl;
+        return false;
+    }
 
     const int edgeTypeIndex =
         output->GetAttributeSet()
@@ -148,7 +158,7 @@ int main(
         std::cerr
             << "Edge Types cell attribute is missing."
             << std::endl;
-        return 1;
+        return false;
     }
 
     const int edgeIdsIndex =
@@ -160,7 +170,7 @@ int main(
         std::cerr
             << "Edge Ids cell attribute is missing."
             << std::endl;
-        return 1;
+        return false;
     }
 
     std::cout
@@ -173,17 +183,44 @@ int main(
         << edgeIdsIndex
         << std::endl;
 
-    if (edgeCount == 0) {
-        std::cerr
-            << "Unexpected output edge count. "
-            << "Expected a positive count, got "
-            << edgeCount
-            << std::endl;
-        return 1;
+    std::cout
+        << "FeatureEdgesFilter test passed for "
+        << testCase.name
+        << "."
+        << std::endl;
+
+    return true;
+}
+
+}  // namespace
+
+int main() {
+    const FeatureEdgesTestCase testCases[] = {
+        {
+            "FeatureEdges_Cube",
+            "./Models/FeatureEdges_Cube.vtk",
+            12
+        },
+        {
+            "FeatureEdges_NonManifold",
+            "./Models/FeatureEdges_NonManifold.vtk",
+            7
+        }
+    };
+
+    for (const auto& testCase : testCases) {
+        if (!RunFeatureEdgesTest(testCase)) {
+            std::cerr
+                << "FeatureEdgesFilter test failed for "
+                << testCase.name
+                << "."
+                << std::endl;
+            return 1;
+        }
     }
 
     std::cout
-        << "FeatureEdgesFilter test passed."
+        << "ALL FEATURE EDGES TESTS PASSED"
         << std::endl;
 
     return 0;

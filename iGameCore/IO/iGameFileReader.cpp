@@ -1,5 +1,6 @@
 #include "iGameFileReader.h"
 #include "iGameByteSwap.h"
+#include "iGameFileSystem.h"
 #include "iGameStringArray.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameVolumeMesh.h"
@@ -117,7 +118,7 @@ bool FileReader::Open() {
 
 bool FileReader::OpenWithFreadType() {
     // 打开文件，使用二进制模式读取
-    file_ = fopen(m_FilePath.c_str(), "rb");
+    file_ = FileSystem::OpenFile(m_FilePath, "rb");
     if (file_ == nullptr) {
         IGAME_CORE_ERROR("fopen failed to open the file.\n");
         return false;
@@ -170,9 +171,17 @@ bool FileReader::OpenWithFreadType() {
 }
 bool FileReader::OpenWithWindowsSystem() {
 #ifdef PLATFORM_WINDOWS
-    // 打开文件
-    this->m_File = CreateFile(m_FilePath.data(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, NULL);
+    // m_FilePath is UTF-8. Use the wide Win32 API so paths are independent
+    // from the process/system ANSI code page.
+    std::filesystem::path nativePath;
+    try {
+        nativePath = FileSystem::PathFromUtf8(m_FilePath);
+    } catch (const std::filesystem::filesystem_error&) {
+        IGAME_CORE_ERROR("Invalid UTF-8 file path: {}", m_FilePath);
+        return false;
+    }
+    this->m_File = CreateFileW(nativePath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
     if (m_File == INVALID_HANDLE_VALUE) {
         _tprintf(_T("CreateFile failed with error: %lu\n"), GetLastError());
         return false;
@@ -183,6 +192,7 @@ bool FileReader::OpenWithWindowsSystem() {
     if (!GetFileSizeEx(m_File, &fileSize)) {
         _tprintf(_T("GetFileSizeEx failed with error: %lu\n"), GetLastError());
         CloseHandle(m_File);
+        m_File = nullptr;
         return false;
     }
     this->m_FileSize = fileSize.QuadPart; // 将文件大小以字节为单位赋值给 m_FileSize
@@ -192,6 +202,7 @@ bool FileReader::OpenWithWindowsSystem() {
     if (m_MapFile == NULL) {
         _tprintf(_T("CreateFileMapping failed with error: %lu\n"), GetLastError());
         CloseHandle(m_File);
+        m_File = nullptr;
         return false;
     }
 
@@ -201,6 +212,8 @@ bool FileReader::OpenWithWindowsSystem() {
         _tprintf(_T("MapViewOfFile failed with error: %lu\n"), GetLastError());
         CloseHandle(m_MapFile);
         CloseHandle(m_File);
+        m_MapFile = nullptr;
+        m_File = nullptr;
         return false;
     }
     this->IS = this->FILESTART;
@@ -250,11 +263,23 @@ bool FileReader::Close() {
     }
 #endif
 #ifdef PLATFORM_WINDOWS
+    // Close() can be called by a format reader before FileReader::Execute()
+    // performs its common cleanup.  Release each resource from its owning
+    // handle/pointer and clear the state so a later Close() is a no-op.
+    if (this->m_MapFile && this->FILESTART) {
+        UnmapViewOfFile(this->FILESTART);
+        this->FILESTART = nullptr;
+        this->IS = nullptr;
+        this->FILEEND = nullptr;
+    }
     if (this->m_MapFile) {
-        UnmapViewOfFile(this->IS);
         CloseHandle(this->m_MapFile);
+        this->m_MapFile = nullptr;
+    }
+    if (this->m_File && this->m_File != INVALID_HANDLE_VALUE) {
         CloseHandle(this->m_File);
     }
+    this->m_File = nullptr;
 
 #elif defined(PLATFORM_LINUX) || defined(PLATFORM_MAC)
     if (m_File != -1) { close(m_File); }

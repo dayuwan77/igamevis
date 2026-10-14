@@ -15,6 +15,23 @@ IGAME_NAMESPACE_BEGIN
 class DataObject : public Object {
 public:
     I_OBJECT(DataObject);
+
+    /**
+     * 读取路径作用域：期间 AddSubDataObject 不再立刻 ConvertToDrawableData()。
+     * 用于 FileIO::ReadFile —— 读盘/解析/挂载照旧，但“表面抽取 + 建渲染壳”推迟到
+     * 第一次渲染或第一次 GetRenderableObject() 时执行。
+     */
+    class DeferDrawableConversionScope {
+    public:
+        DeferDrawableConversionScope() { ++s_Depth; }
+        ~DeferDrawableConversionScope() { --s_Depth; }
+        DeferDrawableConversionScope(const DeferDrawableConversionScope&) = delete;
+        DeferDrawableConversionScope& operator=(const DeferDrawableConversionScope&) = delete;
+        static bool Active() { return s_Depth > 0; }
+
+    private:
+        static int s_Depth;
+    };
     static Pointer New() { return new DataObject; }
 
     void SetUniqueDataObjectId() { m_UniqueId = GetIncrementDataObjectId(); }
@@ -45,6 +62,21 @@ public:
     AttributeSet* GetAttributeSet() { return m_Attributes.get(); }
     int GetCurrentAttributeIndex() { return m_AttributeIndex; }
     int GetCurrentAttributeDimension(){return m_AttributeDimension;}
+    // 通用范围锁定：把指定属性在所有帧上的范围固定为 [minv, maxv]
+    // dimension: -1 表示锁定模长范围，0/1/2 表示锁定对应分量范围
+    bool FixAttributeRange(const std::string& attrName, double minv, double maxv, int dimension = -1);
+    // 解除范围锁定，恢复逐帧自动范围
+    bool UnfixAttributeRange(const std::string& attrName);
+    // 查询指定属性是否处于范围锁定状态
+    bool IsAttributeRangeLocked(const std::string& attrName);
+    // 设置属性的范围模式：每帧调整 / 只扩不缩 / 全局固定
+    bool SetAttributeRangeMode(const std::string& attrName, AttributeSet::RangeMode mode, int dimension = -1);
+    AttributeSet::RangeMode GetAttributeRangeMode(const std::string& attrName);
+    // 帧挂载后重放范围锁定：把父容器已锁定属性的固定范围同步到挂载子对象，
+    // 避免缓存重读/初始加载的帧对象（未带锁）把父范围重新聚合成当帧值
+    void ReapplyRangeLocks();
+    // Refresh ranges on an already evaluated output without loading source frames.
+    void RefreshAnimationOutputRanges();
 
     void SetBlockMapping(IntArray::Pointer p);
     IntArray* GetBlockMapping();
@@ -144,6 +176,15 @@ public:
     DataObject* FindParent();
     //Get real size of DataObject, Only the memory of a large batch of arrays is taken into account 
     virtual IGsize GetRealMemorySize();
+
+private:
+    // 扫描单个属性集数据，得到指定显示维度的真实范围（-1=模长，0..=分量）
+    static bool ScanAttributeRange(AttributeSet::Pointer attrs, const std::string& attrName,
+                                   int dimension, double& mn, double& mx);
+    // 计算某属性在所有帧（含挂载帧）上的全局范围
+    bool ComputeGlobalRange(const std::string& attrName, int dimension, double& mn, double& mx);
+    // 只扩不缩：用当前挂载帧的真实数据扩张运行范围并写回锁定范围
+    bool ExpandRangeLocksForCurrentFrame();
 
 protected:
     ~DataObject() override{/*std::cout << "Destructed\n";*/};

@@ -1,3 +1,7 @@
+// Regression: PR #170 deleted this example and its build target. Keep the
+// algorithm edge cases and model fixtures runnable after merging upstream.
+// Fix: Merge upstream main and restore filter model regressions.
+// Find: git log --diff-filter=A --oneline -- Examples/Filter/DataProcessing/ExtractLocation/TestExtractLocation.cpp
 #include <DataProcessing/ExtractLocation/iGameExtractLocationFilter.h>
 #include <iGameFileIO.h>
 
@@ -186,7 +190,13 @@ bool CheckGeneratedCell(const std::vector<iGame::Point>& points, int cellType,
 }
 
 bool RunSupportedCellModelCases() {
-    return CheckGeneratedCell({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
+    return CheckModelLocation("./Models/ExtractLocationTetraPair.vtk",
+                              {0.2, 0.2, 0.2}, 0,
+                              "model: upper tetrahedron") &&
+           CheckModelLocation("./Models/ExtractLocationTetraPair.vtk",
+                              {0.2, 0.2, -0.2}, 1,
+                              "model: lower tetrahedron") &&
+           CheckGeneratedCell({{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
                                {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1}},
                               iGame::IG_HEXAHEDRON, {0.5, 0.5, 0.5}, "hexahedron") &&
            CheckGeneratedCell({{0, 0, 0}, {1, 0, 0}, {0, 1, 0},

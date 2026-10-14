@@ -1,3 +1,9 @@
+// Find the integration commit: git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestVolumeMeshSimplification.cpp
+// Batch 3 acceptance regression: the destination lacked these filter examples.
+// Run against the imported models and synthetic boundary cases below; failures must
+// return nonzero. IGAME_EXAMPLE_NO_RENDER retains numerical checks without a GPU.
+// Integration fix: feat: integrate third-batch standard filters. Source: dayuwan77/igamevis, fdafcbb.
+#include <cstdlib>
 #include <DataProcessing/iGameMeshTetrahedralize.h>
 #include <DataProcessing/iGameVolumeMeshSimplification.h>
 #include <iGameDrawObject.h>
@@ -10,7 +16,7 @@
 #include <limits>
 
 int main() {
-    const std::string fileName = "./Models/TetPlane_polyhedron.vtu";
+    const std::string fileName = "./Models/VolumeSimplification_FlangedTube.vtk";
     auto scene = iGame::Scene::New();
     auto input = iGame::FileIO::ReadFile(fileName);
 
@@ -19,6 +25,7 @@ int main() {
         return 1;
     }
 
+    // The input contains hexahedra; tetrahedralization must precede simplification.
     auto tetraFilter = iGame::MeshTetrahedralize::New();
     tetraFilter->SetInput(input);
     if (!tetraFilter->Execute()) {
@@ -58,6 +65,7 @@ int main() {
     }
 
     drawObject->SetViewStyle(IG_SURFACE);
+    if (std::getenv("IGAME_EXAMPLE_NO_RENDER")) return 0;
     drawObject->ViewCloudPicture(scene, 0, 0);
 
     auto window = iGame::RenderWindow::New();

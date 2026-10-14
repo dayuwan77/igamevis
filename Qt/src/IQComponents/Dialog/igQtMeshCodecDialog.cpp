@@ -1,9 +1,16 @@
 #include "IQComponents/Dialog/igQtMeshCodecDialog.h"
+#include "IQComponents/Dialog/igQtDarkFramelessMessage.h"
+#include <IQWidgets/igQtRenderWidget.h>
 #include <QBrush>
 #include <QColor>
+#include <QEvent>
 #include <QPen>
 #include <QTimer>
 #include <QScreen>
+#include <QDialogButtonBox>
+#include <QListWidget>
+#include <QSignalBlocker>
+#include <QVBoxLayout>
 #include <limits>
 #include <cmath>
 #include <iostream>
@@ -11,24 +18,24 @@
 #include <filesystem>
 
 namespace {
-constexpr QColor kChartPlotBg(0x25, 0x25, 0x26);
-constexpr QColor kChartLabelColor(0xD8, 0xD8, 0xD8);
-constexpr QColor kChartGridColor(0x3A, 0x3A, 0x3A);
-constexpr QColor kChartAxisLine(0x5A, 0x5A, 0x5A);
-constexpr QColor kChartSeriesFill(0xC0, 0xC0, 0xC0);
-constexpr QColor kChartSeriesBorder(0xA0, 0xA0, 0xA0);
+inline QColor ChartPlotBg() { return igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::CardBg); }
+inline QColor ChartLabelColor() { return igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text); }
+inline QColor ChartGridColor() { return igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Border); }
+inline QColor ChartAxisLine() { return igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::BorderStrong); }
+inline QColor ChartSeriesFill() { return igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::TextDim); }
+inline QColor ChartSeriesBorder() { return igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::BorderStrong); }
 
 void StyleChartAxes(QValueAxis* axisX, QValueAxis* axisY)
 {
     if (axisX) {
-        axisX->setLabelsColor(kChartLabelColor);
-        axisX->setGridLineColor(kChartGridColor);
-        axisX->setLinePenColor(kChartAxisLine);
+        axisX->setLabelsColor(ChartLabelColor());
+        axisX->setGridLineColor(ChartGridColor());
+        axisX->setLinePenColor(ChartAxisLine());
     }
     if (axisY) {
-        axisY->setLabelsColor(kChartLabelColor);
-        axisY->setGridLineColor(kChartGridColor);
-        axisY->setLinePenColor(kChartAxisLine);
+        axisY->setLabelsColor(ChartLabelColor());
+        axisY->setGridLineColor(ChartGridColor());
+        axisY->setLinePenColor(ChartAxisLine());
     }
 }
 
@@ -38,8 +45,8 @@ void ApplyDarkChartShell(QChart* chart)
     chart->setBackgroundVisible(true);
     chart->setBackgroundBrush(QBrush(Qt::transparent));
     chart->setPlotAreaBackgroundVisible(true);
-    chart->setPlotAreaBackgroundBrush(QBrush(kChartPlotBg));
-    chart->setPlotAreaBackgroundPen(QPen(kChartGridColor, 1));
+    chart->setPlotAreaBackgroundBrush(QBrush(ChartPlotBg()));
+    chart->setPlotAreaBackgroundPen(QPen(ChartGridColor(), 1));
     if (chart->legend()) chart->legend()->setVisible(false);
 }
 
@@ -66,6 +73,7 @@ void ApplyKeyAreaDarkStyle(QGroupBox* groupBox, QChartView* chartView, QWidget* 
     if (chartView) {
         chartView->setAttribute(Qt::WA_StyledBackground, true);
         chartView->setStyleSheet("background-color: #252526; border: none;");
+        igQtPanelTheme::attach(chartView);
     }
     if (checkBoxContainer) {
         checkBoxContainer->setAttribute(Qt::WA_StyledBackground, true);
@@ -81,6 +89,7 @@ void ApplyKeyAreaDarkStyle(QGroupBox* groupBox, QChartView* chartView, QWidget* 
             "  background-color: #569CD6;"
             "  border: 1px solid #569CD6;"
             "}");
+        igQtPanelTheme::attach(checkBoxContainer);
     }
 }
 } // namespace
@@ -129,6 +138,8 @@ igQtMeshCodecDialog::igQtMeshCodecDialog(QWidget* parent, iGame::DataObject::Poi
         "QGroupBox#groupbox_dataDistGroup { background-color: #252526; border: 1px solid #3A3A3A; }"
         "QTableWidget { background-color: #2A2A2A; color: #EAEAEA; gridline-color: #3A3A3A; }"
         "QHeaderView::section { background-color: #333333; color: #EAEAEA; border: 1px solid #3A3A3A; }");
+    igQtPanelTheme::attachDeep(m_bodyWidget);
+    igQtPanelTheme::attachDeep(this);
 
     ui->setupUi(m_bodyWidget);
     setContentWidget(m_bodyWidget);
@@ -168,6 +179,14 @@ igQtMeshCodecDialog::igQtMeshCodecDialog(QWidget* parent, iGame::DataObject::Poi
 
     // 显示压缩报告选项
     ui->checkbox_showReport->setVisible(true);
+
+    // 第一版仅支持单块、单时间步网格导出 NumPy 数据。
+    ui->checkbox_exportNumpy->setChecked(false);
+    ui->checkbox_exportNumpy->setEnabled(!m_isMultiBlock);
+    if (m_isMultiBlock) {
+        ui->checkbox_exportNumpy->setToolTip(
+            QStringLiteral("当前版本暂不支持多块或时间序列数据导出 NumPy"));
+    }
 
     // 内容区随窗口伸缩，仅保证最小高度满足控件
     if (m_bodyWidget->layout()) m_bodyWidget->layout()->setSizeConstraint(QLayout::SetMinimumSize);
@@ -219,9 +238,9 @@ igQtMeshCodecDialog::igQtMeshCodecDialog(QWidget* parent, iGame::DataObject::Poi
     ui->groupbox_dataDistGroup->setEnabled(false);
     UpdateKeyAreaVisibility(false);
 
-    // 初始化压缩等级选择（zstd支持1-22），默认选择等级12
+    // 初始化压缩等级选择（zstd支持1-20），默认选择等级12
     ui->comboBox_compressLevel->blockSignals(true);
-    for (int i = 1; i <= 22; ++i) {
+    for (int i = 1; i <= 20; ++i) {
         ui->comboBox_compressLevel->addItem(QString::number(i));
     }
     ui->comboBox_compressLevel->setCurrentIndex(m_compressLevel);
@@ -858,6 +877,124 @@ void igQtMeshCodecDialog::on_checkbox_showReport_stateChanged(int state)
     m_showReport = ui->checkbox_showReport->isChecked();
 }
 
+void igQtMeshCodecDialog::on_checkbox_exportNumpy_clicked(bool checked)
+{
+    if (!checked) {
+        m_exportNumpy = false;
+        m_numpyAttributeIndices.clear();
+        return;
+    }
+
+    if (m_isMultiBlock) {
+        QSignalBlocker blocker(ui->checkbox_exportNumpy);
+        ui->checkbox_exportNumpy->setChecked(false);
+        QMessageBox::information(
+            this, QStringLiteral("提示"),
+            QStringLiteral("当前版本暂不支持多块或时间序列数据导出 NumPy。"));
+        return;
+    }
+
+    igQtChromeFramelessDialog selector(this);
+    selector.setDialogTitle(QStringLiteral("选择要导出的场数据"));
+    selector.setMinimumSize(480, 320);
+    selector.resize(560, 420);
+
+    auto* body = new QWidget(&selector);
+    body->setAttribute(Qt::WA_StyledBackground, true);
+    body->setStyleSheet(
+        "QWidget { background-color: transparent; color: #EAEAEA; }"
+        "QLabel { color: #D8D8D8; }"
+        "QListWidget { background-color: #252526; color: #EAEAEA; "
+        "border: 1px solid #3A3A3A; outline: none; }"
+        "QListWidget::item { min-height: 28px; padding: 2px 6px; }"
+        "QListWidget::item:hover { background-color: #333333; }"
+        "QListWidget::item:selected { background-color: #094771; color: #FFFFFF; }"
+        "QPushButton { min-width: 72px; background-color: #2A2A2A; color: #EAEAEA; "
+        "border: 1px solid #3A3A3A; padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #3A3A3A; }"
+        "QPushButton:pressed { background-color: #252526; }"
+        "QPushButton:disabled { background-color: #252526; color: #707070; "
+        "border-color: #333333; }");
+    igQtPanelTheme::attachDeep(&selector);
+
+    auto* layout = new QVBoxLayout(body);
+    layout->setContentsMargins(14, 10, 14, 14);
+    layout->setSpacing(10);
+    auto* hint = new QLabel(
+        QStringLiteral("单选时输出两个 .npy 文件；多选时输出两个 .npz 文件。"),
+        body);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+
+    auto* list = new QListWidget(body);
+    const auto attrs = m_uiSampleLeafObj->GetAttributeSet()->GetAllAttributes();
+    for (int i = 0; attrs && i < attrs->GetNumberOfElements(); ++i) {
+        const auto attr = attrs->GetElement(i);
+        const QString attachment = attr.attachmentType == IG_POINT
+            ? QStringLiteral("点属性")
+            : QStringLiteral("单元属性");
+        const QString name = QString::fromStdString(attr.pointer->GetName());
+        const QString text = QStringLiteral("[%1] %2  (%3 维)")
+                                 .arg(attachment, name)
+                                 .arg(attr.pointer->GetDimension());
+
+        auto* item = new QListWidgetItem(text, list);
+        item->setData(Qt::UserRole, i);
+        const auto valueSize = attr.pointer->GetArrayTypedSize();
+        const bool supported = valueSize == sizeof(float) || valueSize == sizeof(double);
+        if (supported) {
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setCheckState(
+                std::find(m_numpyAttributeIndices.begin(), m_numpyAttributeIndices.end(), i) !=
+                        m_numpyAttributeIndices.end()
+                    ? Qt::Checked
+                    : Qt::Unchecked);
+        } else {
+            item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+            item->setToolTip(QStringLiteral("当前 MeshCodec 仅支持导出 float/double 场数据"));
+        }
+    }
+    layout->addWidget(list, 1);
+
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+        Qt::Horizontal, body);
+    connect(buttons, &QDialogButtonBox::accepted, &selector, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &selector, &QDialog::reject);
+    layout->addWidget(buttons);
+    selector.setContentWidget(body);
+
+    if (selector.exec() != QDialog::Accepted) {
+        QSignalBlocker blocker(ui->checkbox_exportNumpy);
+        ui->checkbox_exportNumpy->setChecked(false);
+        m_exportNumpy = false;
+        m_numpyAttributeIndices.clear();
+        return;
+    }
+
+    std::vector<int> selected;
+    for (int row = 0; row < list->count(); ++row) {
+        const auto* item = list->item(row);
+        if (item->checkState() == Qt::Checked) {
+            selected.push_back(item->data(Qt::UserRole).toInt());
+        }
+    }
+
+    if (selected.empty()) {
+        igQtShowDarkFramelessMessage(
+            this, QStringLiteral("提示"),
+            QStringLiteral("请至少选择一个场数据。"), true);
+        QSignalBlocker blocker(ui->checkbox_exportNumpy);
+        ui->checkbox_exportNumpy->setChecked(false);
+        m_exportNumpy = false;
+        m_numpyAttributeIndices.clear();
+        return;
+    }
+
+    m_numpyAttributeIndices = std::move(selected);
+    m_exportNumpy = true;
+}
+
 void igQtMeshCodecDialog::on_comboBox_compressLevel_currentIndexChanged(int index)
 {
     m_compressLevel = index;
@@ -928,8 +1065,8 @@ void igQtMeshCodecDialog::DrawFeatureHistogram(QChart* chart)
         barSeries->setLowerSeries(lowerLine);
         barSeries->setUpperSeries(upperLine);
 
-        barSeries->setColor(kChartSeriesFill);
-        barSeries->setBorderColor(kChartSeriesBorder);
+        barSeries->setColor(ChartSeriesFill());
+        barSeries->setBorderColor(ChartSeriesBorder());
 
         chart->addSeries(barSeries);
         barSeries->attachAxis(axisX);
@@ -983,8 +1120,8 @@ void igQtMeshCodecDialog::DrawFeatureHistogramFromData(QChart* chart, const std:
         barSeries->setLowerSeries(lowerLine);
         barSeries->setUpperSeries(upperLine);
 
-        barSeries->setColor(kChartSeriesFill);
-        barSeries->setBorderColor(kChartSeriesBorder);
+        barSeries->setColor(ChartSeriesFill());
+        barSeries->setBorderColor(ChartSeriesBorder());
 
         chart->addSeries(barSeries);
         barSeries->attachAxis(axisX);
@@ -1156,6 +1293,11 @@ void igQtMeshCodecDialog::on_btnStartCompress_clicked()
 
     // 使用桥接器将 UI 模型转换为编码器参数
     iGame::CodecControlParams codecParams = BuildCodecParams();
+    if (codecParams.exportNumpy) {
+        std::filesystem::path numpyBasePath(saveFilePath);
+        numpyBasePath.replace_extension();
+        codecParams.numpyOutputBasePath = numpyBasePath.string();
+    }
 
     bool result = false;
     if (isMultiBlock) {
@@ -1416,6 +1558,8 @@ iGame::CodecControlParams igQtMeshCodecDialog::BuildCodecParams() const
     iGame::CodecControlParams params;
     params.showReport = m_showReport;
     params.compressLevel = m_compressLevel + 1;
+    params.exportNumpy = m_exportNumpy;
+    params.numpyAttributeIndices = m_numpyAttributeIndices;
 
     // 辅助函数：从 UIDataItem 构建 FloatControlParams
     auto buildControlParams = [](const UIDataItem& item) -> iGame::FloatControlParams {
@@ -1447,4 +1591,24 @@ iGame::CodecControlParams igQtMeshCodecDialog::BuildCodecParams() const
     }
 
     return params;
+}
+
+void igQtMeshCodecDialog::changeEvent(QEvent* e) {
+    if (e && e->type() == QEvent::StyleChange) {
+        igQtPanelTheme::refreshDeep(this);
+        if (m_chartView && m_chartView->chart()) {
+            QChart* c = m_chartView->chart();
+            ApplyDarkChartShell(c);
+            const QList<QAbstractAxis*> axes = c->axes();
+            for (QAbstractAxis* axis : axes) {
+                if (!axis) continue;
+                axis->setLabelsColor(ChartLabelColor());
+                axis->setGridLineColor(ChartGridColor());
+                axis->setLinePenColor(ChartAxisLine());
+            }
+            m_chartView->update();
+        }
+        update();
+    }
+    igQtChromeFramelessDialog::changeEvent(e);
 }

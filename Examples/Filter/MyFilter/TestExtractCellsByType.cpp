@@ -9,9 +9,39 @@
 #include <iGameUnstructuredMesh.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
+
+// =============================================================================
+// 回归测试说明（ExtractCellsByTypeFilter）
+//
+// 【当时的 BUG / 问题】
+//   本用例原先读取 "./Models/ClipTest_Plane_UnstructuredGrid.vtk"，但该模型文件
+//   并不在源码目录 Examples/Models 中（只存在于个别本地构建目录），因此在干净
+//   检出（含 CI）下必然读文件失败；上游据此把 testExtractCellsByType 判为
+//   "失效 target"，在提交 66882cc（修复 Examples 重复及失效 target 注册）中删除
+//   了该测试及其注册。
+//
+// 【触发条件】在未包含该临时模型文件的源码检出 / CI 环境中运行本用例。
+//
+// 【错误表现】FileIO::ReadFile 返回空，测试打印 "FAIL: cannot open mixed test model"
+//   并以非 0 退出；CI 侧表现为 target 注册失效或被直接移除。
+//
+// 【测试要保证的正确行为】
+//   1) 使用随仓库一起提交的测试模型（Examples/Models/ExtractCellsByType_mixed.vtk、
+//      ExtractCellsByType_surface.vtk），相对路径写死在代码里，运行即自动完成测试；
+//   2) 混合单元模型须被识别出 4 种单元类型（三角形/四边形/四面体/六面体），全选提取
+//      时单元数守恒、属性数量与长度守恒、double 属性类型与精度不丢失；
+//   3) 仅提取单一类型时，输出单元类型必须全部等于所选类型；
+//   4) 无渲染环境下（CI）不得弹出渲染窗口 —— 支持 --no-show / --no-render 参数，
+//      以及环境变量 IGAME_EXAMPLE_NO_RENDER=1（上游 Examples 的免渲染约定）。
+//
+// 【提交号】待提交（本次提交主题：修复按单元类型提取的失效测试并补充 AI 生成测试模型与使用说明）。
+//   本测试文件首次加入仓库的查询命令：
+//     git log --diff-filter=A --format="%h %s" -- Examples/Filter/MyFilter/TestExtractCellsByType.cpp
+// =============================================================================
 
 // 简易断言：条件不成立则打印 FAIL 并退出
 static int check(bool ok, const char* what) {
@@ -107,7 +137,17 @@ static int verifyAttributes(iGame::DataObject::Pointer out, IGsize expectPointNu
 }
 
 int main(int argc, char** argv) {
-    const bool noShow = (argc > 1 && std::string(argv[1]) == "--no-show");
+    // 免渲染：支持 --no-show / --no-render 参数，或环境变量 IGAME_EXAMPLE_NO_RENDER=1
+    // （--no-render 与 IGAME_EXAMPLE_NO_RENDER 是上游 Examples 的 CI 约定）
+    bool noShow = false;
+    for (int i = 1; i < argc; i++) {
+        const std::string arg = argv[i];
+        if (arg == "--no-show" || arg == "--no-render") { noShow = true; }
+    }
+    if (const char* env = std::getenv("IGAME_EXAMPLE_NO_RENDER")) {
+        const std::string v = env;
+        if (v == "1" || v == "true" || v == "ON") { noShow = true; }
+    }
     using namespace iGame;
 
     // ============ 测试 1：合成混合网格，全类型提取 ============
@@ -201,12 +241,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    // ============ 测试 3：真实文件冒烟测试 ============
-    std::cout << "===== Test 3: real file smoke test =====" << std::endl;
-    const std::string fileName = "./Models/ClipTest_Plane_UnstructuredGrid.vtk";
-    auto obj = FileIO::ReadFile(fileName);
+    // ============ 测试 3：混合单元文件（三角+四边形+四面体+六面体）============
+    std::cout << "===== Test 3: mixed-type file test =====" << std::endl;
+    auto obj = FileIO::ReadFile("./Models/ExtractCellsByType_mixed.vtk");
     if (obj == nullptr) {
-        std::cout << "FAIL: cannot open " << fileName << std::endl;
+        std::cout << "FAIL: cannot open mixed test model" << std::endl;
         return 1;
     }
     auto inCells = obj->GetCellArray();
@@ -215,6 +254,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     const IGsize fileCellNum = inCells->GetNumberOfCells();
+    if (check(fileCellNum == 4, "mixed model has 4 cells")) return 1;
 
     auto f3 = ExtractCellsByTypeFilter::New();
     f3->SetInput(obj);
@@ -222,7 +262,7 @@ int main(int argc, char** argv) {
     std::cout << "file cell types:";
     for (auto t : fileTypes) { std::cout << " " << ExtractCellsByTypeFilter::GetCellTypeDisplayName(t); }
     std::cout << std::endl;
-    if (check(!fileTypes.empty(), "file has extractable cell types")) return 1;
+    if (check(fileTypes.size() == 4, "mixed model reports 4 distinct cell types")) return 1;
 
     f3->SetExtractCellTypes(fileTypes); // 全选 = 完整复制
     if (check(f3->Execute(), "Execute with all file types")) return 1;
@@ -230,8 +270,22 @@ int main(int argc, char** argv) {
     auto um3 = DynamicCast<UnstructuredMesh>(out3);
     if (check(um3 != nullptr, "file output is UnstructuredMesh")) return 1;
     if (check(um3->GetNumberOfCells() == fileCellNum, "file: all cells extracted")) return 1;
+    // 文件模型的 double 属性类型保留
+    {
+        auto allAttrs = out3->GetAttributeSet()->GetAllAttributes();
+        bool seenDouble = false;
+        for (IGsize i = 0; i < allAttrs->GetNumberOfElements(); i++) {
+            auto& attr = allAttrs->GetElement(i);
+            if (attr.pointer->GetName() == "pid_double") {
+                if (check(attr.pointer->GetArrayType() == IG_DoubleArray,
+                          "file: 'pid_double' keeps DoubleArray type")) return 1;
+                seenDouble = true;
+            }
+        }
+        if (!seenDouble) { check(false, "file: pid_double attribute present"); return 1; }
+    }
 
-    // 只取第一种类型，验证输出单元类型全部一致
+    // 只取第一种类型（三角形），验证输出单元类型全部一致
     f3->SetExtractCellTypes({fileTypes[0]});
     if (check(f3->Execute(), "Execute with single file type")) return 1;
     auto um3b = DynamicCast<UnstructuredMesh>(f3->GetOutput());
@@ -240,6 +294,29 @@ int main(int argc, char** argv) {
         if (um3b->GetCellType(i) != fileTypes[0]) { allMatch = false; break; }
     }
     if (check(allMatch, "file: all output cells match the selected type")) return 1;
+
+    // ============ 测试 4：纯表面文件（三角+四边形）============
+    std::cout << "===== Test 4: surface-type file test =====" << std::endl;
+    auto obj2 = FileIO::ReadFile("./Models/ExtractCellsByType_surface.vtk");
+    if (obj2 == nullptr) {
+        std::cout << "FAIL: cannot open surface test model" << std::endl;
+        return 1;
+    }
+    auto f4 = ExtractCellsByTypeFilter::New();
+    f4->SetInput(obj2);
+    auto surfTypes = f4->GetAvailableCellTypes();
+    std::cout << "surface cell types:";
+    for (auto t : surfTypes) { std::cout << " " << ExtractCellsByTypeFilter::GetCellTypeDisplayName(t); }
+    std::cout << std::endl;
+    if (check(surfTypes.size() == 2, "surface model reports 2 distinct cell types")) return 1;
+    f4->SetExtractCellTypes({surfTypes[0]}); // 只提取一种
+    if (check(f4->Execute(), "Execute with single surface type")) return 1;
+    auto um4 = DynamicCast<UnstructuredMesh>(f4->GetOutput());
+    bool sfMatch = true;
+    for (IGsize i = 0; i < um4->GetNumberOfCells(); i++) {
+        if (um4->GetCellType(i) != surfTypes[0]) { sfMatch = false; break; }
+    }
+    if (check(sfMatch, "surface: all output cells match the selected type")) return 1;
 
     std::cout << "PASS: ExtractCellsByTypeFilter test finished" << std::endl;
 

@@ -7,6 +7,8 @@
 #include "iGameVolumeMesh.h"
 #include "iGameStructuredMesh.h"
 #include "iGameUnstructuredMesh.h"
+#include "iGameAttributeSet.h"
+#include "iGameFlatArray.h"
 
 #include "iGameCellArray.h"
 #include "iGameCellLinks.h"
@@ -48,7 +50,7 @@ protected:
     ~TransformFilter() override = default;
 
     float m_Matrix[4][4]{};
-    
+
     float m_ScaleX{1.0f};
     float m_ScaleY{1.0f};
     float m_ScaleZ{1.0f};

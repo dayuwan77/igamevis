@@ -1,6 +1,8 @@
+#include <IQWidgets/igQtRenderWidget.h>
 #include "iGameSceneManager.h"
 #include <IQWidgets/igQtScalarViewWidget.h>
 #include <QRegExpValidator>
+#include <algorithm>
 #include <sstream>
 #include <iomanip>
 //#include <iGameManager.h>
@@ -16,6 +18,8 @@ igQtScalarViewWidget::igQtScalarViewWidget(QWidget* parent)
 	SetCustomScaleRangeWidget = new QWidget;
 	SetCustomScaleRangeUi = new Ui::SetCustomScaleRange;
 	SetCustomScaleRangeUi->setupUi(SetCustomScaleRangeWidget);
+
+	igQtPanelTheme::attachDeep(this);
 	SetCustomScaleRangeWidget->hide();
 	ui->widget_DataRangeSlider->hide();
 
@@ -44,6 +48,33 @@ igQtScalarViewWidget::igQtScalarViewWidget(QWidget* parent)
         else this->m_ColorMapper->SetMapTypeToRGBSTEP();
         showScalarView();
     });
+	connect(ui->checkBox_EnableOpacityMapping, &QCheckBox::toggled, this,
+        [&](bool checked) {
+            auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+            if (scene) { scene->SetOpacityMappingEnabled(checked); }
+        });
+	connect(ui->comboBox_RangeMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int idx) {
+            auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+            if (!scene || !scene->GetCurrentModel()) return;
+            auto obj = scene->GetCurrentModel()->GetDataObject();
+            if (!obj || scalarName.empty()) return;
+
+            // 下拉框索引与 RangeMode 枚举一致：0=每帧调整，1=只扩不缩，2=全局固定
+            const auto mode = static_cast<iGame::AttributeSet::RangeMode>(idx);
+            if (!obj->SetAttributeRangeMode(scalarName, mode, scalarDimension)) {
+                QSignalBlocker blocker(ui->comboBox_RangeMode);
+                ui->comboBox_RangeMode->setCurrentIndex(
+                        static_cast<int>(obj->GetAttributeRangeMode(scalarName)));
+                return;
+            }
+
+            if (auto draw = iGame::DynamicCast<iGame::DrawObject>(obj)) {
+                draw->ForceReConvertToDrawableData();
+                draw->ConvertToDrawableData();
+            }
+            scene->Update();
+        });
 }
 void igQtScalarViewWidget::loadScalarData() {
 	auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
@@ -68,6 +99,11 @@ void igQtScalarViewWidget::loadScalarData() {
 		->GetAttribute(currentSelectedScalarIdx)
 		.pointer->GetName();
 	this->scalarDimension = obj->GetAttributeDimension();
+    QSignalBlocker blocker(ui->checkBox_EnableOpacityMapping);
+    ui->checkBox_EnableOpacityMapping->setChecked(scene->GetOpacityMappingEnabled());
+    QSignalBlocker rangeBlocker(ui->comboBox_RangeMode);
+    ui->comboBox_RangeMode->setCurrentIndex(
+            static_cast<int>(obj->GetAttributeRangeMode(scalarName)));
 
 	auto dataRange = obj->GetAttributeSet()->GetAttribute(scalarName).GetDataRange();
 	if (dataRange) {
@@ -85,7 +121,7 @@ void igQtScalarViewWidget::initScalarRange() {
 		return;
 	}
 	// 更新 ColorMapper 的范围到新的数据范围
-	if (m_ColorMapper) {
+	if (m_ColorMapper && scalarMax >= scalarMin) {
 		m_ColorMapper->SetRange(scalarMin, scalarMax);
 	}
 	ui->widget_DataRangeSlider->updateMinAndMax(scalarMin, scalarMax);
@@ -117,12 +153,15 @@ void igQtScalarViewWidget::showScalarView() {
 	}
 }
 void igQtScalarViewWidget::updateDrawStyle() {
-	if (!m_ColorMapper) { m_ColorMapper = m_TmpColorMapper;}
-	m_ColorMapper->Modified();
 	auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
-	if (scene) {
-		scene->Update();
+	if (!scene) return;
+	auto model = scene->GetCurrentModel();
+	if (model && model->GetDataObject()) {
+		m_ColorMapper = model->GetDataObject()->GetColorMapper();
 	}
+	if (!m_ColorMapper) return;
+	m_ColorMapper->Modified();
+	scene->Update();
 }
 void igQtScalarViewWidget::editColorBar() { 
 	auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
@@ -191,8 +230,16 @@ void igQtScalarViewWidget::showCustomScaleRangeWidget() {
 		QString::fromStdString(ossMax.str()));
 	this->SetCustomScaleRangeWidget->show();
 }
+
 void igQtScalarViewWidget::isShowColorLegend() { Q_EMIT changeColorBarShow(); }
 
 int igQtScalarViewWidget::getCurrentSelectedScalarIdx() {
 	return currentSelectedScalarIdx;
+}
+
+void igQtScalarViewWidget::changeEvent(QEvent* e) {
+	if (e && e->type() == QEvent::StyleChange) {
+		igQtPanelTheme::refreshDeep(this);
+	}
+	QWidget::changeEvent(e);
 }

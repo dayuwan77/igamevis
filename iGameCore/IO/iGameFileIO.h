@@ -27,6 +27,7 @@ public:
         VTP,
         VTM,
         VTS,
+        VTI,
         EX2,
         CGNS,
         INP,
@@ -37,10 +38,15 @@ public:
         RTH,
         BDF,
         IGCM,
+        D3PLOT,
+        SPECTRAL_DAT,
+        SPECTRAL_NEKTAR,
         FILETYPE_COUNT
     };
 
     static DataObject::Pointer ReadFile(const std::string& file_name);
+    // Explicit C/S entry; ordinary ReadFile never opts into remote rendering.
+    static DataObject::Pointer ReadRemoteFile(const std::string& file_name);
     static DataObject::Pointer ReadVTKFromMemory(const void* data, size_t size);
     static DataObject::Pointer ReadVTUFromMemory(const void* data, size_t size);
     static DataObject::Pointer ReadVTPFromMemory(const void* data, size_t size);
@@ -48,6 +54,8 @@ public:
     static bool WriteFile(const std::string& file_name, DataObject::Pointer);
     static IGenum GetFileType(const std::string& file_name);
     static std::string GetFileTypeAsString(IGenum type);
+private:
+    static DataObject::Pointer ReadFileWithRenderingPolicy(const std::string& file_name, bool remoteRendering);
 };
 
 IGAME_NAMESPACE_END

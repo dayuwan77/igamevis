@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @class   igMeshCodecDialog
  * @brief   网格编解码参数设置窗口
  */
@@ -116,11 +116,13 @@ private slots:
     void on_comboBox_normalLevel_currentIndexChanged(int index);
 
     void on_checkbox_showReport_stateChanged(int state);
+    void on_checkbox_exportNumpy_clicked(bool checked);
     void on_comboBox_compressLevel_currentIndexChanged(int index);
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void showEvent(QShowEvent* event) override;
+    void changeEvent(QEvent* e) override;
 
 private:
     Ui::MeshCodecDialog* ui;
@@ -134,6 +136,8 @@ private:
     // UI 数据模型
     QVector<UIDataItem> m_uiDataItems;      // UI 数据项列表
     bool m_showReport = false;
+    bool m_exportNumpy = false;
+    std::vector<int> m_numpyAttributeIndices;
     int m_compressLevel = 11;
 
     // 直方图分箱数量：固定为 10 个 bin

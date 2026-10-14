@@ -1,0 +1,48 @@
+# vtk DataFile Version 3.0
+Extract Location validation: connected tetrahedron pair with point and cell data
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+0 0 0
+1 0 0
+0 1 0
+0 0 -1
+CELLS 2 10
+4 0 1 2 3
+4 4 5 6 7
+CELL_TYPES 2
+10
+10
+POINT_DATA 8
+SCALARS PointValue float 1
+LOOKUP_TABLE default
+10
+20
+30
+40
+50
+60
+70
+80
+VECTORS PointVector float
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+0 0 0
+1 0 0
+0 1 0
+0 0 -1
+CELL_DATA 2
+SCALARS RegionId int 1
+LOOKUP_TABLE default
+101
+202
+SCALARS CellValue float 1
+LOOKUP_TABLE default
+1.5
+2.5

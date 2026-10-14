@@ -12,7 +12,10 @@ IGAME_NAMESPACE_BEGIN
 
 // DIME Filter: cell_size
 // Compute geometric size of each cell: 1D line -> length, 2D face -> area, 3D volume -> volume
-// Traverse cells for geometric measurement, output as IG_CELL scalar attributes "Length"/"Area"/"Volume"
+// Outputs IG_CELL scalar attributes "Length"/"Area"/"Volume" on an INDEPENDENT output node
+// (deep copy of the input; the input model is never modified).
+// Semantics: each cell fills only the attribute matching its dimension; non-matching
+// dimensions are written as NaN to distinguish "not applicable" from a real 0.
 class CellSizeFilter : public Filter {
 public:
     I_OBJECT(CellSizeFilter);
@@ -20,6 +23,8 @@ public:
 
     bool Execute() override;
     std::string GetMessage() const { return m_Message; }
+    // Number of cells processed by the last successful Execute()
+    int GetComputedCellCount() const { return m_ComputedCellCount; }
 
 protected:
     CellSizeFilter() {
@@ -51,6 +56,7 @@ protected:
     CellArray::Pointer m_Cells = nullptr;
     Points::Pointer m_Points = nullptr;
     std::string m_Message;
+    int m_ComputedCellCount = 0;
 };
 
 IGAME_NAMESPACE_END

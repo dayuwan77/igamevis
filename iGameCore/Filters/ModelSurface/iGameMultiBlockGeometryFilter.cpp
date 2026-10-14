@@ -48,7 +48,7 @@ bool MultiBlockGeometryFilter::ExtractRecursively(DataObject::Pointer input, Dat
                 if (subOutput) { outContainer->AddSubDataObject(subOutput); }
             }
         }
-        
+
         output = outContainer;
         if (!output) { return false; }
         return true;

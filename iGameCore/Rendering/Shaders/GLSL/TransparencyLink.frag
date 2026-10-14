@@ -38,7 +38,7 @@ layout(binding = 1, rgba32ui) uniform writeonly uimageBuffer listBuffer;
 
 layout(location = 0) in vec3 in_MCPosition;
 layout(location = 1) in vec3 in_VCPosition;
-layout(location = 2) in vec3 in_Color;
+layout(location = 2) in vec4 in_Color;
 layout(location = 3) in vec3 in_Normal;
 layout(location = 4) in vec2 in_UV;
 
@@ -96,10 +96,10 @@ vec3 ShadeFragment() {
     }
 
     // ambient
-    color += ambient * in_Color;
+        color += ambient * in_Color.rgb;
     // lighting
     vec3 lighting = BlinnPhong(normal, in_MCPosition, light);
-    color += lighting * in_Color;
+        color += lighting * in_Color.rgb;
 
     return color;
 }
@@ -107,10 +107,10 @@ vec3 ShadeFragment() {
 void main() {
     vec4 fragColor;
     if (colorMode == 0) {
-        vec3 color = uUseLighting == 1 ? ShadeFragment() : in_Color;
-        fragColor = vec4(color, objectData.transparent);
+        vec3 color = uUseLighting == 1 ? ShadeFragment() : in_Color.rgb;
+        fragColor = vec4(color, in_Color.a * objectData.transparent);
     } else if (colorMode == 1) {
-        fragColor = vec4(in_Color, objectData.transparent);
+        fragColor = vec4(in_Color.rgb, in_Color.a * objectData.transparent);
     } else if (colorMode == 2) {
         fragColor = vec4(inputColor, objectData.transparent);
     }
@@ -121,7 +121,9 @@ void main() {
     uvec4 item;
     item.x = oldHead;
     item.y = packUnorm4x8(fragColor);
-    item.z = floatBitsToUint(gl_FragCoord.z);
+    // 用视空间距离（取负）做排序键：升序 = 远→近，
+    // 避免 gl_FragCoord.z 受裁剪/深度范围影响导致远近顺序颠倒
+    item.z = floatBitsToUint(-length(in_VCPosition));
     item.w = 0;
 
     imageStore(listBuffer, int(newHead), item);

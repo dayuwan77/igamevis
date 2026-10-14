@@ -1,4 +1,5 @@
-﻿#include <IQWidgets/igQtColorBarWidget.h>
+#include <IQWidgets/igQtColorBarWidget.h>
+#include <IQWidgets/igQtRenderWidget.h>
 #include <QDebug>
 #include <iGameSceneManager.h>
 #include "iGameSmartPointer.h"
@@ -62,6 +63,26 @@ void igQtColorBarWidget::updateColorBarDrawInfo() {
 	}
     float min = m_ColorMapper->GetRange()[0];
     float max = m_ColorMapper->GetRange()[1];
+	// 若当前属性已锁定范围，刻度直接读父容器固定的 dataRange（与标量场同源），
+	// 避免 mapper 在帧内被临时改回当帧范围导致颜色条刻度跳动
+	if (!m_AttributeName.empty()) {
+		auto sc = iGame::SceneManager::Instance()->GetCurrentScene();
+		if (sc && sc->GetCurrentModel() && sc->GetCurrentModel()->GetDataObject()) {
+			auto dataObject = sc->GetCurrentModel()->GetDataObject();
+			if (dataObject->IsAttributeRangeLocked(m_AttributeName)) {
+				auto attrs = dataObject->GetAttributeSet();
+				auto& attr = attrs->GetAttribute(m_AttributeName);
+				auto dr = attr.GetDataRange();
+				if (dr && dr->GetNumberOfValues() >= 2) {
+					int dim = dataObject->GetAttributeDimension();
+					int e = dim + 1;
+					if (e < 0 || e >= dr->GetNumberOfElements()) { e = 0; }
+					min = (float)dr->GetValue(2 * e);
+					max = (float)dr->GetValue(2 * e + 1);
+				}
+			}
+		}
+	}
 	this->strData.resize(6);
 	for (int i = 0; i < 6; i++) {
 		float x = min + i * (max - min) * 0.2;
@@ -123,7 +144,7 @@ void igQtColorBarWidget::initDrawStringStyle()
 void igQtColorBarWidget::mousePressEvent(QMouseEvent* _event)
 {
 	this->isPressed = true;
-	this->boundColor = Qt::white;
+	this->boundColor = igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text);
 	this->lastPos = _event->pos();
 }
 void igQtColorBarWidget::mouseMoveEvent(QMouseEvent* _event)
@@ -140,7 +161,7 @@ void igQtColorBarWidget::mouseMoveEvent(QMouseEvent* _event)
 void igQtColorBarWidget::mouseReleaseEvent(QMouseEvent* _event)
 {
 	this->isPressed = false;
-	this->boundColor = Qt::white;
+	this->boundColor = igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text);
 	update();
 
 }
@@ -162,10 +183,10 @@ void igQtColorBarWidget::paintEvent(QPaintEvent* event)
 {
 	updateColorBarDrawInfo();
 	QPainter painter(this);
-	painter.setPen(Qt::white); // Set text color to white
+	painter.setPen(igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text));
 	
 	// Set boundColor to white for ParaView style
-	this->boundColor = Qt::white;
+	this->boundColor = igQtRenderWidget::uiRole(igQtRenderWidget::UiRole::Text);
 	
 	QVector<QRect>data;
 	data.resize(6);
@@ -192,10 +213,7 @@ void igQtColorBarWidget::paintEvent(QPaintEvent* event)
 		QRect rect(0, st - i, colorBarWidth, 1);
 		painter.fillRect(rect, colors.at(i));
 	}
-	painter.fillRect(QRect(0, st - colorBarLength, 2, colorBarLength), this->boundColor);
-	painter.fillRect(QRect(colorBarWidth - 2, st - colorBarLength, 2, colorBarLength), this->boundColor);
-	painter.fillRect(QRect(0, st - colorBarLength, colorBarWidth, 2), this->boundColor);
-	painter.fillRect(QRect(0, st - 2, colorBarWidth, 2), this->boundColor);
+
 
 
 	// draw datarange
@@ -248,5 +266,13 @@ void igQtColorBarWidget::paintEvent(QPaintEvent* event)
 	
 	//std::cout << minWidth << " " << this->width() << '\n';
 	Q_EMIT PaintFinished();
+}
+
+void igQtColorBarWidget::changeEvent(QEvent* e)
+{
+	if (e && e->type() == QEvent::StyleChange) {
+		update();
+	}
+	QWidget::changeEvent(e);
 }
 

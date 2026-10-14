@@ -4,21 +4,30 @@ IGAME_NAMESPACE_BEGIN
 
 bool MeshSimplificationFilter::Execute() {
 
+    ErrorMessage.clear();
+
     mesh = DynamicCast<SurfaceMesh>(GetInput(0));
     if (mesh == nullptr) {
         if (DynamicCast<UnstructuredMesh>(GetInput(0))) {
             mesh = DynamicCast<UnstructuredMesh>(GetInput(0))->TransferToSurfaceMesh();
         }
     }
-    if (mesh == nullptr) { return false; }
+    if (mesh == nullptr) {
+        ErrorMessage = "输入数据不是可转换的表面网格。";
+        return false;
+    }
 
-    if (TargetReduction < 0 || TargetReduction > 1) { return false; }
+    if (TargetReduction < 0 || TargetReduction > 1) {
+        ErrorMessage = "简化比例必须位于 0 到 1 之间。";
+        return false;
+    }
     
     {
         igIndex face[16]{};
         for (int i = 0; i < mesh->GetNumberOfFaces(); i++) { 
             int size = mesh->GetFacePointIds(i, face);
-            if (size != 3) { 
+            if (size != 3) {
+                ErrorMessage = "网格包含非三角形面，请先执行三角化。";
                 return false;
             }
         }
@@ -37,6 +46,11 @@ bool MeshSimplificationFilter::Execute() {
     mesh = newMesh;
     SetOutput(newMesh);
     std::vector<std::string> outInfo;
+
+    // CollapseEdge assumes a valid triangular 2-manifold. Validate that
+    // assumption before its fixed two-face buffers and adjacency code are used.
+    mesh->RequestEditStatus();
+    if (!ValidateMeshTopology()) { return false; }
 
     //auto oldPoints = oldMesh->GetPoints();
     //PointFinder::Pointer oldPicker = PointFinder::New();
@@ -85,6 +99,8 @@ bool MeshSimplificationFilter::Execute() {
         error += geo_pri;
 
         heap->pop();
+
+        if (edgeId < 0 || edgeId >= mesh->GetNumberOfEdges() || mesh->IsEdgeDeleted(edgeId)) { continue; }
 
         igIndex e[2]{};
         mesh->GetEdgePointIds(edgeId, e);
@@ -264,6 +280,66 @@ bool MeshSimplificationFilter::Execute() {
 MeshSimplificationFilter::MeshSimplificationFilter() {
     SetNumberOfInputs(1);
     SetNumberOfOutputs(1);
+}
+
+bool MeshSimplificationFilter::ValidateMeshTopology() {
+    const IGsize pointCount = mesh->GetNumberOfPoints();
+    const IGsize edgeCount = mesh->GetNumberOfEdges();
+    const IGsize faceCount = mesh->GetNumberOfFaces();
+
+    if (pointCount == 0 || faceCount == 0) {
+        ErrorMessage = "网格不包含可简化的点或三角形面。";
+        return false;
+    }
+
+    igIndex facePoints[3]{};
+    igIndex faceEdges[3]{};
+    for (igIndex faceId = 0; faceId < faceCount; ++faceId) {
+        if (mesh->IsFaceDeleted(faceId)) { continue; }
+        if (mesh->GetFacePointIds(faceId, facePoints) != 3 ||
+            mesh->GetFaceEdgeIds(faceId, faceEdges) != 3) {
+            ErrorMessage = "网格中存在无效的非三角形面。";
+            return false;
+        }
+        for (int i = 0; i < 3; ++i) {
+            if (facePoints[i] < 0 || facePoints[i] >= pointCount ||
+                faceEdges[i] < 0 || faceEdges[i] >= edgeCount) {
+                ErrorMessage = "网格拓扑包含越界的点或边索引。";
+                return false;
+            }
+        }
+        if (facePoints[0] == facePoints[1] || facePoints[1] == facePoints[2] ||
+            facePoints[2] == facePoints[0]) {
+            ErrorMessage = "网格包含退化三角形（同一面重复使用顶点）。";
+            return false;
+        }
+    }
+
+    SurfaceMesh::ReturnContainer adjacentFaces;
+    igIndex edgePoints[2]{};
+    for (igIndex edgeId = 0; edgeId < edgeCount; ++edgeId) {
+        if (mesh->IsEdgeDeleted(edgeId)) { continue; }
+        if (mesh->GetEdgePointIds(edgeId, edgePoints) != 2 ||
+            edgePoints[0] < 0 || edgePoints[0] >= pointCount ||
+            edgePoints[1] < 0 || edgePoints[1] >= pointCount ||
+            edgePoints[0] == edgePoints[1]) {
+            ErrorMessage = "网格包含无效边或退化边。";
+            return false;
+        }
+        mesh->GetEdgeToNeighborFaces(edgeId, adjacentFaces);
+        if (adjacentFaces.size() == 0 || adjacentFaces.size() > 2) {
+            ErrorMessage = "网格包含孤立边或非流形边；传统表面简化仅支持每条边连接一到两个三角形。";
+            return false;
+        }
+        for (int i = 0; i < adjacentFaces.size(); ++i) {
+            if (adjacentFaces[i] < 0 || adjacentFaces[i] >= faceCount ||
+                mesh->IsFaceDeleted(adjacentFaces[i])) {
+                ErrorMessage = "网格的边—面邻接关系无效。";
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void MeshSimplificationFilter::Initialize() {
@@ -466,6 +542,8 @@ int MeshSimplificationFilter::EvaluateEdge(igIndex edgeId) {
 void MeshSimplificationFilter::InsertEdgeToHeap(igIndex edgeId) {
     //if (!isCollapsable[edgeId]) return;
 
+    if (edgeId < 0 || edgeId >= mesh->GetNumberOfEdges() || mesh->IsEdgeDeleted(edgeId)) { return; }
+
     int type = EvaluateEdge(edgeId);
 
     if ((type == QEM_BOUNDARY_EDGE || type == QEM_HALF_BOUNDARY_EDGE) && PreserveBoundary) { return; }
@@ -552,12 +630,12 @@ double MeshSimplificationFilter::ComputePriority(igIndex edgeId, double& geo_pri
     };
 
     if (this->ScalarCheck) {
-        double val[64]{};
-        if (eorf.size() > 256) std::cout << eorf.size() << std::endl;
+        std::vector<double> val(attributes_count, 0.0);
+        origValue->Resize(eorf.size());
         for (int i = 0; i < eorf.size(); ++i) {
             if (eorf[i] != fid0 && eorf[i] != fid1) {
-                GetCellScalar(eorf[i], val);
-                origValue->SetElement(i, val);
+                GetCellScalar(eorf[i], val.data());
+                origValue->SetElement(i, val.data());
             }
         }
     }
@@ -687,11 +765,13 @@ double MeshSimplificationFilter::ComputePriority(igIndex edgeId, double& geo_pri
 
     double scalar = 0;
     if (this->ScalarCheck) {
-        double newVal[64]{};
+        std::vector<double> newVal(attributes_count, 0.0);
         for (int i = 0; i < eorf.size(); ++i) {
             if (eorf[i] != fid0 && eorf[i] != fid1) {
-                GetCellScalar(eorf[i], newVal);
-                for (int j = 0; j < attributes_count; j++) { scalar += std::abs(newVal[j] - origValue->GetValue(j)); }
+                GetCellScalar(eorf[i], newVal.data());
+                for (int j = 0; j < attributes_count; j++) {
+                    scalar += std::abs(newVal[j] - origValue->GetValue(size_t(i) * attributes_count + j));
+                }
             }
         }
     }
@@ -752,13 +832,61 @@ double MeshSimplificationFilter::ComputePriority(igIndex edgeId, double& geo_pri
 Vector3f MeshSimplificationFilter::ComputePosition(igIndex edgeId) {
     igIndex e[2]{};
     mesh->GetEdgePointIds(edgeId, e);
-    Vector3f newPos = (mesh->GetPoint(e[0]) + mesh->GetPoint(e[1])) / 2.0;
-    if (this->OptimalPosition) {
-        Quadric q = quadrics[e[0]];
-        q += quadrics[e[1]];
-        if (q.apply(newPos) > this->QuadricEpsilon) { q.findMinimum(newPos); }
+    const Vector3f v0 = mesh->GetPoint(e[0]);
+    const Vector3f v1 = mesh->GetPoint(e[1]);
+    const Vector3f midpoint = (v0 + v1) / 2.0;
+
+    Quadric q = quadrics[e[0]];
+    q += quadrics[e[1]];
+
+    // These three candidates are always local and therefore provide a safe
+    // fallback when the unconstrained QEM system is singular or unstable.
+    Vector3f bestPos = midpoint;
+    double bestError = q.apply(bestPos);
+    const double error0 = q.apply(v0);
+    const double error1 = q.apply(v1);
+    if (std::isfinite(error0) && (!std::isfinite(bestError) || error0 < bestError)) {
+        bestPos = v0;
+        bestError = error0;
     }
-    return newPos;
+    if (std::isfinite(error1) && (!std::isfinite(bestError) || error1 < bestError)) {
+        bestPos = v1;
+        bestError = error1;
+    }
+
+    if (!this->OptimalPosition || !(bestError > this->QuadricEpsilon)) { return bestPos; }
+
+    Vector3f optimizedPos = midpoint;
+    if (!q.findMinimum(optimizedPos) || !std::isfinite(optimizedPos[0]) ||
+        !std::isfinite(optimizedPos[1]) || !std::isfinite(optimizedPos[2])) {
+        return bestPos;
+    }
+
+    // A valid edge collapse must remain near its one-ring neighborhood. Even
+    // a formally solvable QEM system can be ill-conditioned and return a very
+    // distant point, which creates the long spikes seen in the renderer.
+    SurfaceMesh::ReturnContainer oneRingPoints;
+    GetEdgeToOneRingPoints(edgeId, oneRingPoints);
+    Vector3f localMin(std::min(v0[0], v1[0]), std::min(v0[1], v1[1]), std::min(v0[2], v1[2]));
+    Vector3f localMax(std::max(v0[0], v1[0]), std::max(v0[1], v1[1]), std::max(v0[2], v1[2]));
+    for (int i = 0; i < oneRingPoints.size(); ++i) {
+        const Vector3f point = mesh->GetPoint(oneRingPoints[i]);
+        for (int component = 0; component < 3; ++component) {
+            localMin[component] = std::min(localMin[component], point[component]);
+            localMax[component] = std::max(localMax[component], point[component]);
+        }
+    }
+
+    const double localDiagonal = (localMax - localMin).norm();
+    const double optimizedDistance = (optimizedPos - midpoint).norm();
+    const double optimizedError = q.apply(optimizedPos);
+    if (!std::isfinite(localDiagonal) || !std::isfinite(optimizedDistance) ||
+        !std::isfinite(optimizedError) || optimizedDistance > 2.0 * localDiagonal ||
+        optimizedError > bestError) {
+        return bestPos;
+    }
+
+    return optimizedPos;
 }
 
 Vector3f MeshSimplificationFilter::Normal(igIndex faceId) {
@@ -812,12 +940,14 @@ double MeshSimplificationFilter::QualityFace(igIndex faceId) {
 }
 
 igIndex MeshSimplificationFilter::GetOppEdge(igIndex ptId, igIndex faceId) {
+    if (faceId < 0 || faceId >= mesh->GetNumberOfFaces() || mesh->IsFaceDeleted(faceId)) { return -1; }
     igIndex f[3]{}, fe[3]{};
     mesh->GetFacePointIds(faceId, f);
     mesh->GetFaceEdgeIds(faceId, fe);
-    int i = 0;
-    while (f[i] != ptId) i++;
-    return fe[(i + 1) % 3];
+    for (int i = 0; i < 3; ++i) {
+        if (f[i] == ptId) { return fe[(i + 1) % 3]; }
+    }
+    return -1;
 }
 
 void MeshSimplificationFilter::GetEdgeToOneRingPoints(igIndex edgeId, SurfaceMesh::ReturnContainer& ptIds) {

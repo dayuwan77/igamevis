@@ -1,3 +1,9 @@
+// Source: dayuwan77/igamevis at eccac729b57aeacbe9312d7d5189f6990bb4eebd.
+// Integration gap: e7ec6571 imported the filter but omitted its example.
+// Preserve the numerical/attribute checks below and reject invalid inputs;
+// visual examples support --no-render so CI requires a real exit status.
+// Integration commit: test: add examples for first-batch standard filters
+// Find it: git log --diff-filter=A --format="%h %s" -- Examples/Filter/PointCoordinates/TestPointCoordinates.cpp
 #include <PointCoordinates/iGamePointCoordinatesFilter.h>
 #include <iGameDataObject.h>
 #include <iGameUnstructuredMesh.h>
@@ -43,15 +49,36 @@ bool TestCoordinatesArray() {
 
     igIndex triangle[3]{0, 1, 2};
     mesh->AddCell(triangle, 3, iGame::IG_TRIANGLE);
+    igIndex line[2]{1, 2};
+    mesh->AddCell(line, 2, iGame::IG_LINE);
     auto originalCells = mesh->GetCells();
 
     auto filter = iGame::PointCoordinatesFilter::New();
     filter->SetInput(mesh);
     if (!Check(filter->Execute(), "valid mesh must be processed")) { return false; }
-    if (!Check(filter->GetOutput().get() == mesh.get(), "filter must preserve the input data object")) { return false; }
+    auto output = iGame::DynamicCast<iGame::UnstructuredMesh>(filter->GetOutput());
+    if (!Check(output && output.get() != mesh.get(), "filter must produce an independent output")) { return false; }
     if (!Check(mesh->GetCells().get() == originalCells.get(), "filter must preserve mesh topology")) { return false; }
+    // Mixed cell sizes exercise offsets, unlike a single fixed-size triangle.
+    // A seeded zero offset in a deep copy previously shifted connectivity.
+    // Fix commit: test: add examples for first-batch standard filters (lookup above).
+    if (!Check(output->GetNumberOfCells() == 2, "cell count must survive the copy")) return false;
+    for (IGsize i = 0; i < 2; ++i) {
+        const igIndex* inputIds = nullptr;
+        const igIndex* outputIds = nullptr;
+        const int count = mesh->GetCells()->GetCellIds(i, inputIds);
+        if (!Check(output->GetCells()->GetCellIds(i, outputIds) == count,
+                   "mixed cell size must survive the copy")) return false;
+        for (int j = 0; j < count; ++j) {
+            if (!Check(inputIds[j] == outputIds[j], "cell connectivity must match")) return false;
+        }
+        if (!Check(output->GetCellTypes()->GetValue(i) == mesh->GetCellTypes()->GetValue(i),
+                   "cell types must match")) return false;
+    }
+    if (!Check(mesh->GetAttributeSet()->GetAttributeIndex("Coordinates") < 0,
+               "input must not acquire the output attribute")) return false;
 
-    auto attributes = mesh->GetAttributeSet();
+    auto attributes = output->GetAttributeSet();
     const int coordinateIndex = attributes->GetAttributeIndex("Coordinates");
     if (!Check(coordinateIndex >= 0, "Coordinates attribute must be present")) { return false; }
 
@@ -78,6 +105,12 @@ bool TestCoordinatesArray() {
     const auto attributeCount = attributes->GetNumberOfAttributes();
     mesh->GetPoints()->SetPoint(0, 10.0f, 20.0f, 30.0f);
     if (!Check(filter->Execute(), "repeated execution after point edits must succeed")) { return false; }
+    auto refreshedOutput = filter->GetOutput();
+    if (!Check(refreshedOutput.get() != output.get() &&
+                       NearlyEqual(coordinates->GetValue(0), 1.0f),
+               "a prior output must stay independent of later executions")) return false;
+    attributes = refreshedOutput->GetAttributeSet();
+    coordinates = filter->GetCoordinatesArray();
     if (!Check(attributes->GetNumberOfAttributes() == attributeCount,
                "repeated execution must not create duplicate attributes")) {
         return false;
@@ -88,7 +121,7 @@ bool TestCoordinatesArray() {
         return false;
     }
 
-    auto refreshedRange = attribute.GetDataRange();
+    auto refreshedRange = attributes->GetAttribute(attributes->GetAttributeIndex("Coordinates")).GetDataRange();
     const float expectedMagnitude = std::sqrt(10.0f * 10.0f + 20.0f * 20.0f + 30.0f * 30.0f);
     return Check(refreshedRange && NearlyEqual(refreshedRange->GetValue(1), expectedMagnitude) &&
                          NearlyEqual(refreshedRange->GetValue(3), 10.0f) &&

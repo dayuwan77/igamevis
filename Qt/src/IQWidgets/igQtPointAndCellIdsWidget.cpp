@@ -92,7 +92,7 @@ void igQtPointAndCellIdsWidget::apply() {
         return;
     }
 
-    emit idsGenerated();
+    emit idsGenerated(filter->GetOutput());
 }
 
 // 取消并关闭参数页面

@@ -18,7 +18,7 @@ public:
 protected:
     DataObject::Pointer input;
     DataObject::Pointer output;
-    
+
     MultiBlockGeometryFilter();
     ~MultiBlockGeometryFilter() override =default;
 

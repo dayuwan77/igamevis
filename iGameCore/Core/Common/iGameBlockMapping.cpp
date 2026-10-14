@@ -1,8 +1,9 @@
 #include "iGameBlockMapping.h"
-#include <iGamePointFinder.h>
 #include <iGameThreadPool.h>
 #include <iGameBoundingBox.h>
+#include "Log/iGameLogger.h"
 #include <cmath>
+#include <mutex>
 using namespace std;
 IGAME_NAMESPACE_BEGIN
 
@@ -29,33 +30,41 @@ struct VoxelGrid {
 };
 
 // 从 partedMesh 的质心和 part_id 构建体素网格
-// 单线程（PointFinder 非线程安全），但体素数远少于 oriMesh cell 数
 VoxelGrid buildVoxelGrid(UnstructuredMesh::Pointer partedMesh,
                           ArrayObject::Pointer partIdArray) {
     const int M = static_cast<int>(partedMesh->GetNumberOfCells());
 
-    // 1. 收集 partedMesh 各 cell 的质心和 part_id
+    // 1. 并行收集 partedMesh 各 cell 的质心和 part_id
+    //    使用 GetCellPointIds（只读指针版本）保证线程安全，避免 GetCell() 内部的共享缓存写入
     auto pts = Points::New();
-    pts->Reserve(M);
+    pts->SetNumberOfPoints(M);
     std::vector<int> seedPartIds(M);
 
-    for (int i = 0; i < M; i++) {
-        auto cell = partedMesh->GetCell(i);
-        int n = cell->GetNumberOfPoints();
-        Vector3d c(0.0, 0.0, 0.0);
-        for (int pi = 0; pi < n; pi++) {
-            auto& p = cell->GetPoint(pi);
-            c[0] += p[0]; c[1] += p[1]; c[2] += p[2];
-        }
-        if (n > 0) { c[0] /= n; c[1] /= n; c[2] /= n; }
-        pts->AddPoint(c);
-        seedPartIds[i] = static_cast<int>(partIdArray->GetElementValue(i, 0));
-    }
-
-    // 2. 建包围盒
+    std::mutex bboxMutex;
     BoundingBox bbox;
     bbox.reset();
-    for (int i = 0; i < M; i++) bbox.add(pts->GetPoint(i));
+
+    ThreadPool::parallelFor(0, M, [&](int s, int e) {
+        BoundingBox localBbox;
+        localBbox.reset();
+        for (int i = s; i < e; i++) {
+            const igIndex* ptIds = nullptr;
+            int n = partedMesh->GetCellPointIds(i, ptIds);
+            Vector3d c(0.0, 0.0, 0.0);
+            for (int pi = 0; pi < n; pi++) {
+                auto& p = partedMesh->GetPoint(ptIds[pi]);
+                c[0] += p[0]; c[1] += p[1]; c[2] += p[2];
+            }
+            if (n > 0) { c[0] /= n; c[1] /= n; c[2] /= n; }
+            pts->SetPoint(i, c);
+            localBbox.add(c);
+            seedPartIds[i] = static_cast<int>(partIdArray->GetElementValue(i, 0));
+        }
+        std::lock_guard<std::mutex> lock(bboxMutex);
+        bbox.add(localBbox);
+    });
+
+    // 2. 包围盒加 padding
     double pad = bbox.diagVector().maxCoeff() * 0.01;
     bbox.min -= pad;
     bbox.max += pad;
@@ -74,11 +83,8 @@ VoxelGrid buildVoxelGrid(UnstructuredMesh::Pointer partedMesh,
     double dy = diag[1] / ny;
     double dz = diag[2] / nz;
 
-    // 4. 用 PointFinder 为每个体素找最近质心并存 part_id（并行，FindClosestPoint 只读线程安全）
-    auto finder = PointFinder::New();
-    finder->SetPoints(pts);
-    finder->Initialize();
-
+    // 4. 播种：每个质心落入其所在体素；同一体素撞多个质心时，保留离体素中心最近者。
+    //    体素数 ≥ 4×M，碰撞极少，串行 O(M) 足够。
     VoxelGrid grid;
     grid.origin = bbox.min;
     grid.rcpDx = 1.0 / dx;
@@ -86,21 +92,56 @@ VoxelGrid buildVoxelGrid(UnstructuredMesh::Pointer partedMesh,
     grid.rcpDz = 1.0 / dz;
     grid.nx = nx; grid.ny = ny; grid.nz = nz;
     const int totalVoxels = nx * ny * nz;
-    grid.data.resize(static_cast<size_t>(totalVoxels));
+    grid.data.assign(static_cast<size_t>(totalVoxels), 0);
 
-    ThreadPool::parallelFor(0, totalVoxels, [&](int s, int e) {
-        for (int idx = s; idx < e; idx++) {
-            int iz = idx / (ny * nx);
-            int iy = (idx % (ny * nx)) / nx;
-            int ix = idx % nx;
-            Vector3d center;
-            center[0] = bbox.min[0] + (ix + 0.5) * dx;
-            center[1] = bbox.min[1] + (iy + 0.5) * dy;
-            center[2] = bbox.min[2] + (iz + 0.5) * dz;
-            igIndex nearest = finder->FindClosestPoint(center);
-            grid.data[idx] = (nearest >= 0) ? seedPartIds[nearest] : 0;
+    std::vector<int> seedDist(static_cast<size_t>(totalVoxels), -1);  // 播种距离，-1 = 未播种
+    for (int i = 0; i < M; i++) {
+        auto& p = pts->GetPoint(i);
+        int ix = static_cast<int>((p[0] - grid.origin[0]) * grid.rcpDx);
+        int iy = static_cast<int>((p[1] - grid.origin[1]) * grid.rcpDy);
+        int iz = static_cast<int>((p[2] - grid.origin[2]) * grid.rcpDz);
+        ix = std::max(0, std::min(nx - 1, ix));
+        iy = std::max(0, std::min(ny - 1, iy));
+        iz = std::max(0, std::min(nz - 1, iz));
+        int idx = iz * ny * nx + iy * nx + ix;
+
+        double cx = grid.origin[0] + (ix + 0.5) * dx;
+        double cy = grid.origin[1] + (iy + 0.5) * dy;
+        double cz = grid.origin[2] + (iz + 0.5) * dz;
+        double dd = (p[0] - cx) * (p[0] - cx) + (p[1] - cy) * (p[1] - cy) + (p[2] - cz) * (p[2] - cz);
+        if (seedDist[idx] < 0 || dd < seedDist[idx]) {
+            seedDist[idx] = static_cast<int>(dd);
+            grid.data[idx] = seedPartIds[i];
         }
-    });
+    }
+
+    // 5. 多源 BFS 泛洪：以所有已播种体素为源，未播种体素被最近的种子填充，
+    //    等价于网格上的 Voronoi 划分。每体素恰好入队一次，无逐体素动态分配。
+    std::vector<int> queue(static_cast<size_t>(totalVoxels));
+    int head = 0, tail = 0;
+    for (int idx = 0; idx < totalVoxels; idx++) {
+        if (seedDist[idx] >= 0) queue[tail++] = idx;
+    }
+    static const int nbDx[6] = {1, -1, 0, 0, 0, 0};
+    static const int nbDy[6] = {0, 0, 1, -1, 0, 0};
+    static const int nbDz[6] = {0, 0, 0, 0, 1, -1};
+    while (head < tail) {
+        int cur = queue[head++];
+        int cx = cur % nx;
+        int cy = (cur / nx) % ny;
+        int cz = cur / (nx * ny);
+        for (int d = 0; d < 6; d++) {
+            int nix = cx + nbDx[d];
+            int niy = cy + nbDy[d];
+            int niz = cz + nbDz[d];
+            if (nix < 0 || nix >= nx || niy < 0 || niy >= ny || niz < 0 || niz >= nz) continue;
+            int nIdx = niz * ny * nx + niy * nx + nix;
+            if (seedDist[nIdx] >= 0) continue;
+            seedDist[nIdx] = seedDist[cur] + 1;
+            grid.data[nIdx] = grid.data[cur];
+            queue[tail++] = nIdx;
+        }
+    }
 
     return grid;
 }
@@ -150,6 +191,10 @@ std::vector<int> BlockMapping::GetMappingBlockCells(SurfaceMesh::Pointer oriMesh
 
 IntArray::Pointer BlockMapping::GetMappingBlockCellsArray(SurfaceMesh::Pointer oriMesh,
                                                           UnstructuredMesh::Pointer partedMesh) {
+    if (!GetPartId(partedMesh)) {
+        igError("BlockMapping: partedMesh has no 'part_id' attribute.");
+        return nullptr;
+    }
     auto vec = GetMappingBlockCells(oriMesh, partedMesh);
     auto result = IntArray::New();
     result->SetDimension(1);
@@ -187,6 +232,10 @@ std::vector<int> BlockMapping::GetMappingBlockCells(UnstructuredMesh::Pointer or
 
 IntArray::Pointer BlockMapping::GetMappingBlockCellsArray(UnstructuredMesh::Pointer oriMesh,
                                                           UnstructuredMesh::Pointer partedMesh) {
+    if (!GetPartId(partedMesh)) {
+        igError("BlockMapping: partedMesh has no 'part_id' attribute.");
+        return nullptr;
+    }
     auto vec = GetMappingBlockCells(oriMesh, partedMesh);
     auto result = IntArray::New();
     result->SetDimension(1);
@@ -224,6 +273,10 @@ std::vector<int> BlockMapping::GetMappingBlockCells(VolumeMesh::Pointer oriMesh,
 
 IntArray::Pointer BlockMapping::GetMappingBlockCellsArray(VolumeMesh::Pointer oriMesh,
                                                           UnstructuredMesh::Pointer partedMesh) {
+    if (!GetPartId(partedMesh)) {
+        igError("BlockMapping: partedMesh has no 'part_id' attribute.");
+        return nullptr;
+    }
     auto vec = GetMappingBlockCells(oriMesh, partedMesh);
     auto result = IntArray::New();
     result->SetDimension(1);

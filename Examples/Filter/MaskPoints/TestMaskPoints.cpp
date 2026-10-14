@@ -1,3 +1,9 @@
+// Source: dayuwan77/igamevis at eccac729b57aeacbe9312d7d5189f6990bb4eebd.
+// Integration gap: e7ec6571 imported the filter but omitted its example.
+// Preserve the numerical/attribute checks below and reject invalid inputs;
+// visual examples support --no-render so CI requires a real exit status.
+// Integration commit: test: add examples for first-batch standard filters
+// Find it: git log --diff-filter=A --format="%h %s" -- Examples/Filter/MaskPoints/TestMaskPoints.cpp
 #include <MaskPoints/iGameMaskPointsFilter.h>
 #include <iGameAttributeSet.h>
 #include <iGameFlatArray.h>
