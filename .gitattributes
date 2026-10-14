@@ -31,3 +31,7 @@ Examples/Models/OutlineCorners_Box.vtk -filter -diff -merge text
 Examples/Models/rectangle_structured_2d.vtk -filter -diff -merge text
 Examples/Models/test_mesh.vtk -filter -diff -merge text
 Examples/Models/tube_test.vtk -filter -diff -merge text
+
+# Keep development-branch small plain-text example fixtures outside Git LFS.
+Examples/Models/PerlinNoise_Test.vtk -filter -diff -merge text
+Examples/Models/YieldCriteria_Test.vtk -filter -diff -merge text

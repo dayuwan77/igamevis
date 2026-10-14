@@ -717,6 +717,8 @@ igame_add_example(testReverseSenseSelfCheck Filter/ReverseSense/TestReverseSense
 # Temporal Statistics：时域统计（全部数组逐元素 平均/最小/最大/标准差），输出新模型。
 # 测试数据是 test/Animation Test/result-case1 的 401 帧 legacy VTK 序列（LFS 素材，缺失时测试自行跳过）。
 igame_add_example(testTemporalStatistics Filter/Animation/TestTemporalStatistics.cpp)
+# PerlinNoise: samples 3D Perlin noise at every input point into a point scalar array.
+igame_add_example(testPerlinNoise Filter/AttributeManipulation/TestPerlinNoise.cpp)
 
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
