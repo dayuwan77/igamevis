@@ -205,6 +205,8 @@ private:
     iGame::AxisAlignedReflectionFilter::Pointer m_axisAlignedReflectionFilter;
     iGame::Model::Pointer m_axisAlignedReflectionModel;
     int m_axisAlignedReflectionCount{0};
+    // 时域统计：左侧 Dock（首次打开懒创建），面板里勾选要输出的统计量
+    QDockWidget* m_temporalStatisticsDock = nullptr;
     std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
