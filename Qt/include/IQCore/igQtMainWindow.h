@@ -60,6 +60,7 @@ class igQtAxisAlignedReflectionWidget;
 class igQtPointAndCellIdsWidget;
 class igQtExtractComponentWidget;
 class igQtLinearExtrusionWidget;
+class igQtMedianFilterWidget;
 class QDialog;
 
 class igQtAttributeSelectWidget;
@@ -80,6 +81,7 @@ public:
         Selection,
         VariableDensity,
         DataChange,
+        MedianFilter,
         Count
     };
 
@@ -207,7 +209,9 @@ private:
     int m_axisAlignedReflectionCount{0};
     // 时域统计：左侧 Dock（首次打开懒创建），面板里勾选要输出的统计量
     QDockWidget* m_temporalStatisticsDock = nullptr;
-    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    // 每类左侧工具面板占一个槽位；追加 MedianFilter 枚举后，Count 增一，槽位也同步增一
+    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
+        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
