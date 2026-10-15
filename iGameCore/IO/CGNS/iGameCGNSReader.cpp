@@ -3,6 +3,7 @@
 #include "Log/iGameLogger.h"
 #include "ModelSurface/iGameModelGeometryFilter.h"
 #include <cmath>
+#include <algorithm>
 IGAME_NAMESPACE_BEGIN
 
 template<typename ArrayType>
@@ -49,7 +50,7 @@ bool iGameCGNSReader::Parsing()
 bool iGameCGNSReader::Execute() {
     auto fileName = this->m_FilePath;
     int result;
-    int file_type;
+    int file_type = CG_FILE_NONE;
     result = cgio_check_file(fileName.c_str(), &file_type);
     if (file_type == CG_FILE_NONE) {
         IGAME_CORE_ERROR("Not a CGNS file.");
@@ -67,6 +68,7 @@ bool iGameCGNSReader::Execute() {
     result = cg_open(fileName.data(), CG_MODE_READ, &index_file);
     if (CG_OK != result) {
         IGAME_CORE_ERROR("Open Error: {}", cg_get_error());
+        return false;
     } else {
         IGAME_CORE_DEBUG("Success to open cgns file!");
     }
@@ -113,6 +115,7 @@ bool iGameCGNSReader::Execute() {
     }
     this->UpdateProgress(0.15);
     m_ParentObject = DrawObject::New();
+    std::vector<DataObject::Pointer> zones;
     double base_progress_step = 0.7 / nbases;  // 70% of total progress for all bases
     for (int index_base = 1; index_base <= nbases; index_base++) {
         char basename[100];
@@ -228,8 +231,13 @@ bool iGameCGNSReader::Execute() {
                     // 读取完属性后更新进度 (100% of zone progress)
                     this->UpdateProgress(zone_base_progress + zone_progress_step);
                 }
-                m_ParentObject->AddSubDataObject(this->GetCurrentDataObject());
+                auto zone = this->GetCurrentDataObject();
+                if (zone == nullptr) { cg_close(index_file); return false; }
+                zone->GetMetadata()->AddDoubleArray("CGNSCoordinates", m_Coordinates);
+                zone->GetMetadata()->AddDouble("CGNSCoordinatesMTime", m_Points->GetMTime().GetMTime());
+                zones.push_back(zone);
                 this->m_Points = nullptr;
+                this->m_Coordinates = nullptr;
                 this->m_StructuredMesh = nullptr;
                 this->m_UnstructuredMesh = nullptr;
                 this->m_VolumeMesh = nullptr;
@@ -237,10 +245,10 @@ bool iGameCGNSReader::Execute() {
             }
         }
     }
-    if (this->m_ParentObject->GetNumberOfSubDataObjects() == 1) {
-        auto dataobject = m_ParentObject->SubDataObjectIteratorBegin()->second;
-        this->SetOutput(m_ParentObject->SubDataObjectIteratorBegin()->second);
+    if (zones.size() == 1) {
+        this->SetOutput(zones.front());
     } else {
+        for (const auto& zone : zones) m_ParentObject->AddSubDataObject(zone);
         this->SetOutput(m_ParentObject);
     }
     cg_close(index_file);
@@ -252,6 +260,9 @@ void iGameCGNSReader::ReadPointCoordinates(int pointNum, int positionDim, int in
     if (m_Points == nullptr) { m_Points = Points::New(); }
     m_Points->SetNumberOfPoints(pointNum);
     auto points = m_Points->RawPointer();
+    m_Coordinates = DoubleArray::New();
+    m_Coordinates->SetDimension(3);
+    m_Coordinates->Resize(pointNum);
 
     for (int dim = 0; dim < positionDim; ++dim) {
         // 获取 GridCoordinates 下第 dim+1 个坐标名称
@@ -278,10 +289,9 @@ void iGameCGNSReader::ReadPointCoordinates(int pointNum, int positionDim, int in
             continue;
         }
 
-        int idx = dim;
         for (cgsize_t j = 0; j < pointNum; ++j) {
-            points[idx] = coordData[j];
-            idx += positionDim;
+            points[3 * j + dim] = coordData[j];
+            m_Coordinates->RawPointer()[3 * j + dim] = coordData[j];
         }
     }
 }
@@ -339,7 +349,20 @@ void iGameCGNSReader::ReadUnstructuredCellConnectivities(int index_file, int ind
             this->m_DataObjectType = IG_VOLUME_MESH;
             CellArray::Pointer Faces = CellArray::New();
             CellArray::Pointer Volumes = CellArray::New();
-            for (int index_section = 1; index_section <= nsections; index_section++) {
+            std::vector<std::pair<cgsize_t, int>> sectionOrder;
+            for (int index_section = 1; index_section <= nsections; ++index_section) {
+                char name[33];
+                ElementType_t type;
+                cgsize_t start, end;
+                int boundary, parent;
+                cg_section_read(index_file, index_base, index_zone, index_section, name, &type,
+                                &start, &end, &boundary, &parent);
+                sectionOrder.emplace_back(start, index_section);
+            }
+            // NFACE connectivity uses global face ids, not the order returned by cg_nsections.
+            std::sort(sectionOrder.begin(), sectionOrder.end());
+            for (const auto& section : sectionOrder) {
+                const int index_section = section.second;
                 char sectionname[100];
                 ElementType_t type;
                 cgsize_t start, end;

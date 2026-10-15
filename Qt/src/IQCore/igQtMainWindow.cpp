@@ -54,6 +54,7 @@
 #include "FeatureExtraction/iGameDeflectNormalsFilter.h"
 #include "Convert/iGamePointSetToOctreeFilter.h"
 #include "Convert/iGameResampleToImageFilter.h"
+#include <IQWidgets/igQtResampleToImageWidget.h>
 #include "MeshQuality/iGameMeshQualityFilter.h"
 
 #include "Transformation/iGameTransformFilter.h"
@@ -7376,6 +7377,7 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
     case LeftToolPanelId::VariableDensity: return ui->dockWidget_VariableDensityField;
     case LeftToolPanelId::DataChange: return ui->dockWidget_DataChangeField;
     case LeftToolPanelId::MedianFilter: return ui->dockWidget_MedianFilter;
+    case LeftToolPanelId::ResampleToImage: return m_resampleToImageDock;
     case LeftToolPanelId::Count: return nullptr;
     }
     return nullptr;
@@ -7482,6 +7484,9 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
         break;
     case LeftToolPanelId::MedianFilter:
         relocateContentToLeftTab(ui->dockWidget_MedianFilter, ui->widget_MedianFilter, QStringLiteral("中值滤波"), id, false);
+        break;
+    case LeftToolPanelId::ResampleToImage:
+        relocateContentToLeftTab(m_resampleToImageDock, m_resampleToImageWidget, QStringLiteral("重采样到图像"), id, false);
         break;
     case LeftToolPanelId::Count:
         break;

@@ -3,21 +3,19 @@
 #include "ui_igQtResampleToImage.h"
 
 #include <Convert/iGameResampleToImageFilter.h>
-#include <iGameCellType.h>
 #include <iGameModel.h>
 #include <iGamePointSet.h>
 #include <iGameUnstructuredMesh.h>
+#include <iGameVolumeMesh.h>
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QDockWidget>
-#include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
 
-#include <map>
 #include <string>
 
 namespace {
@@ -25,12 +23,6 @@ namespace {
 // 大尺寸提醒阈值：格点数超过 256^3，或点数据预估内存超过 256 MB 时二次确认。
 constexpr IGsize kLargeGridPointsWarning = 256ull * 256ull * 256ull;
 constexpr double kLargeMemoryWarningMB = 256.0;
-
-QString CellTypeName(IGenum cellType) {
-    const char* name = iGame::GetCellTypeAsString(cellType);
-    if (name != nullptr && *name != '\0') return QString::fromUtf8(name);
-    return QStringLiteral("类型#%1").arg(static_cast<int>(cellType));
-}
 
 } // namespace
 
@@ -52,21 +44,22 @@ QDockWidget* igQtResampleToImageWidget::createDockWidget(QWidget* parent) {
     return dockWidget;
 }
 
-void igQtResampleToImageWidget::initUI() { refreshEstimate(); }
+void igQtResampleToImageWidget::initUI() {
+    for (auto* field : {ui->spinBox_DimX, ui->spinBox_DimY, ui->spinBox_DimZ}) {
+        field->setMinimumWidth(72);
+        field->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    }
+    for (auto* field : {ui->lineEdit_XMin, ui->lineEdit_XMax, ui->lineEdit_YMin,
+                        ui->lineEdit_YMax, ui->lineEdit_ZMin, ui->lineEdit_ZMax}) {
+        field->setMinimumWidth(64);
+        field->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    }
+    refreshInputState();
+}
 
 void igQtResampleToImageWidget::initConnections() {
     connect(ui->pushButton_Run, &QPushButton::clicked, this, &igQtResampleToImageWidget::onRunClicked);
     connect(ui->pushButton_Close, &QPushButton::clicked, this, [this]() { emit closeRequested(); });
-
-    // 参数变化时实时刷新「执行前预估」
-    connect(ui->checkBox_UseInputBounds, &QCheckBox::toggled, this,
-            &igQtResampleToImageWidget::refreshEstimate);
-    connect(ui->spinBox_DimX, QOverload<int>::of(&QSpinBox::valueChanged), this,
-            &igQtResampleToImageWidget::refreshEstimate);
-    connect(ui->spinBox_DimY, QOverload<int>::of(&QSpinBox::valueChanged), this,
-            &igQtResampleToImageWidget::refreshEstimate);
-    connect(ui->spinBox_DimZ, QOverload<int>::of(&QSpinBox::valueChanged), this,
-            &igQtResampleToImageWidget::refreshEstimate);
 
     // 不使用输入包围盒时才允许编辑采样范围
     connect(ui->checkBox_UseInputBounds, &QCheckBox::toggled, this, [this](bool useInputBounds) {
@@ -94,91 +87,23 @@ void igQtResampleToImageWidget::setCurrentModel(iGame::Model* model) {
     // 与 filter 内部一致：统一转换到 UnstructuredMesh（只在切换模型时做一次）
     m_meshData = nullptr;
     if (m_input != nullptr) {
+        auto volume = iGame::DynamicCast<iGame::VolumeMesh>(m_input);
+        if (volume && volume->GetIsPolyhedronType()) {
+            m_meshData = volume;
+            refreshInputState();
+            return;
+        }
         auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(m_input);
         if (mesh == nullptr) mesh = iGame::UnstructuredMesh::TransDataObjToUnstructuredMesh(m_input);
         if (mesh != nullptr) m_meshData = mesh;
     }
-    refreshEstimate();
+    refreshInputState();
 }
 
-void igQtResampleToImageWidget::refreshEstimate() {
-    if (m_input == nullptr) {
-        ui->label_Info->setText(QStringLiteral("请先选择一个模型。"));
-        ui->pushButton_Run->setEnabled(false);
-        return;
-    }
-
+void igQtResampleToImageWidget::refreshInputState() {
     auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(m_meshData);
-    if (mesh == nullptr) {
-        ui->label_Info->setText(
-                QStringLiteral("当前数据不是可重采样的网格（无法转换为 UnstructuredMesh）。"));
-        ui->pushButton_Run->setEnabled(false);
-        return;
-    }
-    ui->pushButton_Run->setEnabled(true);
-
-    // ---- 输入规模与单元类型统计 ----
-    const IGsize numPoints = mesh->GetNumberOfPoints();
-    const IGsize numCells = mesh->GetNumberOfCells();
-    std::map<IGenum, IGsize> cellTypeCounts;
-    for (IGsize c = 0; c < numCells; ++c) {
-        ++cellTypeCounts[mesh->GetCellType(c)];
-    }
-
-    QStringList supportedParts;
-    QStringList unsupportedParts;
-    IGsize unsupportedCount = 0;
-    for (const auto& kv : cellTypeCounts) {
-        const QString piece = QStringLiteral("%1×%2").arg(CellTypeName(kv.first)).arg(
-                static_cast<qlonglong>(kv.second));
-        if (iGame::ResampleToImageFilter::IsCellTypeSupported(kv.first)) {
-            supportedParts << piece;
-        } else {
-            unsupportedParts << piece;
-            unsupportedCount += kv.second;
-        }
-    }
-
-    QStringList lines;
-    lines << QStringLiteral("输入：%1 点 / %2 单元").arg(static_cast<qlonglong>(numPoints)).arg(
-            static_cast<qlonglong>(numCells));
-    lines << QStringLiteral("受支持的单元：%1").arg(
-            supportedParts.isEmpty() ? QStringLiteral("（无）") : supportedParts.join(QStringLiteral("、")));
-    lines << QStringLiteral("支持的单元类型：%1").arg(
-            QString::fromUtf8(iGame::ResampleToImageFilter::GetSupportedCellTypesText()));
-    if (unsupportedCount > 0) {
-        lines << QStringLiteral("⚠ 不受支持的单元：%1（共 %2 个）")
-                         .arg(unsupportedParts.join(QStringLiteral("、")))
-                         .arg(static_cast<qlonglong>(unsupportedCount));
-        lines << QStringLiteral("  → 这些单元覆盖的格点会被判为无效；勾选“遇到不支持的单元类型时终止执行”"
-                                "可改为直接报错，避免产出不完整结果。");
-    }
-
-    // ---- 预估输出规模 ----
-    auto filter = iGame::ResampleToImageFilter::New();
-    filter->SetInput(m_input);
-    filter->SetSamplingDimensions(ui->spinBox_DimX->value(), ui->spinBox_DimY->value(),
-                                  ui->spinBox_DimZ->value());
-    filter->SetUseInputBounds(ui->checkBox_UseInputBounds->isChecked());
-
-    IGsize gridPoints = 0;
-    IGsize gridCells = 0;
-    double memoryMB = 0.0;
-    if (filter->EstimateOutputSize(gridPoints, gridCells, memoryMB)) {
-        lines << QStringLiteral("预估输出：%1 格点 / %2 单元，点数据内存量级约 %3 MB")
-                         .arg(static_cast<qlonglong>(gridPoints))
-                         .arg(static_cast<qlonglong>(gridCells))
-                         .arg(memoryMB, 0, 'f', 1);
-        if (gridPoints > kLargeGridPointsWarning || memoryMB > kLargeMemoryWarningMB) {
-            lines << QStringLiteral("⚠ 输出规模较大，执行可能耗时并占用较多内存，执行前会再次确认。");
-        }
-    }
-
-    if (!m_lastDiagnostic.isEmpty()) {
-        lines << QStringLiteral("---- 上次执行 ----");
-        lines << m_lastDiagnostic;
-    }
-    ui->label_Info->setText(lines.join(QStringLiteral("\n")));
+    auto polyhedra = iGame::DynamicCast<iGame::VolumeMesh>(m_meshData);
+    ui->pushButton_Run->setEnabled(m_input && (mesh || (polyhedra && polyhedra->GetIsPolyhedronType())));
 }
 
 bool igQtResampleToImageWidget::buildFilter(iGame::ResampleToImageFilter::Pointer& filter,
@@ -247,11 +172,10 @@ void igQtResampleToImageWidget::onRunClicked() {
     QApplication::restoreOverrideCursor();
 
     const QString message = QString::fromStdString(filter->GetMessage()).trimmed();
-    m_lastDiagnostic = message;
     if (!ok) {
         QMessageBox::warning(this, QStringLiteral("重采样到图像"),
                              message.isEmpty() ? QStringLiteral("执行失败。") : message);
-        refreshEstimate();
+        refreshInputState();
         return;
     }
 
@@ -263,6 +187,5 @@ void igQtResampleToImageWidget::onRunClicked() {
     result->SetName(m_input->GetName() + std::string("_image"));
     emit resultReady(result);
 
-    if (m_lastDiagnostic.isEmpty()) m_lastDiagnostic = QStringLiteral("执行完成。");
-    refreshEstimate();
+    refreshInputState();
 }

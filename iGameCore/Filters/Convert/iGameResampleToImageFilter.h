@@ -10,10 +10,11 @@ IGAME_NAMESPACE_BEGIN
 /**
  * @brief 将输入网格重采样到规则图像网格 (Resample To Image)。
  *
- * 本过滤器是 VTK 中 vtkResampleToImage 的移植实现，功能保持一致：
+ * 本过滤器移植 VTK 中 vtkResampleToImage 的常用线性单元路径：
  * 对输入的网格（PointSet 及其子类）在指定的采样区域上建立一个规则的
  * 图像网格（StructuredMesh），并在每一个网格格点处对输入的点属性进行
  * 探针插值（probe），从而把网格上的场重采样为图像上的点场。
+ * 多面体目前仅支持单元属性快照，不支持点属性的 mean-value 插值。
  *
  * 输出是一个 StructuredMesh（等价 vtkImageData）：
  *   - 原点 origin   = samplingBounds 的 (xmin, ymin, zmin)；
@@ -101,6 +102,16 @@ public:
     //@}
 
     //@{
+    /// 多面体单元属性的旧版 VTK 兼容模式，默认 true。
+    /// 对齐 ParaView 6.2.0-RC1 的 EvaluatePosition 无限容差行为：包围盒内即可接受。
+    /// 这不是严格的几何包含判定，倾斜/凹多面体可能接受盒内但单元外的点。
+    /// false 使用边界射线判定；两种模式均按源单元顺序先到先得，
+    /// 共享边界的归属可能与 VTK 的并行调度不同。
+    void SetUseVTKPolyhedronCompatibility(bool b) { m_UseVTKPolyhedronCompatibility = b; }
+    bool GetUseVTKPolyhedronCompatibility() const { return m_UseVTKPolyhedronCompatibility; }
+    //@}
+
+    //@{
     /// 诊断信息（执行后填充）：支持/不支持的单元类型统计、同名点/单元数组冲突、
     /// 离散数组的非插值处理清单等。供界面提示使用，避免静默的不完整/可疑结果。
     const std::string& GetMessage() const { return m_Message; }
@@ -124,6 +135,7 @@ protected:
     bool m_FailOnUnsupportedCells{true};
     double m_Tolerance{1.0};
     bool m_ComputeTolerance{true};
+    bool m_UseVTKPolyhedronCompatibility{true};
     std::string m_Message;
 };
 

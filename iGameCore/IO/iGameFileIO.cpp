@@ -193,7 +193,7 @@ std::string FileIO::GetFileTypeAsString(IGenum type) {
     }
 }
 
-static AttributeSet::Pointer TransformScalars2VectorArray(AttributeSet* Attrs) {
+static AttributeSet::Pointer TransformScalars2VectorArray(AttributeSet* Attrs, bool mergeNumericComponents = true) {
     AttributeSet::Pointer newAttrs = AttributeSet::New();
     int size = Attrs->GetNumberOfAttributes();
     for (int i = 0; i < size; i++) {
@@ -224,7 +224,7 @@ static AttributeSet::Pointer TransformScalars2VectorArray(AttributeSet* Attrs) {
                     isvector = false;
                 }
             }
-        } else if (name[name.length() - 1] == '0') {
+        } else if (mergeNumericComponents && name[name.length() - 1] == '0') {
             isvector = true;
             int j = 1;
             for (j = 1; j < 3; j++) {
@@ -239,7 +239,7 @@ static AttributeSet::Pointer TransformScalars2VectorArray(AttributeSet* Attrs) {
                     isvector = false;
                 }
             }
-        } else if (name[name.length() - 1] == '1') {
+        } else if (mergeNumericComponents && name[name.length() - 1] == '1') {
             isvector = true;
             int j = 1;
             for (j = 1; j < 3; j++) {
@@ -323,11 +323,12 @@ static AttributeSet::Pointer TransformScalars2VectorArray(AttributeSet* Attrs) {
     return newAttrs;
 }
 
-static DataObject::Pointer FinalizeLoadedObject(DataObject::Pointer resObj, const std::string& objectName) {
+static DataObject::Pointer FinalizeLoadedObject(DataObject::Pointer resObj, const std::string& objectName,
+                                              bool mergeNumericComponents = true) {
     if (resObj) {
         if (!objectName.empty()) { resObj->SetName(objectName); }
         if (resObj->GetAttributeSet()) {
-            resObj->SetAttributeSet(TransformScalars2VectorArray(resObj->GetAttributeSet()));
+            resObj->SetAttributeSet(TransformScalars2VectorArray(resObj->GetAttributeSet(), mergeNumericComponents));
         }
     }
 
@@ -542,7 +543,8 @@ DataObject::Pointer FileIO::ReadFileWithRenderingPolicy(const std::string& file_
     if (remoteRendering && resObj) {
         if (auto draw = DynamicCast<DrawObject>(resObj)) draw->SetRemoteRenderingEnabled(true);
     }
-    resObj = FinalizeLoadedObject(resObj, baseName);
+    // CGNS groups X/Y/Z vector fields; numbered scalar arrays remain independent in vtkCGNSReader.
+    resObj = FinalizeLoadedObject(resObj, baseName, fileType != CGNS);
 
     end = clock();
     out.append(", success: ");

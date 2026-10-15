@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>420</width>
-    <height>620</height>
+    <height>390</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -23,7 +23,10 @@
       <item row="0" column="0" colspan="6">
        <widget class="QCheckBox" name="checkBox_UseInputBounds">
         <property name="text">
-         <string>使用输入数据包围盒（取消勾选后可手动指定采样范围）</string>
+         <string>使用输入数据包围盒</string>
+        </property>
+        <property name="toolTip">
+         <string>取消勾选后可手动指定采样范围。</string>
         </property>
         <property name="checked">
          <bool>true</bool>
@@ -33,7 +36,7 @@
       <item row="1" column="0" colspan="6">
        <widget class="QLabel" name="label_DimTitle">
         <property name="text">
-         <string>采样维度（各轴格点数）：</string>
+         <string>采样维度（各轴格点数）</string>
         </property>
        </widget>
       </item>
@@ -100,7 +103,10 @@
       <item row="3" column="0" colspan="6">
        <widget class="QLabel" name="label_BoundsTitle">
         <property name="text">
-         <string>采样范围（仅在不使用输入包围盒时生效）：</string>
+         <string>采样范围</string>
+        </property>
+        <property name="toolTip">
+         <string>仅在不使用输入数据包围盒时生效。</string>
         </property>
        </widget>
       </item>
@@ -128,7 +134,7 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="3">
+      <item row="4" column="3" colspan="3">
        <widget class="QLineEdit" name="lineEdit_XMax">
         <property name="text">
          <string>1</string>
@@ -159,7 +165,7 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="3">
+      <item row="5" column="3" colspan="3">
        <widget class="QLineEdit" name="lineEdit_YMax">
         <property name="text">
          <string>1</string>
@@ -190,7 +196,7 @@
         </property>
        </widget>
       </item>
-      <item row="6" column="3">
+      <item row="6" column="3" colspan="3">
        <widget class="QLineEdit" name="lineEdit_ZMax">
         <property name="text">
          <string>1</string>
@@ -200,7 +206,10 @@
       <item row="7" column="0" colspan="6">
        <widget class="QCheckBox" name="checkBox_FailOnUnsupported">
         <property name="text">
-         <string>遇到不支持的单元类型时终止执行（避免产出不完整结果）</string>
+         <string>遇到不支持的单元类型时终止执行</string>
+        </property>
+        <property name="toolTip">
+         <string>避免产出不完整结果。</string>
         </property>
         <property name="checked">
          <bool>true</bool>
@@ -210,31 +219,12 @@
       <item row="8" column="0" colspan="6">
        <widget class="QCheckBox" name="checkBox_DisableDiscreteInterp">
         <property name="text">
-         <string>对 ID/整型等离散数组禁用线性插值（改用最近顶点取值）</string>
+         <string>对离散数组禁用线性插值</string>
+        </property>
+        <property name="toolTip">
+         <string>对 ID/整型等离散数组改用最近顶点取值。</string>
         </property>
         <property name="checked">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </widget>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="groupBox_Info">
-     <property name="title">
-      <string>执行前预估与诊断</string>
-     </property>
-     <layout class="QVBoxLayout" name="verticalLayout_Info">
-      <item>
-       <widget class="QLabel" name="label_Info">
-        <property name="text">
-         <string>请先选择一个模型。</string>
-        </property>
-        <property name="textInteractionFlags">
-         <set>Qt::TextSelectableByMouse</set>
-        </property>
-        <property name="wordWrap">
          <bool>true</bool>
         </property>
        </widget>
@@ -272,6 +262,16 @@
       </widget>
      </item>
     </layout>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size><width>20</width><height>40</height></size>
+     </property>
+    </spacer>
    </item>
   </layout>
  </widget>

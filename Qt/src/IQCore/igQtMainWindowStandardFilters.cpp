@@ -154,11 +154,18 @@ bool igQtMainWindow::connectImportedFilterAction(QAction* action, const QString&
             });
             panel->setCurrentModel(model);
         } else if (id == "resample_to_image") {
-            auto* panel = filterPanel<igQtResampleToImageWidget>(this, id, title, [&](auto* p, auto* dock) {
-                connect(p, &igQtResampleToImageWidget::resultReady, this, displayResult);
-                connect(p, &igQtResampleToImageWidget::closeRequested, dock, &QDockWidget::hide);
-            });
-            panel->setCurrentModel(model);
+            if (!m_resampleToImageDock) {
+                m_resampleToImageDock = igQtResampleToImageWidget::createDockWidget(this);
+                m_resampleToImageWidget = qobject_cast<igQtResampleToImageWidget*>(m_resampleToImageDock->widget());
+                addDockWidget(Qt::LeftDockWidgetArea, m_resampleToImageDock);
+                m_resampleToImageDock->hide();
+                connect(m_resampleToImageWidget, &igQtResampleToImageWidget::resultReady, this, displayResult);
+                connect(m_resampleToImageWidget, &igQtResampleToImageWidget::closeRequested, this,
+                        [this]() { closeLeftToolPanel(LeftToolPanelId::ResampleToImage); });
+            }
+            m_resampleToImageWidget->setCurrentModel(model);
+            openLeftToolPanel(LeftToolPanelId::ResampleToImage);
+            return;
         } else if (id == "triangle_strips") {
             auto* panel = filterPanel<igQtTriangleStripWidget>(this, id, title, [&](auto* p, auto*) {
                 connect(p, &igQtTriangleStripWidget::resultReady, this,
