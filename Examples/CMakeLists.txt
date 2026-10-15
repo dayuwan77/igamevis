@@ -248,6 +248,10 @@ function(igame_register_example_test EXAMPLE_TARGET)
         NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Models/Quad_Plane_Tensor.vtk")
         return()
     endif ()
+    # TemporalStatistics：测试数据目录较大，参数与工作目录由下方专用 add_test 提供
+    if ("${EXAMPLE_TARGET}" STREQUAL "testTemporalStatistics")
+        return()
+    endif ()
 
     if (EXAMPLE_TARGET IN_LIST IGAME_BATCH1_EXAMPLES)
         set(_BATCH1_ARGS)
@@ -720,6 +724,9 @@ igame_add_example(testReverseSenseSelfCheck Filter/ReverseSense/TestReverseSense
 # Cylinder texture mapping
 igame_add_example(testTextureMapToCylinder Filter/TestTextureMapToCylinder.cpp)
 
+# Temporal Statistics：时域统计（全部数组逐元素 平均/最小/最大/标准差），输出新模型。
+# 测试数据是 test/Animation Test/result-case1 的 401 帧 legacy VTK 序列（LFS 素材，缺失时测试自行跳过）。
+igame_add_example(testTemporalStatistics Filter/Animation/TestTemporalStatistics.cpp)
 # PerlinNoise: samples 3D Perlin noise at every input point into a point scalar array.
 igame_add_example(testPerlinNoise Filter/AttributeManipulation/TestPerlinNoise.cpp)
 
@@ -772,3 +779,11 @@ add_test(NAME testSpectralReaderCPUSamples
         "${CMAKE_CURRENT_SOURCE_DIR}/../test/Spectral Test"
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:testSpectralReaderCPU>")
 set_tests_properties(testSpectralReaderCPUSamples PROPERTIES TIMEOUT 180)
+
+# TemporalStatistics：用 test/Animation Test/result-case1 的 401 帧序列做逐元素校验。
+# 默认只取前 48 帧（全量较慢，可手动传 --all）；数据目录缺失时测试返回 77（跳过）。
+add_test(NAME testTemporalStatistics
+    COMMAND "$<TARGET_FILE:testTemporalStatistics>"
+        "${CMAKE_SOURCE_DIR}/test/Animation Test/result-case1"
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:testTemporalStatistics>")
+set_tests_properties(testTemporalStatistics PROPERTIES TIMEOUT 900 SKIP_RETURN_CODE 77)

@@ -73,3 +73,5 @@
 #include "ResampleToLine/iGameResampleToLine.h"
 #include "TriangleStrip/iGameTriangleStripFilter.h"
 #include "ReverseSense/iGameReverseSenseFilter.h"
+
+#include "Animation/iGameTemporalStatistics.h"

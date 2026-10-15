@@ -96,6 +96,7 @@
 #include <SurfaceNormals/iGameSurfaceNormalsFilter.h>
 #include <IQWidgets/igQtExtractCellsByTypeWidget.h>
 #include <IQWidgets/igQtPointSetToOctreeWidget.h>
+#include <IQWidgets/igQtTemporalStatisticsWidget.h>
 #include <IQWidgets/igQtPointVolumeInterpolatorWidget.h>
 #include <IQWidgets/igQtExtractLocationWidget.h>
 #include <IQWidgets/igQtGlobalIdWidget.h>
@@ -6950,6 +6951,63 @@ void igQtMainWindow::initAllFilters() {
                 showDarkFramelessMessage(QStringLiteral("合并数据集"), report, true);
             });
 
+    // ---------- 时域统计 (Temporal Statistics) ----------
+    QAction* temporalStatisticsAction =
+            developingFiltersBatch2->addAction(QStringLiteral("时域统计 (Temporal Statistics)"));
+    temporalStatisticsAction->setData(QStringLiteral("temporal_statistics"));
+    connect(temporalStatisticsAction, &QAction::triggered, this, [this](bool) {
+        const QString title = QStringLiteral("时域统计");
+        auto scene = rendererWidget->GetScene();
+        auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+        if (!currentModel) {
+            showDarkFramelessMessage(title, QStringLiteral("请先在模型树中选择一个模型。"));
+            return;
+        }
+        auto obj = currentModel->GetDataObject();
+        if (!obj) {
+            showDarkFramelessMessage(title, QStringLiteral("当前模型没有可用的数据对象。"));
+            return;
+        }
+
+        // 首次打开：懒创建**左侧**参数面板（勾选要输出的统计量，形态同「重采样到图像」）
+        if (m_temporalStatisticsDock == nullptr) {
+            m_temporalStatisticsDock = igQtTemporalStatisticsWidget::createDockWidget(this);
+            addDockWidget(Qt::LeftDockWidgetArea, m_temporalStatisticsDock);
+            auto* panel = qobject_cast<igQtTemporalStatisticsWidget*>(m_temporalStatisticsDock->widget());
+            connect(panel, &igQtTemporalStatisticsWidget::resultReady, this,
+                    [this, obj](DataObject::Pointer output) {
+                        if (!output) { return; }
+                        output->SetName(obj->GetName() + "_temporal_statistics");
+                        modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+                        // 选中第一个统计数组，便于直接着色查看
+                        if (auto attributeSet = output->GetAttributeSet()) {
+                            if (attributeSet->GetNumberOfAttributes() > 0) {
+                                if (auto* item = modelTreeWidget->getItemFromObject(output)) {
+                                    item->setExpanded(true);
+                                    if (item->childCount() > 0) {
+                                        if (auto* child = item->child(0)) {
+                                            item->setCurrentChild(child);
+                                            item->setSelected(false);
+                                            item->viewAttribute(0, -1);
+                                            child->setSelected(true);
+                                            modelTreeWidget->setCurrentItem(child);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        modelTreeWidget->updateCloudPicture();
+                        rendererWidget->update();
+                    }
+            );
+            connect(panel, &igQtTemporalStatisticsWidget::closeRequested, m_temporalStatisticsDock,
+                    &QDockWidget::hide);
+        }
+        auto* panel = qobject_cast<igQtTemporalStatisticsWidget*>(m_temporalStatisticsDock->widget());
+        if (panel != nullptr) { panel->setCurrentModel(currentModel); }
+        m_temporalStatisticsDock->show();
+        m_temporalStatisticsDock->raise();
+    });
     // ---------- Perlin 噪声 (Perlin Noise)：追加在“新增filter/第二批”菜单末尾 ----------
     connect(developingFiltersBatch2->addAction(QStringLiteral("Perlin 噪声 (Perlin Noise)")),
             &QAction::triggered, this, [this](bool) {
