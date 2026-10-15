@@ -1,5 +1,6 @@
 #include <IQWidgets/igQtExtractLocationWidget.h>
 #include "IQCore/igQtMainWindow.h"
+#include "Selection/igameextractselectionfilter.h"
 #include <IQWidgets/igQtProbeWidget.h>
 #include <map>
 //
@@ -7118,9 +7119,69 @@ void igQtMainWindow::initAllFilters() {
         });
         dialog->show();
     });
+
+    auto* extractSelection = developingFiltersBatch2->addAction(QStringLiteral("提取选中数据 (Extract Selection)"));
+    extractSelection->setObjectName("actionExtractSelection");
+    connect(extractSelection, &QAction::triggered, this, [this]() {
+        for (auto* dialog : findChildren<igQtFilterDialogDockWidget*>()) {
+            if (dialog->property("extractSelectionPanel").toBool()) {
+                dialog->show();
+                dialog->raise();
+                dialog->activateWindow();
+                return;
+            }
+        }
+        auto scene = rendererWidget->GetScene();
+        if (!scene || !scene->GetCurrentModel() || !scene->GetCurrentModel()->GetDataObject()) {
+            showDarkFramelessMessage(QStringLiteral("提示"), QStringLiteral("请先打开并选择一个模型。"));
+            return;
+        }
+        auto model = scene->GetCurrentModel();
+        auto* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setProperty("extractSelectionPanel", true);
+        dialog->setFilterTitle(QStringLiteral("提取选中数据"));
+        dialog->setFilterDescription(QStringLiteral("输入：%1").arg(
+            QString::fromStdString(model->GetDataObject()->GetName()).toHtmlEscaped()));
+        dialog->setParameterLayoutVertical();
+        const int modeId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+            QStringLiteral("提取类型"),
+            std::vector<QString>{QStringLiteral("选中的点"), QStringLiteral("选中的单元")});
+        dialog->setMinimumWidth(360);
+        dialog->resize(360, 280);
+        dialog->setApplyFunctor([this, dialog, scene, model, modeId]() {
+            if (scene->GetCurrentModel() != model) {
+                showDarkFramelessMessage(QStringLiteral("提取选中数据"),
+                    QStringLiteral("当前模型已切换，请关闭此窗口后重新打开。"));
+                return;
+            }
+            bool ok = false;
+            const int mode = dialog->getComboIndex(modeId, ok);
+            if (!ok || mode < 0 || mode > 1) return;
+            auto filter = ExtractSelectionFilter::New();
+            filter->SetInput(model->GetDataObject());
+            filter->SetSelectionType(mode == 0 ? IG_POINT : IG_CELL);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("提取失败"),
+                    QStringLiteral("请确认已选择对应的点或单元。\n") + QString::fromStdString(filter->GetLastError()));
+                return;
+            }
+            modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
+            modelTreeWidget->updateCloudPicture();
+            rendererWidget->update();
+            dialog->close();
+        });
+        dialog->show();
+    });
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {
+    auto* showModelTree = ui->menu_view->addAction(QStringLiteral("显示模型树"));
+    showModelTree->setObjectName(QStringLiteral("actionShowModelTree"));
+    connect(showModelTree, &QAction::triggered, this, [this]() {
+        if (!modelTreeWidget || !rendererWidget) return;
+        modelTreeWidget->setTreeDockCollapsed(false);
+        modelTreeWidget->positionTreeDockToRendererCorner(rendererWidget);
+    });
     // 显示并切换到对应 DockWidget / Tab
     auto showAndRaiseDock = [&](QDockWidget* dock) {
         if (!dock) return;
