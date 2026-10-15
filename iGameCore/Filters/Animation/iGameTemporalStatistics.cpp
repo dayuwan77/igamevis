@@ -2,13 +2,16 @@
 
 #include "iGameDrawObject.h"
 #include "iGameFlatArray.h"
+#include "iGameLagrangeUnstructuredMesh.h"
 #include "iGamePointSet.h"
+#include "iGameStructuredMesh.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
 #include "iGameVolumeMesh.h"
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 
 IGAME_NAMESPACE_BEGIN
@@ -172,8 +175,21 @@ IGsize iGameTemporalStatistics::ElementCount(DataObject::Pointer geometry, IGenu
         auto points = geometry->GetPoints();
         return points.IsNull() ? 0 : points->GetNumberOfPoints();
     }
-    auto cells = geometry->GetCellArray();
-    return cells.IsNull() ? 0 : cells->GetNumberOfCells();
+    // 结构化网格 / Lagrange 网格的单元是隐含或另行存储的，GetCellArray() 拿不到，按类型取单元数
+    switch (geometry->GetDataObjectType()) {
+        case IG_STRUCTURED_MESH: {
+            auto mesh = DynamicCast<StructuredMesh>(geometry);
+            return mesh.IsNull() ? 0 : mesh->GetNumberOfCells();
+        }
+        case IG_LAGRANGE_UNSTRUCTURED_MESH: {
+            auto mesh = DynamicCast<LagrangeUnstructuredMesh>(geometry);
+            return mesh.IsNull() ? 0 : mesh->GetNumberOfCells();
+        }
+        default: {
+            auto cells = geometry->GetCellArray();
+            return cells.IsNull() ? 0 : cells->GetNumberOfCells();
+        }
+    }
 }
 
 DoubleArray::Pointer iGameTemporalStatistics::ComputeDataRange(ArrayObject::Pointer array) {
@@ -221,14 +237,25 @@ iGameTemporalStatistics::CollectFrameBlocks(DataObject::Pointer owner, Streaming
     std::vector<FrameBlock> blocks;
     if (owner.IsNull() || frames.IsNull() || index >= frames->GetTimeNum()) { return blocks; }
 
+    // 容器（多块数据）本身没有点 / 单元，统计要落到叶子块上：这里把嵌套容器展开成叶子块
+    std::function<void(DataObject::Pointer)> appendLeafBlocks;
+    appendLeafBlocks = [&blocks, &appendLeafBlocks](DataObject::Pointer object) {
+            if (object.IsNull()) { return; }
+            if (object->HasSubDataObject()) {
+                for (auto it = object->SubDataObjectIteratorBegin(); it != object->SubDataObjectIteratorEnd(); ++it) {
+                    appendLeafBlocks(DynamicCast<DataObject>(it->second));
+                }
+                return;
+            }
+            blocks.push_back(FrameBlock{object, object->GetAttributeSet()});
+        };
+
     // GetTargetTimeFrameData 只读帧数据（带缓存时直接复用），不会改宿主对象的当前帧
     const auto frameData = frames->GetTargetTimeFrameData(index);
     if (frames->GetTargetFrameType(index) == StreamingType::MultiSubFiles) {
-        // 每帧若干子文件：每个子文件是自带几何与属性的对象
+        // 每帧若干子文件：每个子文件是自带几何与属性的对象（多块文件会在这里展开成多个叶子块）
         for (auto& data: frameData) {
-            auto object = DynamicCast<DataObject>(data);
-            if (object.IsNull()) { continue; }
-            blocks.push_back(FrameBlock{object, object->GetAttributeSet()});
+            appendLeafBlocks(DynamicCast<DataObject>(data));
         }
         return blocks;
     }
@@ -287,11 +314,50 @@ DataObject::Pointer iGameTemporalStatistics::MakeGeometryCopy(DataObject::Pointe
             if (source.IsNull()) { return nullptr; }
             auto copy = VolumeMesh::New();
             copy->SetPoints(source->GetPoints());
+            if (source->GetIsPolyhedronType()) {
+                // 多面体：面片（面→点）与体-面索引一起接上，该调用会按它们重建体单元，内部结构自洽
+                copy->InitVolumesWithPolyhedron(source->GetFaces(), source->GetVolumeFaces());
+                return copy;
+            }
             copy->SetFaces(source->GetFaces());
             copy->SetVolumes(source->GetVolumes());
-            // TODO(多面体 / 结构化网格)：多面体还需要重建面-体索引
-            // （见 iGamePointAndCellIdsFilter.cpp 的 DeepCopyDataObject 里 InitVolumesWithPolyhedron
-            // 那段），StructuredMesh 需要走自己的路径。
+            return copy;
+        }
+        case IG_STRUCTURED_MESH: {
+            auto source = DynamicCast<StructuredMesh>(geometry);
+            if (source.IsNull()) { return nullptr; }
+            auto copy = StructuredMesh::New();
+            // 结构化网格的单元由尺寸 / 范围隐含，拷这两个即可（单元数组没有实体）
+            // 注意顺序：与 VTI 读取器一致先 SetExtent（框架里该函数会写进 size，属既有缺陷），
+            // 再 SetDimensionSize，保证尺寸最终正确。
+            igIndex extent[6]{};
+            std::copy(source->GetExtent(), source->GetExtent() + 6, extent);
+            copy->SetExtent(extent);
+            igIndex dimensions[3]{};
+            std::copy(source->GetDimensionSize(), source->GetDimensionSize() + 3, dimensions);
+            copy->SetDimensionSize(dimensions);
+            copy->SetPoints(source->GetPoints());   // 共享点坐标
+            // 已构建的体 / 面一并接上（结构化网格的单元由尺寸推导，构建结果在这里）
+            if (source->GetVolumes() != nullptr) { copy->SetVolumes(source->GetVolumes()); }
+            if (source->GetFaces() != nullptr) { copy->SetFaces(source->GetFaces()); }
+            return copy;
+        }
+        case IG_LAGRANGE_UNSTRUCTURED_MESH: {
+            auto source = DynamicCast<LagrangeUnstructuredMesh>(geometry);
+            if (source.IsNull()) { return nullptr; }
+            auto copy = LagrangeUnstructuredMesh::New();
+            copy->SetPoints(source->GetPoints());   // 共享点坐标
+            // Lagrange 单元带精确单元类型与阶次，需要按单元重建（参考 iGamePointAndCellIdsFilter.cpp）
+            const IGsize cellCount = source->GetNumberOfCells();
+            std::vector<igIndex> cellIds;
+            for (IGsize cell = 0; cell < cellCount; ++cell) {
+                const igIndex* ids = nullptr;
+                const int count = source->GetCellPointIds(cell, ids);
+                if (count <= 0 || ids == nullptr) { continue; }
+                cellIds.assign(ids, ids + count);
+                copy->AddCell(cellIds.data(), count, source->GetSpecificCellType(cell),
+                              source->GetCellOrder(cell));
+            }
             return copy;
         }
         case IG_SURFACE_MESH: {
@@ -309,9 +375,8 @@ DataObject::Pointer iGameTemporalStatistics::MakeGeometryCopy(DataObject::Pointe
             return copy;
         }
         default:
-            // TODO：DrawObject 容器根（DataObject::CreateDataObject(IG_DRAW_OBJECT) 返回 nullptr）、
-            //       StructuredMesh、LagrangeUnstructuredMesh 等按需要补齐；
-            //       完整版可参考 iGamePointAndCellIdsFilter.cpp 的 DeepCopyDataObject()。
+            // 容器（DrawObject / CompositeDataObject）在 CollectFrameBlocks 里已经展开成叶子块，
+            // 走到这里说明是其它未支持的叶子类型。
             return nullptr;
     }
 }
@@ -412,6 +477,11 @@ bool iGameTemporalStatistics::WriteStatistics(
                 return false;
             }
             const auto& accumulator = accumulators[s][b];
+            if (accumulator.sampleCount == 0) {
+                // 该块在这一路数组上从未取到样本（例如多块数据里只有别的块有这个数组）：
+                // 不写全 0 的结果，跳过该块该数组
+                continue;
+            }
 
             if (m_ComputeAverage) {
                 auto array = accumulator.BuildArray(StatisticAverage, source.name + kAverageSuffix,

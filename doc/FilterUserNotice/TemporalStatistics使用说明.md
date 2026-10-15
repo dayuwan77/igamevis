@@ -143,7 +143,7 @@ build\Examples\Release\testTemporalStatistics.exe "C:\igame\git\repos\iGameVis\t
 - **向量是逐分量统计**:输出向量的模长是"平均向量的模长",与"模长的平均"不是同一个量
 - **几何共享**:输出与输入共享点坐标与单元拓扑,不要在任一模型上做改拓扑的操作;需要独立副本时把 `MakeGeometryCopy` 换成深拷贝(参考 `iGamePointAndCellIdsFilter.cpp` 的 `DeepCopyDataObject`)
 - **多块时序**:每帧含多个块时,输出是"容器根 + 每块一个子对象",统计数组挂在各子块上,根行没有数组
-- **几何类型支持范围**:`UnstructuredMesh`、`SurfaceMesh`、`VolumeMesh`(基础)、`PointSet` 已支持;多面体体网格的面-体索引、`StructuredMesh`、`LagrangeUnstructuredMesh` 尚未支持,`Execute()` 会返回失败并说明
+- **几何类型支持范围**:`UnstructuredMesh`、`SurfaceMesh`、`VolumeMesh`(含**多面体**,面-体索引一并重建)、`StructuredMesh`、`LagrangeUnstructuredMesh`(按单元精确类型/阶次重建)、`PointSet` 均已支持;**容器(多块)数据**会在每帧内展开成叶子块逐块统计,输出仍是"容器根 + 每块一个子对象"
 - **输出命名固定**为 `<输入名>_temporal_statistics`,重复执行会得到同名多份,需要区分请自行改名
 - **结果类型沿用输入**:统计数组与源数组**同类型**(整型源的平均值按整型截断);累加过程用 `double`,最后写回源类型
 - **时间步记录**:输出对象的 `Metadata` 里有 `time_steps`(DoubleArray),记录本滤波器实际处理的每个时间步,可用于核对统计范围

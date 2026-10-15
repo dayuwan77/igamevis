@@ -25,10 +25,18 @@
 #include <Animation/iGameTemporalStatistics.h>
 
 #include <iGameAttributeSet.h>
+#include <iGameCellArray.h>
+#include <iGameCompositeDataObject.h>
 #include <iGameDataObject.h>
 #include <iGameFileIO.h>
+#include <iGameFlatArray.h>
+#include <iGameLagrangeUnstructuredMesh.h>
+#include <iGamePoints.h>
 #include <iGameStreamingData.h>
 #include <iGameStringArray.h>
+#include <iGameStructuredMesh.h>
+#include <iGameUnstructuredMesh.h>
+#include <iGameVolumeMesh.h>
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +48,8 @@
 #include <vector>
 
 namespace {
+
+using namespace iGame;
 
 int g_checked = 0;
 int g_failed = 0;
@@ -110,6 +120,160 @@ iGame::ArrayObject::Pointer FindFrameArray(const iGame::DataObject::Pointer& obj
 
 std::string AttachmentName(IGenum attachment) {
     return attachment == IG_CELL ? "单元" : "点";
+}
+
+// ---------------- 几何类型覆盖用的合成网格（每种类型造"两帧"） ----------------
+
+DoubleArray::Pointer MakeRange(const std::vector<double>& values) {
+    auto range = DoubleArray::New();
+    range->SetDimension(2);
+    range->Resize(2);
+    range->SetValue(0, *std::min_element(values.begin(), values.end()));
+    range->SetValue(1, *std::max_element(values.begin(), values.end()));
+    return range;
+}
+
+FloatArray::Pointer MakeScalarArray(const std::string& name, const std::vector<double>& values) {
+    auto array = FloatArray::New();
+    array->SetName(name);
+    array->SetDimension(1);
+    array->Resize(values.size());
+    for (size_t i = 0; i < values.size(); ++i) {
+        array->SetValue(static_cast<IGsize>(i), values[i]);
+    }
+    return array;
+}
+
+// 非结构网格：4 点 2 三角形，带单元标量数组
+UnstructuredMesh::Pointer MakeSmallTriMesh(double firstCellValue, double secondCellValue,
+                                           const std::string& arrayName) {
+    auto mesh = UnstructuredMesh::New();
+    auto points = Points::New();
+    points->AddPoint(0.f, 0.f, 0.f);
+    points->AddPoint(1.f, 0.f, 0.f);
+    points->AddPoint(1.f, 1.f, 0.f);
+    points->AddPoint(0.f, 1.f, 0.f);
+    mesh->SetPoints(points);
+    auto cells = CellArray::New();
+    igIndex tri0[3] = {0, 1, 2};
+    igIndex tri1[3] = {0, 2, 3};
+    cells->AddCellIds(tri0, 3);
+    cells->AddCellIds(tri1, 3);
+    auto types = UnsignedIntArray::New();
+    types->AddValue(IG_TRIANGLE);
+    types->AddValue(IG_TRIANGLE);
+    mesh->SetCells(cells, types);
+    const std::vector<double> values = {firstCellValue, secondCellValue};
+    mesh->GetAttributeSet()->AddScalar(IG_CELL, MakeScalarArray(arrayName, values), MakeRange(values));
+    return mesh;
+}
+
+// 结构化网格：2x2x2 点、1 个六面体单元（单元由尺寸/范围隐含）
+StructuredMesh::Pointer MakeSmallStructuredMesh(double cellValue, const std::string& arrayName) {
+    StructuredMesh::Pointer mesh = StructuredMesh::New();
+    auto points = Points::New();
+    for (int k = 0; k < 2; ++k) {
+        for (int j = 0; j < 2; ++j) {
+            for (int i = 0; i < 2; ++i) {
+                points->AddPoint(static_cast<float>(i), static_cast<float>(j), static_cast<float>(k));
+            }
+        }
+    }
+    mesh->SetPoints(points);
+    // 注意调用顺序：与 VTI 读取器一致，先 SetExtent 再 SetDimensionSize。
+    // 框架里 StructuredMesh::SetExtent 会把 6 个值写进只有 3 个元素的 size（既有缺陷，
+    // 见 doc/FilterUserNotice/MedianFilter使用说明.md 第 10 条），所以尺寸必须最后设置。
+    igIndex extent[6] = {0, 1, 0, 1, 0, 1};
+    mesh->SetExtent(extent);
+    igIndex dimensions[3] = {2, 2, 2};
+    mesh->SetDimensionSize(dimensions);
+    // 与读取器（VTI/CGNS）一致：结构化网格的单元由尺寸推导，需要显式构建连通性
+    mesh->GenStructuredCellConnectivities();
+    const std::vector<double> values = {cellValue};
+    mesh->GetAttributeSet()->AddScalar(IG_CELL, MakeScalarArray(arrayName, values), MakeRange(values));
+    return mesh;
+}
+
+// 多面体体网格：8 点 + 6 个四边形面 + 1 个体（体→面索引）
+VolumeMesh::Pointer MakeSmallPolyhedronMesh(double cellValue, const std::string& arrayName) {
+    auto mesh = VolumeMesh::New();
+    auto points = Points::New();
+    for (int k = 0; k < 2; ++k) {
+        for (int j = 0; j < 2; ++j) {
+            for (int i = 0; i < 2; ++i) {
+                points->AddPoint(static_cast<float>(i), static_cast<float>(j), static_cast<float>(k));
+            }
+        }
+    }
+    mesh->SetPoints(points);
+
+    // 六面体的 6 个面（点序号按 i + 2*j + 4*k 排）
+    const igIndex facePointIds[6][4] = {
+            {0, 1, 3, 2}, {4, 5, 7, 6}, {0, 1, 5, 4}, {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 3, 7, 5}};
+    auto faces = CellArray::New();
+    for (const auto& face: facePointIds) {
+        faces->AddCellIds(face, 4);
+    }
+    auto volumeFaces = CellArray::New();
+    const igIndex volumeFaceIds[6] = {0, 1, 2, 3, 4, 5};
+    volumeFaces->AddCellIds(volumeFaceIds, 6);
+    mesh->InitVolumesWithPolyhedron(faces, volumeFaces);
+
+    const std::vector<double> values = {cellValue};
+    mesh->GetAttributeSet()->AddScalar(IG_CELL, MakeScalarArray(arrayName, values), MakeRange(values));
+    return mesh;
+}
+
+// Lagrange 非结构网格：4 点 1 个单元（带精确单元类型与阶次）
+LagrangeUnstructuredMesh::Pointer MakeSmallLagrangeMesh(double cellValue, const std::string& arrayName) {
+    LagrangeUnstructuredMesh::Pointer mesh = LagrangeUnstructuredMesh::New();
+    auto points = Points::New();
+    points->AddPoint(0.f, 0.f, 0.f);
+    points->AddPoint(1.f, 0.f, 0.f);
+    points->AddPoint(0.f, 1.f, 0.f);
+    points->AddPoint(0.f, 0.f, 1.f);
+    mesh->SetPoints(points);
+    igIndex cellIds[4] = {0, 1, 2, 3};
+    mesh->AddCell(cellIds, 4, IG_TETRA, 1);
+    const std::vector<double> values = {cellValue};
+    mesh->GetAttributeSet()->AddScalar(IG_CELL, MakeScalarArray(arrayName, values), MakeRange(values));
+    return mesh;
+}
+
+// 用两帧合成序列跑一次滤波器，并核对指定统计数组的首元素
+void CheckSyntheticSeries(const std::string& label, const std::string& arrayName,
+                          const DataObject::Pointer& frameA, const DataObject::Pointer& frameB,
+                          double expectedAverage) {
+    auto frames = StreamingData::New();
+    auto namesA = StringArray::New();
+    namesA->AddElement("frameA");
+    auto namesB = StringArray::New();
+    namesB->AddElement("frameB");
+    frames->AddTimeStep(0.0f, namesA, StreamingType::MultiSubFiles);
+    frames->AddTimeStep(1.0f, namesB, StreamingType::MultiSubFiles);
+    frames->EnableCache(2);
+    frames->GetArrays()[0].SetCache(std::vector<Object::Pointer>{frameA});
+    frames->GetArrays()[1].SetCache(std::vector<Object::Pointer>{frameB});
+
+    auto root = DataObject::New();
+    root->SetName(label);
+    root->SetTimeFrames(frames);
+
+    auto filter = iGameTemporalStatistics::New();
+    filter->SetInput(root);
+    const bool ok = filter->Execute();
+    Check(ok, label + "：滤波器执行成功" +
+                      (ok ? std::string() : std::string("（") + filter->GetMessage() + "）"));
+    if (!ok) { return; }
+    auto output = filter->GetOutput(0);
+    Check(output.IsNotNull(), label + "：产生输出");
+    if (output.IsNull()) { return; }
+    auto* attributes = output->GetAttributeSet();
+    const int index = (attributes != nullptr) ? attributes->GetAttributeIndex(arrayName + "_average") : -1;
+    Check(index >= 0, label + "：输出含 " + arrayName + "_average");
+    if (index < 0) { return; }
+    CheckClose(attributes->GetAttribute(static_cast<IGsize>(index)).pointer->GetElementValue(0, 0),
+               expectedAverage, label + "：" + arrayName + "_average 首元素");
 }
 
 } // namespace
@@ -298,6 +462,75 @@ int main(int argc, char** argv) {
               "输出 Metadata 记录的时间步数与帧数一致（time_steps）");
     } else {
         Check(false, "输出对象带 Metadata");
+    }
+
+    // ---- 几何类型覆盖（合成两帧）----
+    std::cout << "\n---- 几何类型覆盖（合成两帧：结构化 / 多面体 / Lagrange / 多块容器）----\n";
+    {
+        // 先确认"合成结构化网格"本身是合法的（单元由尺寸推导，需要构建连通性）
+        auto structured = MakeSmallStructuredMesh(1.0, "structStress");
+        Check(DynamicCast<StructuredMesh>(structured).IsNotNull(), "合成结构化网格：类型正确");
+        Check(structured->GetNumberOfPoints() == 8, "合成结构化网格：点数 = 8");
+        Check(structured->GetNumberOfCells() == 1, "合成结构化网格：单元数 = 1");
+    }
+    CheckSyntheticSeries("StructuredMesh", "structStress",
+                         MakeSmallStructuredMesh(2.0, "structStress"),
+                         MakeSmallStructuredMesh(6.0, "structStress"), 4.0);
+    CheckSyntheticSeries("PolyhedronVolumeMesh", "polyStress",
+                         MakeSmallPolyhedronMesh(1.0, "polyStress"),
+                         MakeSmallPolyhedronMesh(5.0, "polyStress"), 3.0);
+    CheckSyntheticSeries("LagrangeUnstructuredMesh", "lagStress",
+                         MakeSmallLagrangeMesh(3.0, "lagStress"),
+                         MakeSmallLagrangeMesh(7.0, "lagStress"), 5.0);
+
+    // 多块容器帧：每帧一个容器 + 2 个子网格（同名数组）→ 展开成 2 块，输出容器根 + 2 个子对象
+    {
+        auto makeContainerFrame = [](double base) {
+            DataObject::Pointer container = CompositeDataObject::New();
+            container->AddSubDataObject(MakeSmallTriMesh(base, base + 10.0, "partStress"));
+            container->AddSubDataObject(MakeSmallTriMesh(base + 100.0, base + 110.0, "partStress"));
+            return container;
+        };
+        auto frames = StreamingData::New();
+        auto namesA = StringArray::New();
+        namesA->AddElement("blockFrameA");
+        auto namesB = StringArray::New();
+        namesB->AddElement("blockFrameB");
+        frames->AddTimeStep(0.0f, namesA, StreamingType::MultiSubFiles);
+        frames->AddTimeStep(1.0f, namesB, StreamingType::MultiSubFiles);
+        frames->EnableCache(2);
+        frames->GetArrays()[0].SetCache(std::vector<Object::Pointer>{makeContainerFrame(1.0)});
+        frames->GetArrays()[1].SetCache(std::vector<Object::Pointer>{makeContainerFrame(3.0)});
+
+        auto root = DataObject::New();
+        root->SetName("MultiBlock");
+        root->SetTimeFrames(frames);
+        auto filter = iGameTemporalStatistics::New();
+        filter->SetInput(root);
+        const bool ok = filter->Execute();
+        Check(ok, "多块容器：滤波器执行成功" +
+                          (ok ? std::string() : std::string("（") + filter->GetMessage() + "）"));
+        if (ok) {
+            auto output = filter->GetOutput(0);
+            Check(output.IsNotNull() && output->HasSubDataObject(), "多块容器：输出是容器（根 + 子对象）");
+            if (output.IsNotNull()) {
+                int children = 0;
+                for (auto it = output->SubDataObjectIteratorBegin(); it != output->SubDataObjectIteratorEnd(); ++it) {
+                    auto child = it->second;
+                    if (child.IsNull() || child->GetAttributeSet() == nullptr) { continue; }
+                    const int index = child->GetAttributeSet()->GetAttributeIndex("partStress_average");
+                    if (index < 0) { continue; }
+                    const double expected = (children == 0) ? 2.0 : 102.0;
+                    CheckClose(child->GetAttributeSet()
+                                       ->GetAttribute(static_cast<IGsize>(index))
+                                       .pointer->GetElementValue(0, 0),
+                               expected,
+                               "多块容器：子对象 " + std::to_string(children) + " 的 partStress_average 首元素");
+                    ++children;
+                }
+                Check(children == 2, "多块容器：输出含 2 个带统计的子对象");
+            }
+        }
     }
 
     // ---- 汇总 ----
