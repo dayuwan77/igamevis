@@ -60,3 +60,7 @@ LOOKUP_TABLE default
 SCALARS Material int 1
 LOOKUP_TABLE default
 100
+
+SCALARS Pressure int 1
+LOOKUP_TABLE default
+100
