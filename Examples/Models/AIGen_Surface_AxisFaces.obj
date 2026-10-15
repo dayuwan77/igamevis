@@ -1,0 +1,19 @@
+# AIGen_Surface_AxisFaces.obj
+# AI-generated: 3 disconnected axis-aligned unit quads facing +Z / +X / +Y.
+# Integer coordinates + axis-aligned normals (0,0,1)/(1,0,0)/(0,1,0) => clean, readable data.
+# Normals ranges (point data): X[0,1] Y[0,1] Z[0,1]; after Reverse Normals: [-1,0] each.
+v 0 0 0
+v 2 0 0
+v 2 2 0
+v 0 2 0
+v 3 0 0
+v 3 2 0
+v 3 2 2
+v 3 0 2
+v 0 4 0
+v 0 4 2
+v 2 4 2
+v 2 4 0
+f 1 2 3 4
+f 5 6 7 8
+f 9 10 11 12

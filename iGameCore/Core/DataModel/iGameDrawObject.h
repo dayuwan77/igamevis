@@ -139,6 +139,20 @@ public:
     void SetAutoBuildInteractionLod(bool enabled);
     bool GetAutoBuildInteractionLod() const;
 
+    /**
+     * @brief 设置配色器并同步到抽壳/简化网格（伪彩隔离用）。
+     *
+     * DataObject::SetColorMapper 是浅 setter：不传播、也不覆盖 m_RenderableMesh；
+     * 而抽壳网格是在【建壳瞬间】经 SyncRenderableState 与本体当时的配色器指针绑定的。
+     * 因此"组装完成后"换配色器（如 GroupDatasets 深拷贝克隆）必须用它，
+     * 否则壳会继续用建壳时刻的旧配色器烘焙伪彩（颜色与本体不一致）。
+     */
+    void SetColorMapperForRenderables(ScalarsToColors::Pointer cm) {
+        this->SetColorMapper(cm);
+        if (m_RenderableMesh.SurfaceMesh) { m_RenderableMesh.SurfaceMesh->SetColorMapper(cm); }
+        if (m_RenderableMesh.SimplifiedMesh) { m_RenderableMesh.SimplifiedMesh->SetColorMapper(cm); }
+    }
+
     // 设置/获取"始终置顶"标志位
     void SetAlwaysOnTop(bool enable);
     bool IsAlwaysOnTop() const;

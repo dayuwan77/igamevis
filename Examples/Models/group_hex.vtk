@@ -1,0 +1,51 @@
+# vtk DataFile Version 2.0
+GroupDatasets Test 2 - Hexahedral Volume Mesh
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 16 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+1.0 1.0 0.0
+0.0 1.0 0.0
+0.0 0.0 1.0
+1.0 0.0 1.0
+1.0 1.0 1.0
+0.0 1.0 1.0
+2.0 0.0 0.0
+3.0 0.0 0.0
+3.0 1.0 0.0
+2.0 1.0 0.0
+2.0 0.0 1.0
+3.0 0.0 1.0
+3.0 1.0 1.0
+2.0 1.0 1.0
+CELLS 2 18
+8 0 1 2 3 4 5 6 7
+8 8 9 10 11 12 13 14 15
+CELL_TYPES 2
+12
+12
+POINT_DATA 16
+SCALARS Temperature float 1
+LOOKUP_TABLE default
+20.0
+21.0
+22.0
+23.0
+24.0
+25.0
+26.0
+27.0
+40.0
+41.0
+42.0
+43.0
+44.0
+45.0
+46.0
+47.0
+CELL_DATA 2
+SCALARS VonMisesStress float 1
+LOOKUP_TABLE default
+150.0
+210.5

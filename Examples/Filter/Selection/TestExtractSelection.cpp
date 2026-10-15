@@ -54,6 +54,16 @@ int main() {
         Check(filter->Execute(), "point extraction");
         auto points = DynamicCast<PointSet>(filter->GetOutput());
         Check(points && points->GetNumberOfPoints() == 2, "point count and deduplication");
+        auto vertices = DynamicCast<UnstructuredMesh>(points);
+        Check(vertices && vertices->GetNumberOfCells() == 2, "one vertex cell per selected point");
+        Check(vertices->GetViewStyle() == IG_POINTS, "selected vertices default to visible point rendering");
+        Check(!vertices->GetShellRenderingOption(), "vertex results do not attempt surface extraction");
+        for (igIndex i = 0; i < 2; ++i) {
+            const igIndex* ids = nullptr;
+            Check(vertices->GetCellType(i) == IG_VERTEX &&
+                  vertices->GetCellPointIds(i, ids) == 1 && ids[0] == i,
+                  "vertex connectivity follows output point IDs");
+        }
         Check(points->GetPoint(0)[0] == 1 && points->GetPoint(1)[0] == 2, "point ordering");
         auto attrs = points->GetAttributeSet();
         Check(attrs->GetNumberOfAttributes() == 3, "point attributes only");

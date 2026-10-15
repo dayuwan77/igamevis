@@ -1,7 +1,7 @@
 #include "iGameResampleToImageFilter.h"
 
-#include "iGameAttributeSet.h"
 #include "iGameArrayObject.h"
+#include "iGameAttributeSet.h"
 #include "iGameCellArray.h"
 #include "iGameCellType.h"
 #include "iGameFlatArray.h"
@@ -9,6 +9,7 @@
 #include "iGamePoints.h"
 #include "iGameStructuredMesh.h"
 #include "iGameUnstructuredMesh.h"
+#include "iGameVolumeMesh.h"
 
 #include <algorithm>
 #include <array>
@@ -25,11 +26,88 @@ IGAME_NAMESPACE_BEGIN
 // 匿名命名空间：点定位与插值权重的几何计算。
 // 等价于 VTK 中 vtkCell::EvaluatePosition（对常见线性单元），返回点是否在
 // 单元内，并给出各节点的插值权重。
-namespace {
+namespace
+{
 
-constexpr double kInsideEps = 1.0e-7;    // 重心/局部坐标的「在单元内」容差
+// Keep native polyhedron faces instead of duplicating their face streams into a second mesh.
+struct ProbeInput {
+    PointSet::Pointer data;
+    UnstructuredMesh::Pointer unstructured;
+    VolumeMesh::Pointer polyhedra;
+    DoubleArray::Pointer coordinates;
+    std::vector<igIndex> pointIds;
+
+    explicit ProbeInput(DataObject::Pointer input) {
+        auto volume = DynamicCast<VolumeMesh>(input);
+        if (volume && volume->GetIsPolyhedronType()) {
+            polyhedra = volume;
+            data = volume;
+        } else {
+            unstructured = DynamicCast<UnstructuredMesh>(input);
+            if (!unstructured) unstructured = UnstructuredMesh::TransDataObjToUnstructuredMesh(input);
+            data = unstructured;
+        }
+        if (data) {
+            double coordinateTime = -1;
+            if (data->GetMetadata()->GetDouble("CGNSCoordinatesMTime", coordinateTime) &&
+                coordinateTime == data->GetPoints()->GetMTime().GetMTime()) {
+                data->GetMetadata()->GetDoubleArray("CGNSCoordinates", coordinates);
+            }
+        }
+    }
+    IGsize GetNumberOfPoints() const { return data->GetNumberOfPoints(); }
+    IGsize GetNumberOfCells() const {
+        return polyhedra ? polyhedra->GetNumberOfVolumes() : unstructured->GetNumberOfCells();
+    }
+    AttributeSet* GetAttributeSet() { return data->GetAttributeSet(); }
+    IGenum GetCellType(IGsize cid) { return polyhedra ? IG_POLYHEDRON : unstructured->GetCellType(cid); }
+    std::array<double, 3> GetPoint(igIndex id) {
+        if (coordinates && coordinates->GetNumberOfElements() == GetNumberOfPoints()) {
+            return {coordinates->GetElementValue(id, 0), coordinates->GetElementValue(id, 1),
+                    coordinates->GetElementValue(id, 2)};
+        }
+        const auto& p = data->GetPoint(id);
+        return {p[0], p[1], p[2]};
+    }
+    int GetCellPointIds(IGsize cid, const igIndex*& ids) {
+        if (polyhedra) return polyhedra->GetVolumes()->GetCellIds(cid, ids);
+        if (GetCellType(cid) != IG_POLYHEDRON) return unstructured->GetCellPointIds(cid, ids);
+        const igIndex* stream = nullptr;
+        const int size = unstructured->GetCells()->GetCellIds(cid, stream);
+        pointIds.clear();
+        for (int offset = 1; offset < size;) {
+            int count = stream[offset++];
+            for (int j = 0; j < count; ++j) pointIds.push_back(stream[offset++]);
+        }
+        std::sort(pointIds.begin(), pointIds.end());
+        pointIds.erase(std::unique(pointIds.begin(), pointIds.end()), pointIds.end());
+        ids = pointIds.data();
+        return static_cast<int>(pointIds.size());
+    }
+    void GetFaces(IGsize cid, std::vector<std::vector<igIndex>>& faces) {
+        faces.clear();
+        const igIndex* stream = nullptr;
+        if (polyhedra) {
+            const int count = polyhedra->GetVolumeFaces()->GetCellIds(cid, stream);
+            for (int f = 0; f < count; ++f) {
+                const igIndex* ids = nullptr;
+                const int n = polyhedra->GetFaces()->GetCellIds(stream[f], ids);
+                faces.emplace_back(ids, ids + n);
+            }
+        } else {
+            const int size = unstructured->GetCells()->GetCellIds(cid, stream);
+            for (int offset = 1; offset < size;) {
+                const int n = stream[offset++];
+                faces.emplace_back(stream + offset, stream + offset + n);
+                offset += n;
+            }
+        }
+    }
+};
+
+constexpr double kInsideEps = 1.0e-7;      // 重心/局部坐标的「在单元内」容差
 constexpr double kDegenerateEps = 1.0e-20; // 退化解的最小行列式
-constexpr double kRelDistTol = 1.0e-6;   // 点到单元表面的距离容差（相对单元尺度）
+constexpr double kRelDistTol = 1.0e-6;     // 点到单元表面的距离容差（相对单元尺度）
 
 //------------------------------------------------------------------------------
 // 属性数组的「原类型保留」：按源数组的存储类型新建同类型输出数组。
@@ -80,10 +158,9 @@ bool IsDiscreteArrayType(IGenum arrayType) {
 
 // 名称形如 ID 的数组（即使存储为浮点，线性插值同样会插出并不存在的 ID）。
 bool IsIdLikeArrayName(const std::string& name) {
-    static const char* kExactNames[] = {"vtkOriginalPointIds", "vtkOriginalCellIds", "vtkPointIds",
-                                        "vtkCellIds",          "GlobalPointIds",     "GlobalCellIds",
-                                        "ProcessIds",          "vtkProcessId"};
-    for (const char* n : kExactNames) {
+    static const char* kExactNames[] = {"vtkOriginalPointIds", "vtkOriginalCellIds", "vtkPointIds", "vtkCellIds",
+                                        "GlobalPointIds",      "GlobalCellIds",      "ProcessIds",  "vtkProcessId"};
+    for (const char* n: kExactNames) {
         if (name == n) return true;
     }
     // 以 Id / Ids 结尾（大小写敏感，避免把 fluid 之类的普通名字误判为 ID）
@@ -101,6 +178,7 @@ bool IsSupportedCellType(IGenum cellType) {
         case IG_QUAD:
         case IG_TETRA:
         case IG_HEXAHEDRON:
+        case IG_POLYHEDRON:
             return true;
         default:
             return false;
@@ -108,17 +186,13 @@ bool IsSupportedCellType(IGenum cellType) {
 }
 
 // 输出告警（核心库没有 igWarning 宏，直接走 logger 的 warn 级别）。
-void ReportWarning(const std::string& msg) {
-    ::iGame::Log::GetCoreLogger()->warn("{}", msg);
-}
+void ReportWarning(const std::string& msg) { ::iGame::Log::GetCoreLogger()->warn("{}", msg); }
 
 // 与 vtkDataSetAttributes 一致（保持 ghost 数值一一对应）
-constexpr unsigned char kHiddenPoint = 2;  // vtkDataSetAttributes::HIDDENPOINT
-constexpr unsigned char kHiddenCell = 32;  // vtkDataSetAttributes::HIDDENCELL
+constexpr unsigned char kHiddenPoint = 2; // vtkDataSetAttributes::HIDDENPOINT
+constexpr unsigned char kHiddenCell = 32; // vtkDataSetAttributes::HIDDENCELL
 
-inline double Dot(const double a[3], const double b[3]) {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
+inline double Dot(const double a[3], const double b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
 inline void Cross(const double a[3], const double b[3], double out[3]) {
     out[0] = a[1] * b[2] - a[2] * b[1];
@@ -126,10 +200,61 @@ inline void Cross(const double a[3], const double b[3], double out[3]) {
     out[2] = a[0] * b[1] - a[1] * b[0];
 }
 
+using TriangleCoordinates = std::array<std::array<double, 3>, 3>;
+
+// Closed boundary intersection test. Coincident hits on a shared edge count only once.
+bool ContainsPolyhedron(const std::vector<TriangleCoordinates>& triangles, const double x[3], double tolerance) {
+    constexpr double directions[3][3] = {{1.0, 0.3713906763541037, 0.6947465906068658},
+                                         {0.52999894000318, 1.0, 0.2394260653405733},
+                                         {0.1732050807568877, 0.6180339887498948, 1.0}};
+    int votes = 0;
+    std::vector<double> hits;
+    for (const auto& direction: directions) {
+        hits.clear();
+        for (const auto& tri: triangles) {
+            double e1[3], e2[3], rel[3], h[3], q[3];
+            for (int a = 0; a < 3; ++a) {
+                e1[a] = tri[1][a] - tri[0][a];
+                e2[a] = tri[2][a] - tri[0][a];
+                rel[a] = x[a] - tri[0][a];
+            }
+            Cross(direction, e2, h);
+            const double det = Dot(e1, h);
+            if (std::abs(det) <= 1e-14 * std::sqrt(Dot(e1, e1) * Dot(e2, e2))) continue;
+            const double u = Dot(rel, h) / det;
+            Cross(rel, e1, q);
+            const double v = Dot(direction, q) / det;
+            if (u < -1e-10 || v < -1e-10 || u + v > 1.0 + 1e-10) continue;
+            const double t = Dot(e2, q) / det;
+            if (std::abs(t) <= tolerance) return true;
+            if (t > 0.0) hits.push_back(t);
+        }
+        std::sort(hits.begin(), hits.end());
+        int count = 0;
+        double previous = -std::numeric_limits<double>::max();
+        for (double t: hits) {
+            if (t - previous > tolerance) {
+                ++count;
+                previous = t;
+            }
+        }
+        votes += count % 2;
+    }
+    return votes >= 2;
+}
+
 // det([a b c]) = a . (b x c)
 inline double Det3(const double a[3], const double b[3], const double c[3]) {
-    return a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) +
-           a[2] * (b[0] * c[1] - b[1] * c[0]);
+    return a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+}
+
+// 与 vtkMath::Determinant3x3 求值顺序**完全一致**的行列式
+// （vtkMath.h 里的 vtkDeterminant3x3(A[3][3])，矩阵前三行依次为 a、b、c）。
+// 数学上与上面的 Det3 等价（同一个 det[a;b;c]），但浮点结合顺序不同：
+// 六面体 Newton 迭代与最终形函数权重对末位差异敏感，要与 VTK 逐位对齐必须用这一版。
+inline double Det3VTK(const double a[3], const double b[3], const double c[3]) {
+    return a[0] * b[1] * c[2] + b[0] * c[1] * a[2] + c[0] * a[1] * b[2] - a[0] * c[1] * b[2] - b[0] * a[1] * c[2] -
+           c[0] * b[1] * a[2];
 }
 
 inline bool Solve3(const double A[3][3], const double b[3], double x[3]) {
@@ -321,8 +446,7 @@ bool EvalQuad(const double pts[][3], const double x[3], double w[8], double lc[4
         residual2 = Dot(f, f);
         if (residual2 <= distTol * distTol) break; // 已落在四边形表面上
 
-        double JtJ[2][2] = {{Dot(dPdr, dPdr), Dot(dPdr, dPds)},
-                            {Dot(dPdr, dPds), Dot(dPds, dPds)}};
+        double JtJ[2][2] = {{Dot(dPdr, dPdr), Dot(dPdr, dPds)}, {Dot(dPdr, dPds), Dot(dPds, dPds)}};
         double Jtf[2] = {Dot(dPdr, f), Dot(dPds, f)};
         double delta[2];
         if (!Solve2(JtJ, Jtf, delta)) { // 雅可比奇异，退化四边形
@@ -347,51 +471,170 @@ bool EvalQuad(const double pts[][3], const double x[3], double w[8], double lc[4
     return true;
 }
 
-// 六面体单元（三线性，Newton 迭代求局部坐标 r,s,t）
-bool EvalHex(const double pts[][3], const double x[3], double w[8], double lc[4]) {
-    const double R[8] = {-1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0};
-    const double S[8] = {-1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0};
-    const double T[8] = {-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0};
-    double r = 0.0, s = 0.0, t = 0.0;
-    for (int iter = 0; iter < 100; ++iter) {
-        double P[3] = {0.0, 0.0, 0.0};
-        double dP[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+// 六面体三线性形函数（逐行对齐 vtkHexahedron::InterpolationFunctions，参数域 pcoords ∈ [0,1]³）
+void HexInterpolationFunctions(const double pcoords[3], double sf[8]) {
+    const double rm = 1.0 - pcoords[0];
+    const double sm = 1.0 - pcoords[1];
+    const double tm = 1.0 - pcoords[2];
+
+    const double rmXsm = rm * sm;
+    const double p0Xsm = pcoords[0] * sm;
+    const double p0Xp1 = pcoords[0] * pcoords[1];
+    const double rmXp1 = rm * pcoords[1];
+
+    sf[0] = rmXsm * tm;
+    sf[1] = p0Xsm * tm;
+    sf[2] = p0Xp1 * tm;
+    sf[3] = rmXp1 * tm;
+    sf[4] = rmXsm * pcoords[2];
+    sf[5] = p0Xsm * pcoords[2];
+    sf[6] = p0Xp1 * pcoords[2];
+    sf[7] = rmXp1 * pcoords[2];
+}
+
+// 六面体形函数对 pcoords 的偏导（逐行对齐 vtkHexahedron::InterpolationDerivs）
+// derivs[0..7] = ∂N/∂p0，derivs[8..15] = ∂N/∂p1，derivs[16..23] = ∂N/∂p2
+void HexInterpolationDerivs(const double pcoords[3], double derivs[24]) {
+    const double rm = 1.0 - pcoords[0];
+    const double sm = 1.0 - pcoords[1];
+    const double tm = 1.0 - pcoords[2];
+
+    // r-derivatives
+    derivs[0] = -sm * tm;
+    derivs[1] = -derivs[0];
+    derivs[2] = pcoords[1] * tm;
+    derivs[3] = -derivs[2];
+    derivs[4] = -sm * pcoords[2];
+    derivs[5] = -derivs[4];
+    derivs[6] = pcoords[1] * pcoords[2];
+    derivs[7] = -derivs[6];
+
+    // s-derivatives
+    derivs[8] = -rm * tm;
+    derivs[9] = -pcoords[0] * tm;
+    derivs[10] = -derivs[9];
+    derivs[11] = -derivs[8];
+    derivs[12] = -rm * pcoords[2];
+    derivs[13] = -pcoords[0] * pcoords[2];
+    derivs[14] = -derivs[13];
+    derivs[15] = -derivs[12];
+
+    // t-derivatives
+    derivs[16] = -rm * sm;
+    derivs[17] = -pcoords[0] * sm;
+    derivs[18] = -pcoords[0] * pcoords[1];
+    derivs[19] = -rm * pcoords[1];
+    derivs[20] = -derivs[16];
+    derivs[21] = -derivs[17];
+    derivs[22] = -derivs[18];
+    derivs[23] = -derivs[19];
+}
+
+// 六面体单元点定位：逐行对齐 vtkHexahedron::EvaluatePosition（Common/DataModel/vtkHexahedron.cxx）。
+//   - 参数域 pcoords ∈ [0,1]³（VTK 约定，而不是 [-1,1]）；
+//   - 初值取「顶点 0 出发的三条棱」定义的仿射（平行六面体）精确解：c1=v1-v0、c2=v3-v0、c3=v4-v0，
+//     解 c1·a + c2·b + c3·c = x-p0；棱组退化（行列式为 0）时取单元中心 (0.5, 0.5, 0.5)；
+//   - Newton 最多 VTK_MAX_ITERATIONS = 20 次；三分量增量绝对值均 < VTK_CONVERGED = 1e-4 视为收敛；
+//     未收敛且任一 |pcoords| > VTK_DIVERGED = 1e6 视为发散（VTK 返回 -1）；
+//   - 每步用 Cramer 法则解 J·δ = f。J 的**列**分别是 ∂P/∂p0、∂P/∂p1、∂P/∂p2，即
+//     δ0 = det(fcol, scol, tcol) / det(rcol, scol, tcol)、δ1 = det(rcol, fcol, tcol) / d、
+//     δ2 = det(rcol, scol, fcol) / d。
+//     （本文件早期实现把 dP[i][c] = ∂P_c/∂p_i 当作矩阵"行"交给按行消元的 Solve3，
+//      实际解的是 Jᵀ·δ = f，迭代矩阵退化为 I - J⁻ᵀJ：对轴对齐单元恰好仍收敛，
+//      但对斜置/拉伸单元不收敛，pcoords 被截断到单元边界，格点被误判为不在单元内。）
+//   - 行列式容差 determinantTolerance = min(1e-20, 1e-5 · volumeBound)，
+//     volumeBound = (四条体对角线长度平方的最大值) ^ 1.5；
+//   - 收敛后 pcoords ∈ [0,1] ± VTK_OUTSIDE_CELL_TOLERANCE(1e-6) 才算「在单元内」。
+// 返回值：true = 迭代收敛，weights 为形函数值（Σ=1，可直接用于插值），inside 给出是否在单元内；
+//         false = 行列式退化或迭代发散（对应 VTK 返回 -1，该点判为不在单元内）。
+bool EvalHex(const double pts[][3], const double x[3], double weights[8], bool& inside) {
+    inside = false;
+
+    // 行列式尺度：longestDiagonal 已是平方量纲（VTK 注释 "longestDiagonal value is already squared"）
+    static const int kDiagonals[4][2] = {{0, 6}, {1, 7}, {2, 4}, {3, 5}};
+    double longestDiagonal = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        const double d[3] = {pts[kDiagonals[i][0]][0] - pts[kDiagonals[i][1]][0],
+                             pts[kDiagonals[i][0]][1] - pts[kDiagonals[i][1]][1],
+                             pts[kDiagonals[i][0]][2] - pts[kDiagonals[i][1]][2]};
+        longestDiagonal = std::max(longestDiagonal, Dot(d, d));
+    }
+    const double volumeBound = longestDiagonal * std::sqrt(longestDiagonal);
+    const double determinantTolerance = 1e-20 < 1e-5 * volumeBound ? 1e-20 : 1e-5 * volumeBound;
+
+    // 初值：顶点 0 出发三条棱的仿射精确解
+    double pc[3] = {0.5, 0.5, 0.5};
+    {
+        const double c1[3] = {pts[1][0] - pts[0][0], pts[1][1] - pts[0][1], pts[1][2] - pts[0][2]};
+        const double c2[3] = {pts[3][0] - pts[0][0], pts[3][1] - pts[0][1], pts[3][2] - pts[0][2]};
+        const double c3[3] = {pts[4][0] - pts[0][0], pts[4][1] - pts[0][1], pts[4][2] - pts[0][2]};
+        const double p[3] = {x[0] - pts[0][0], x[1] - pts[0][1], x[2] - pts[0][2]};
+        const double detGuess = Det3VTK(c1, c2, c3);
+        if (detGuess != 0.0) {
+            pc[0] = Det3VTK(p, c2, c3) / detGuess;
+            pc[1] = Det3VTK(c1, p, c3) / detGuess;
+            pc[2] = Det3VTK(c1, c2, p) / detGuess;
+        }
+    }
+    double params[3] = {pc[0], pc[1], pc[2]};
+
+    constexpr int kMaxIterations = 20;    // VTK_MAX_ITERATIONS
+    constexpr double kConverged = 1.0e-4; // VTK_CONVERGED
+    constexpr double kDiverged = 1.0e6;   // VTK_DIVERGED
+
+    bool converged = false;
+    double derivs[24];
+    for (int iteration = 0; !converged && iteration < kMaxIterations; ++iteration) {
+        HexInterpolationFunctions(pc, weights);
+        HexInterpolationDerivs(pc, derivs);
+
+        double fcol[3] = {0.0, 0.0, 0.0};
+        double rcol[3] = {0.0, 0.0, 0.0};
+        double scol[3] = {0.0, 0.0, 0.0};
+        double tcol[3] = {0.0, 0.0, 0.0};
         for (int i = 0; i < 8; ++i) {
-            const double N = 0.125 * (1.0 + r * R[i]) * (1.0 + s * S[i]) * (1.0 + t * T[i]);
-            const double dNdr = 0.125 * R[i] * (1.0 + s * S[i]) * (1.0 + t * T[i]);
-            const double dNds = 0.125 * S[i] * (1.0 + r * R[i]) * (1.0 + t * T[i]);
-            const double dNdt = 0.125 * T[i] * (1.0 + r * R[i]) * (1.0 + s * S[i]);
-            for (int c = 0; c < 3; ++c) {
-                P[c] += N * pts[i][c];
-                dP[0][c] += dNdr * pts[i][c];
-                dP[1][c] += dNds * pts[i][c];
-                dP[2][c] += dNdt * pts[i][c];
+            for (int j = 0; j < 3; ++j) {
+                const double coord = pts[i][j];
+                fcol[j] += coord * weights[i];
+                rcol[j] += coord * derivs[i];
+                scol[j] += coord * derivs[i + 8];
+                tcol[j] += coord * derivs[i + 16];
             }
         }
-        double f[3] = {x[0] - P[0], x[1] - P[1], x[2] - P[2]};
-        double delta[3];
-        if (!Solve3(dP, f, delta)) { // 雅可比奇异，退化六面体
-            lc[0] = 0.0;
-            lc[1] = 0.0;
-            lc[2] = 0.0;
-            w[0] = 1.0;
-            for (int i = 1; i < 8; ++i) w[i] = 0.0;
-            return false;
+        for (int i = 0; i < 3; ++i) { fcol[i] -= x[i]; }
+
+        const double d = Det3VTK(rcol, scol, tcol);
+        if (std::fabs(d) < determinantTolerance) {
+            return false; // VTK: return -1
         }
-        r += delta[0];
-        s += delta[1];
-        t += delta[2];
-        if (std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]) < 1.0e-12) break;
+
+        pc[0] = params[0] - Det3VTK(fcol, scol, tcol) / d;
+        pc[1] = params[1] - Det3VTK(rcol, fcol, tcol) / d;
+        pc[2] = params[2] - Det3VTK(rcol, scol, fcol) / d;
+
+        if (std::fabs(pc[0] - params[0]) < kConverged && std::fabs(pc[1] - params[1]) < kConverged &&
+            std::fabs(pc[2] - params[2]) < kConverged) {
+            converged = true;
+        } else if (std::fabs(pc[0]) > kDiverged || std::fabs(pc[1]) > kDiverged || std::fabs(pc[2]) > kDiverged) {
+            return false; // VTK: return -1
+        } else {
+            params[0] = pc[0];
+            params[1] = pc[1];
+            params[2] = pc[2];
+        }
     }
-    lc[0] = r;
-    lc[1] = s;
-    lc[2] = t;
-    for (int i = 0; i < 8; ++i) {
-        w[i] = 0.125 * (1.0 + r * R[i]) * (1.0 + s * S[i]) * (1.0 + t * T[i]);
+    if (!converged) {
+        return false; // VTK: return -1
     }
-    if (std::fabs(r) > 1.0 + 1.0e-6 || std::fabs(s) > 1.0 + 1.0e-6 || std::fabs(t) > 1.0 + 1.0e-6) {
-        return false;
-    }
+
+    HexInterpolationFunctions(pc, weights);
+
+    // VTK_OUTSIDE_CELL_TOLERANCE
+    constexpr double kOutsideCellTolerance = 1.0e-6;
+    const double lowerlimit = 0.0 - kOutsideCellTolerance;
+    const double upperlimit = 1.0 + kOutsideCellTolerance;
+    inside = pc[0] >= lowerlimit && pc[0] <= upperlimit && pc[1] >= lowerlimit && pc[1] <= upperlimit &&
+             pc[2] >= lowerlimit && pc[2] <= upperlimit;
     return true;
 }
 
@@ -421,35 +664,41 @@ void ClampSimplexWeights(double* w, int n) {
     }
 }
 
-// 等价 vtkCell::EvaluatePosition 的「最近点」语义：先解出单元局部坐标，再把局部坐标截断到
-// 单元参数域内，用截断后的坐标计算插值权重，并给出点到单元的距离平方 dist2（点在外时 > 0）。
-// 与上面的 EvaluateCell 的区别：EvaluateCell 只回答「点是否严格落在单元内」（布尔判定），
-// 本函数额外给出点位于单元外时的最近点权重与距离，供 vtkProbeFilter 语义的容差判定使用。
-bool EvaluateCellClosest(IGenum cellType, const double pts[][3], int npts, const double x[3],
-                         double weights[8], double& dist2) {
+// 等价 vtkCell::EvaluatePosition 的「最近点」语义：
+//   - 三维单元（四面体 / 六面体）对应 vtkProbeFilter::ProbeImagePointsInCell 里
+//     closestPoint = nullptr 的那条分支，EvaluatePosition 不会写 dist2
+//     （vtkProbeFilter.cxx:777 的 `double dist2 = 0;` 保持初值），因此 dist2 恒为 0，
+//     有效性完全由 inside（即 EvaluatePosition 返回值 == 1）决定；
+//   - 0/1/2 维单元对应 closestPoint 非空的分支，需要给出最近点权重与 dist2，
+//     再由 dist2 ≤ tol2 这条容差判定（vtkProbeFilter.cxx:806-808）决定。
+// 返回值：true = 单元类型受支持且完成定位；inside = 点是否落在单元参数域内；
+//         dist2 = 点到单元的最近距离平方（仅 0/1/2 维单元有意义）。
+bool EvaluateCellClosest(IGenum cellType, const double pts[][3], int npts, const double x[3], double weights[8],
+                         double& dist2, bool& inside) {
     static const double RQ[4] = {-1.0, 1.0, 1.0, -1.0};
     static const double SQ[4] = {-1.0, -1.0, 1.0, 1.0};
-    static const double RH[8] = {-1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0};
-    static const double SH[8] = {-1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0};
-    static const double TH[8] = {-1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0};
 
+    dist2 = 0.0;
+    inside = false;
     double lc[4] = {0.0, 0.0, 0.0, 0.0};
     double w[8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     switch (static_cast<IGCellType>(cellType)) {
         case IG_VERTEX:
             if (npts < 1) return false;
             w[0] = 1.0;
+            // vtkVertex::EvaluatePosition 恒返回 1，是否命中只由 dist2 ≤ tol2 决定
+            inside = true;
             break;
         case IG_LINE:
             if (npts < 2) return false;
-            EvalLine(pts, x, w, lc);
+            inside = EvalLine(pts, x, w, lc);
             lc[0] = std::min(1.0, std::max(0.0, lc[0]));
             w[0] = 1.0 - lc[0];
             w[1] = lc[0];
             break;
         case IG_TRIANGLE:
             if (npts < 3) return false;
-            EvalTriangle(pts, x, w, lc);
+            inside = EvalTriangle(pts, x, w, lc);
             w[0] = 1.0 - lc[0] - lc[1];
             w[1] = lc[0];
             w[2] = lc[1];
@@ -457,30 +706,25 @@ bool EvaluateCellClosest(IGenum cellType, const double pts[][3], int npts, const
             break;
         case IG_QUAD:
             if (npts < 4) return false;
-            EvalQuad(pts, x, w, lc);
+            inside = EvalQuad(pts, x, w, lc);
             lc[0] = std::min(1.0, std::max(-1.0, lc[0]));
             lc[1] = std::min(1.0, std::max(-1.0, lc[1]));
-            for (int i = 0; i < 4; ++i) {
-                w[i] = 0.25 * (1.0 + lc[0] * RQ[i]) * (1.0 + lc[1] * SQ[i]);
-            }
+            for (int i = 0; i < 4; ++i) { w[i] = 0.25 * (1.0 + lc[0] * RQ[i]) * (1.0 + lc[1] * SQ[i]); }
             break;
         case IG_TETRA:
             if (npts < 4) return false;
-            EvalTetra(pts, x, w, lc);
+            inside = EvalTetra(pts, x, w, lc);
             ClampSimplexWeights(w, 4);
-            break;
+            for (int v = 0; v < npts && v < 8; ++v) weights[v] = w[v];
+            return true; // 三维单元：dist2 保持 0（VTK 传 closestPoint = nullptr）
         case IG_HEXAHEDRON:
             if (npts < 8) return false;
-            EvalHex(pts, x, w, lc);
-            lc[0] = std::min(1.0, std::max(-1.0, lc[0]));
-            lc[1] = std::min(1.0, std::max(-1.0, lc[1]));
-            lc[2] = std::min(1.0, std::max(-1.0, lc[2]));
-            for (int i = 0; i < 8; ++i) {
-                w[i] = 0.125 * (1.0 + lc[0] * RH[i]) * (1.0 + lc[1] * SH[i]) * (1.0 + lc[2] * TH[i]);
-            }
-            break;
+            // false = 行列式退化或 Newton 发散，对应 VTK 返回 -1 → 该点不在单元内
+            if (!EvalHex(pts, x, w, inside)) return false;
+            for (int v = 0; v < npts && v < 8; ++v) weights[v] = w[v];
+            return true; // 三维单元：dist2 保持 0（VTK 传 closestPoint = nullptr）
         default:
-            // IG_PRISM / IG_PYRAMID / IG_POLYGON / IG_POLYHEDRON / 二阶单元暂不支持
+            // 多面体单元属性在调用方单独处理；其它体类型和二阶单元暂不支持。
             return false;
     }
 
@@ -508,32 +752,6 @@ bool EvaluateCellClosest(IGenum cellType, const double pts[][3], int npts, const
     return true;
 }
 
-// 单元定位与插值权重总入口。
-// 返回值：true=点在单元内，weights[0..n-1] 为各节点权重。
-// 注意：四边形/六面体假定节点顺序与 VTK 一致（0..3 / 0..7 规范顺序）。
-bool EvaluateCell(IGenum cellType, const double pts[][3], int npts, const double x[3],
-                  double weights[8]) {
-    double lc[4] = {0.0, 0.0, 0.0, 0.0};
-    switch (static_cast<IGCellType>(cellType)) {
-        case IG_VERTEX:
-            return npts >= 1 && EvalVertex(pts, x, weights);
-        case IG_LINE:
-            return npts >= 2 && EvalLine(pts, x, weights, lc);
-        case IG_TRIANGLE:
-            return npts >= 3 && EvalTriangle(pts, x, weights, lc);
-        case IG_QUAD:
-            return npts >= 4 && EvalQuad(pts, x, weights, lc);
-        case IG_TETRA:
-            return npts >= 4 && EvalTetra(pts, x, weights, lc);
-        case IG_HEXAHEDRON:
-            return npts >= 8 && EvalHex(pts, x, weights, lc);
-        default:
-            // IG_PRISM / IG_PYRAMID / IG_POLYGON / IG_POLYHEDRON / 二阶单元暂不支持，
-            // 视作不在单元内。
-            return false;
-    }
-}
-
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -548,9 +766,7 @@ void ResampleToImageFilter::SetSamplingDimensions(int i, int j, int k) {
     SamplingDimensions[2] = k;
 }
 
-void ResampleToImageFilter::SetSamplingDimensions(int dims[3]) {
-    SetSamplingDimensions(dims[0], dims[1], dims[2]);
-}
+void ResampleToImageFilter::SetSamplingDimensions(int dims[3]) { SetSamplingDimensions(dims[0], dims[1], dims[2]); }
 
 void ResampleToImageFilter::GetSamplingDimensions(int dims[3]) const {
     dims[0] = SamplingDimensions[0];
@@ -562,8 +778,7 @@ void ResampleToImageFilter::SetSamplingBounds(const double bounds[6]) {
     for (int i = 0; i < 6; ++i) SamplingBounds[i] = bounds[i];
 }
 
-void ResampleToImageFilter::SetSamplingBounds(double x0, double x1, double y0, double y1, double z0,
-                                              double z1) {
+void ResampleToImageFilter::SetSamplingBounds(double x0, double x1, double y0, double y1, double z0, double z1) {
     SamplingBounds[0] = x0;
     SamplingBounds[1] = x1;
     SamplingBounds[2] = y0;
@@ -578,17 +793,14 @@ void ResampleToImageFilter::GetSamplingBounds(double bounds[6]) const {
 
 //------------------------------------------------------------------------------
 const char* ResampleToImageFilter::GetSupportedCellTypesText() {
-    return "Vertex / Line / Triangle / Quad / Tetra / Hexahedron";
+    return "Vertex / Line / Triangle / Quad / Tetra / Hexahedron / Polyhedron (cell fields)";
 }
 
 //------------------------------------------------------------------------------
-bool ResampleToImageFilter::IsCellTypeSupported(IGenum cellType) {
-    return IsSupportedCellType(cellType);
-}
+bool ResampleToImageFilter::IsCellTypeSupported(IGenum cellType) { return IsSupportedCellType(cellType); }
 
 //------------------------------------------------------------------------------
-bool ResampleToImageFilter::EstimateOutputSize(IGsize& gridPoints, IGsize& gridCells,
-                                               double& memoryMB) {
+bool ResampleToImageFilter::EstimateOutputSize(IGsize& gridPoints, IGsize& gridCells, double& memoryMB) {
     gridPoints = 0;
     gridCells = 0;
     memoryMB = 0.0;
@@ -600,15 +812,13 @@ bool ResampleToImageFilter::EstimateOutputSize(IGsize& gridPoints, IGsize& gridC
     GetSamplingDimensions(dims);
     if (dims[0] <= 0 || dims[1] <= 0 || dims[2] <= 0) return false;
 
-    gridPoints = static_cast<IGsize>(dims[0]) * static_cast<IGsize>(dims[1]) *
-                 static_cast<IGsize>(dims[2]);
-    gridCells = static_cast<IGsize>(std::max(1, dims[0] - 1)) *
-                static_cast<IGsize>(std::max(1, dims[1] - 1)) *
+    gridPoints = static_cast<IGsize>(dims[0]) * static_cast<IGsize>(dims[1]) * static_cast<IGsize>(dims[2]);
+    gridCells = static_cast<IGsize>(std::max(1, dims[0] - 1)) * static_cast<IGsize>(std::max(1, dims[1] - 1)) *
                 static_cast<IGsize>(std::max(1, dims[2] - 1));
 
     // 粗略内存量级：点 ghost + 掩膜 + 约 4 条 float 数组（按分量数粗估）+ 单元 ghost
-    const double bytes = static_cast<double>(gridPoints) * (1.0 + 1.0 + 4.0 * 4.0) +
-                         static_cast<double>(gridCells) * 1.0;
+    const double bytes =
+            static_cast<double>(gridPoints) * (1.0 + 1.0 + 4.0 * 4.0) + static_cast<double>(gridCells) * 1.0;
     memoryMB = bytes / (1024.0 * 1024.0);
     return true;
 }
@@ -618,12 +828,10 @@ bool ResampleToImageFilter::Execute() {
     DataObject::Pointer input = GetInput(0);
     if (input == nullptr) return false;
 
-    // 统一把输入当作 UnstructuredMesh 处理（等价 VTK 接受 vtkDataSet）。
-    UnstructuredMesh::Pointer mesh = DynamicCast<UnstructuredMesh>(input);
-    if (mesh == nullptr) {
-        mesh = UnstructuredMesh::TransDataObjToUnstructuredMesh(input);
-    }
-    if (mesh == nullptr) {
+    // 常规网格统一适配；原生多面体保留共享面拓扑，避免复制大型 CGNS 数据。
+    ProbeInput source(input);
+    ProbeInput* mesh = &source;
+    if (!source.data) {
         igError("ResampleToImageFilter: input must be a mesh (PointSet subclass).");
         return false;
     }
@@ -639,12 +847,10 @@ bool ResampleToImageFilter::Execute() {
     // 明确支持的单元类型；遇到不支持的必须提示，不能静默产出不完整的结果。
     m_Message.clear();
     std::map<IGenum, IGsize> cellTypeCounts;
-    for (IGsize cid = 0; cid < numberOfCells; ++cid) {
-        ++cellTypeCounts[mesh->GetCellType(cid)];
-    }
+    for (IGsize cid = 0; cid < numberOfCells; ++cid) { ++cellTypeCounts[mesh->GetCellType(cid)]; }
     IGsize unsupportedCellCount = 0;
     std::string unsupportedDetail;
-    for (const auto& kv : cellTypeCounts) {
+    for (const auto& kv: cellTypeCounts) {
         if (IsSupportedCellType(kv.first)) continue;
         const char* typeName = GetCellTypeAsString(kv.first);
         const std::string name = (typeName != nullptr && *typeName != '\0')
@@ -655,10 +861,9 @@ bool ResampleToImageFilter::Execute() {
         unsupportedDetail += name + "×" + std::to_string(static_cast<long long>(kv.second));
     }
     if (unsupportedCellCount > 0) {
-        const std::string head =
-                "输入包含 " + std::to_string(static_cast<long long>(unsupportedCellCount)) +
-                " 个不受支持的单元（" + unsupportedDetail + "）；本过滤器仅支持 " +
-                GetSupportedCellTypesText() + "。";
+        const std::string head = "输入包含 " + std::to_string(static_cast<long long>(unsupportedCellCount)) +
+                                 " 个不受支持的单元（" + unsupportedDetail + "）；本过滤器仅支持 " +
+                                 GetSupportedCellTypesText() + "。";
         if (m_FailOnUnsupportedCells) {
             m_Message = head + " 为不产出可能不完整的结果，已终止执行"
                                "（如需强行继续可调用 SetFailOnUnsupportedCells(false)）。";
@@ -676,7 +881,7 @@ bool ResampleToImageFilter::Execute() {
                        std::numeric_limits<double>::max(), std::numeric_limits<double>::lowest(),
                        std::numeric_limits<double>::max(), std::numeric_limits<double>::lowest()};
         for (IGsize i = 0; i < numberOfPoints; ++i) {
-            const Point& p = mesh->GetPoint(i);
+            const auto p = mesh->GetPoint(i);
             b[0] = std::min(b[0], static_cast<double>(p[0]));
             b[1] = std::max(b[1], static_cast<double>(p[0]));
             b[2] = std::min(b[2], static_cast<double>(p[1]));
@@ -706,18 +911,19 @@ bool ResampleToImageFilter::Execute() {
     const double origin[3] = {samplingBounds[0], samplingBounds[2], samplingBounds[4]};
     double spacing[3];
     for (int i = 0; i < 3; ++i) {
-        spacing[i] = (dims[i] == 1) ? 0.0
-                                    : (samplingBounds[2 * i + 1] - samplingBounds[2 * i]) /
-                                          static_cast<double>(dims[i] - 1);
+        spacing[i] = (dims[i] == 1)
+                             ? 0.0
+                             : (samplingBounds[2 * i + 1] - samplingBounds[2 * i]) / static_cast<double>(dims[i] - 1);
     }
 
     const IGsize numberOfGridPoints = static_cast<IGsize>(dims[0]) * dims[1] * dims[2];
 
     // 构建输出 StructuredMesh（等价 vtkImageData）
     StructuredMesh::Pointer output = StructuredMesh::New();
+    // ParaView Points uses the extracted surface, with a default point size of two pixels.
+    output->SetPointSize(2.0f);
     output->SetName(input->GetName() + "_image");
-    igIndex idims[3] = {static_cast<igIndex>(dims[0]), static_cast<igIndex>(dims[1]),
-                        static_cast<igIndex>(dims[2])};
+    igIndex idims[3] = {static_cast<igIndex>(dims[0]), static_cast<igIndex>(dims[1]), static_cast<igIndex>(dims[2])};
     output->SetDimensionSize(idims);
 
     Points::Pointer gridPoints = Points::New();
@@ -756,9 +962,9 @@ bool ResampleToImageFilter::Execute() {
                 if (a.pointer->GetNumberOfElements() != numberOfPoints) continue;
                 // 整型/字符型（离散）或名称形如 ID 的点数组不做线性插值：
                 // 对 ID 做线性插值会得到并不存在的 ID，语义错误。
-                const bool discrete = m_DisableInterpolationForDiscrete &&
-                                      (IsDiscreteArrayType(a.pointer->GetArrayType()) ||
-                                       IsIdLikeArrayName(a.pointer->GetName()));
+                const bool discrete =
+                        m_DisableInterpolationForDiscrete &&
+                        (IsDiscreteArrayType(a.pointer->GetArrayType()) || IsIdLikeArrayName(a.pointer->GetName()));
                 if (discrete) {
                     if (!discreteDetail.empty()) discreteDetail += "、";
                     discreteDetail += a.pointer->GetName();
@@ -770,6 +976,12 @@ bool ResampleToImageFilter::Execute() {
                 srcCellArrays.push_back({a.pointer, a.type, a.pointer->GetDimension(), false});
             }
         }
+    }
+    if (cellTypeCounts.count(IG_POLYHEDRON) && !srcPointArrays.empty()) {
+        m_Message = "Polyhedron probing currently supports cell fields only; point fields require mean value "
+                    "interpolation.";
+        igError("{}", m_Message);
+        return false;
     }
     // 源单元数据 → 输出点数据（快照），跳过与点数组同名的。
     // 同名点/单元数组冲突时（等价 vtkProbeFilter）**点数据优先**；此处显式记录冲突，
@@ -811,9 +1023,7 @@ bool ResampleToImageFilter::Execute() {
 
     // 插值/快照缓冲区按属性最大分量数动态分配，避免固定 16 分量的越界风险。
     int maxDim = 1;
-    for (size_t s = 0; s < srcPointArrays.size(); ++s) {
-        maxDim = std::max(maxDim, srcPointArrays[s].dim);
-    }
+    for (size_t s = 0; s < srcPointArrays.size(); ++s) { maxDim = std::max(maxDim, srcPointArrays[s].dim); }
     for (size_t q = 0; q < snappedCellIndices.size(); ++q) {
         maxDim = std::max(maxDim, srcCellArrays[snappedCellIndices[q]].dim);
     }
@@ -844,7 +1054,7 @@ bool ResampleToImageFilter::Execute() {
         double mx[3] = {std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(),
                         std::numeric_limits<double>::lowest()};
         for (int v = 0; v < n; ++v) {
-            const Point& p = mesh->GetPoint(ids[v]);
+            const auto p = mesh->GetPoint(ids[v]);
             mn[0] = std::min(mn[0], static_cast<double>(p[0]));
             mx[0] = std::max(mx[0], static_cast<double>(p[0]));
             mn[1] = std::min(mn[1], static_cast<double>(p[1]));
@@ -857,37 +1067,30 @@ bool ResampleToImageFilter::Execute() {
 
     // 对每个源单元，在其包围盒覆盖的格点范围内做探针插值
     // （等价 vtkProbeFilter::ProbeImagePointsInCell：单元定向遍历，而非格点定向）。
-    // 与 vtkProbeFilter 一致的格点判定容差：
-    //   ComputeTolerance = true（默认）→ tol2 = 最大单元长度² × 1e-6
+    // 格点判定容差逐单元计算，与 vtkProbeFilter::ProbeImagePointsInCell 一致：
+    //   ComputeTolerance = true（默认）→ tol2 = CELL_TOLERANCE_FACTOR_SQR(1e-6) × 该单元自身包围盒对角线²
     //   ComputeTolerance = false       → tol2 = Tolerance²（VTK 中 Tolerance 默认 1.0）
-    double maxCellLength2 = 0.0;
-    for (IGsize cid = 0; cid < numberOfCells; ++cid) {
-        maxCellLength2 = std::max(maxCellLength2, BoxLength2(cellBox[cid]));
-    }
-    const double tol2 = m_ComputeTolerance ? maxCellLength2 * kCellToleranceFactorSqr
-                                           : m_Tolerance * m_Tolerance;
-    const double tolDist = std::sqrt(tol2);
-    // 每个格点当前命中单元的距离平方：0 表示严格落在单元内；点在外时取「更近的单元」覆盖
-    std::vector<double> bestDist2(numberOfGridPoints, std::numeric_limits<double>::max());
+    // 注意这里用的是「单元自身包围盒」口径（vtkProbeFilter.cxx:733），
+    // 与 vtkProbeFilter::ProbeEmptyPoints 中 GetSampledMaxCellLength2(100) 的「抽样估计」口径不同；
+    // Resample To Image 走的是「输入为 vtkImageData」的单元定向路径，两者不要混用。
+    // 另外，三维单元（四面体 / 六面体）对应 closestPoint = nullptr 的分支，dist2 恒为 0，
+    // 这条容差判定恒成立 —— 三维单元的有效性只由「是否在单元内」决定，容差只对 0/1/2 维单元有效。
 
     std::vector<double> vals(static_cast<size_t>(maxDim));
     double pts[8][3];
     double weights[8];
+    std::vector<std::vector<igIndex>> faces;
+    std::vector<TriangleCoordinates> triangles;
     for (IGsize cid = 0; cid < numberOfCells; ++cid) {
         if (srcGhostFlags[cid] != 0) continue; // 跳过 ghost 源单元
         IGenum cellType = mesh->GetCellType(cid);
-        if (static_cast<IGCellType>(cellType) != IG_VERTEX &&
-            static_cast<IGCellType>(cellType) != IG_LINE &&
-            static_cast<IGCellType>(cellType) != IG_TRIANGLE &&
-            static_cast<IGCellType>(cellType) != IG_QUAD &&
-            static_cast<IGCellType>(cellType) != IG_TETRA &&
-            static_cast<IGCellType>(cellType) != IG_HEXAHEDRON) {
+        if (!IsSupportedCellType(cellType)) {
             continue; // 不支持的单元类型
         }
         const igIndex* ids = nullptr;
         const int n = mesh->GetCellPointIds(cid, ids);
-        for (int v = 0; v < n; ++v) {
-            const Point& p = mesh->GetPoint(ids[v]);
+        for (int v = 0; cellType != IG_POLYHEDRON && v < n; ++v) {
+            const auto p = mesh->GetPoint(ids[v]);
             pts[v][0] = static_cast<double>(p[0]);
             pts[v][1] = static_cast<double>(p[1]);
             pts[v][2] = static_cast<double>(p[2]);
@@ -895,6 +1098,10 @@ bool ResampleToImageFilter::Execute() {
 
         // 单元包围盒覆盖的格点 ijk 范围（floor/ceil 覆盖，避免边界漏点）
         const std::array<double, 6>& bx = cellBox[cid];
+        // 逐单元容差（等价 vtkProbeFilter.cxx:733 的
+        // CELL_TOLERANCE_FACTOR_SQR * bbox.GetDiagonalLength2()）
+        const double tol2 = m_ComputeTolerance ? kCellToleranceFactorSqr * BoxLength2(bx) : m_Tolerance * m_Tolerance;
+        const double tolDist = std::sqrt(tol2);
         int lo[3], hi[3];
         bool overlap = true;
         for (int ax = 0; ax < 3; ++ax) {
@@ -905,6 +1112,10 @@ bool ResampleToImageFilter::Execute() {
             // 容差判定允许「单元包围盒外、但距离在 tolDist 内」的格点参与，故外扩 tolDist
             int a = static_cast<int>(std::floor((bx[ax] - tolDist - origin[ax]) / spacing[ax]));
             int b = static_cast<int>(std::ceil((bx[ax + 3] + tolDist - origin[ax]) / spacing[ax]));
+            if (cellType == IG_POLYHEDRON) {
+                a = static_cast<int>(std::ceil((bx[ax] - origin[ax]) / spacing[ax]));
+                b = static_cast<int>(std::floor((bx[ax + 3] - origin[ax]) / spacing[ax]));
+            }
             if (a < 0) a = 0;
             if (b > dims[ax] - 1) b = dims[ax] - 1;
             if (a > b) {
@@ -916,19 +1127,59 @@ bool ResampleToImageFilter::Execute() {
         }
         if (!overlap) continue;
 
+        if (cellType == IG_POLYHEDRON && !m_UseVTKPolyhedronCompatibility) {
+            triangles.clear();
+            mesh->GetFaces(cid, faces);
+            for (const auto& face: faces) {
+                if (face.size() == 4) {
+                    const auto a = mesh->GetPoint(face[0]), b = mesh->GetPoint(face[1]);
+                    const auto c = mesh->GetPoint(face[2]), d = mesh->GetPoint(face[3]);
+                    double d02 = 0.0, d13 = 0.0;
+                    for (int axis = 0; axis < 3; ++axis) {
+                        d02 += (a[axis] - c[axis]) * (a[axis] - c[axis]);
+                        d13 += (b[axis] - d[axis]) * (b[axis] - d[axis]);
+                    }
+                    const auto maxVertex = std::max_element(face.begin(), face.end()) - face.begin();
+                    const bool diagonal02 = d02 < d13 || (d02 == d13 && (maxVertex == 0 || maxVertex == 2));
+                    if (diagonal02) {
+                        triangles.push_back({a, b, c});
+                        triangles.push_back({c, d, a});
+                    } else {
+                        triangles.push_back({a, b, d});
+                        triangles.push_back({c, d, b});
+                    }
+                    continue;
+                }
+                for (size_t v = 1; v + 1 < face.size(); ++v) {
+                    triangles.push_back(
+                            {mesh->GetPoint(face[0]), mesh->GetPoint(face[v]), mesh->GetPoint(face[v + 1])});
+                }
+            }
+        }
+
         for (int k = lo[2]; k <= hi[2]; ++k) {
             for (int j = lo[1]; j <= hi[1]; ++j) {
                 for (int i = lo[0]; i <= hi[0]; ++i) {
                     const IGsize ptId = static_cast<IGsize>(i + dims[0] * (j + dims[1] * k));
-                    // 严格命中（dist2 == 0）的格点无需再判定；其余允许被「更近的单元」覆盖
-                    if (mask->ValueAt(ptId) != 0 && bestDist2[ptId] <= 0.0) continue;
+                    // 已判为有效的格点直接跳过（等价 vtkProbeFilter.cxx:795-798 的
+                    // `if (maskArray[ptId] == 1) continue;`）：先到先得，后面的单元不再覆盖。
+                    if (mask->ValueAt(ptId) != 0) continue;
                     const double x[3] = {origin[0] + i * spacing[0], origin[1] + j * spacing[1],
                                          origin[2] + k * spacing[2]};
                     double dist2 = 0.0;
-                    if (!EvaluateCellClosest(cellType, pts, n, x, weights, dist2)) continue;
-                    if (dist2 > tol2) continue;
-                    if (mask->ValueAt(ptId) != 0 && dist2 >= bestDist2[ptId]) continue;
-                    bestDist2[ptId] = dist2;
+                    bool inside = false;
+                    if (cellType == IG_POLYHEDRON) {
+                        bool inBox = true;
+                        for (int a = 0; a < 3; ++a) inBox = inBox && x[a] >= bx[a] && x[a] <= bx[a + 3];
+                        if (!inBox) continue;
+                        // Legacy VTK EvaluatePosition calls IsInside with infinite tolerance.
+                        // Its face tests accept the bounds; strict containment is opt-in.
+                        inside = m_UseVTKPolyhedronCompatibility ||
+                                 ContainsPolyhedron(triangles, x, std::sqrt(BoxLength2(bx)) * 1e-6);
+                    } else if (!EvaluateCellClosest(cellType, pts, n, x, weights, dist2, inside))
+                        continue;
+                    if (!inside) continue;      // EvaluatePosition 判定点不在单元内
+                    if (dist2 > tol2) continue; // 仅 0/1/2 维单元会触发（三维单元 dist2 恒为 0）
 
                     mask->ValueAt(ptId) = 1;
                     // 插值源点属性。离散/ID 类数组不做线性插值，改用包含该格点的源单元中
@@ -957,9 +1208,7 @@ bool ResampleToImageFilter::Execute() {
                     // 快照源单元属性（该点所在源单元的 cell data）
                     for (size_t q = 0; q < snappedCellIndices.size(); ++q) {
                         const SrcArray& ca = srcCellArrays[snappedCellIndices[q]];
-                        for (int d = 0; d < ca.dim; ++d) {
-                            vals[d] = ca.arr->GetElementValue(cid, d);
-                        }
+                        for (int d = 0; d < ca.dim; ++d) { vals[d] = ca.arr->GetElementValue(cid, d); }
                         outCellArrays[q]->SetElement(ptId, vals.data());
                     }
                 }
@@ -973,14 +1222,11 @@ bool ResampleToImageFilter::Execute() {
     pointGhost->SetDimension(1);
     pointGhost->Resize(numberOfGridPoints);
     for (IGsize p = 0; p < numberOfGridPoints; ++p) {
-        if (mask->ValueAt(p) == 0) {
-            pointGhost->ValueAt(p) = kHiddenPoint;
-        }
+        if (mask->ValueAt(p) == 0) { pointGhost->ValueAt(p) = kHiddenPoint; }
     }
 
     const int pointDim[3] = {dims[0], dims[1], dims[2]};
-    const int cellDim[3] = {std::max(1, dims[0] - 1), std::max(1, dims[1] - 1),
-                            std::max(1, dims[2] - 1)};
+    const int cellDim[3] = {std::max(1, dims[0] - 1), std::max(1, dims[1] - 1), std::max(1, dims[2] - 1)};
     const int span[3] = {(dims[0] > 1) ? 1 : 0, (dims[1] > 1) ? 1 : 0, (dims[2] > 1) ? 1 : 0};
     const IGsize pointSlice = static_cast<IGsize>(pointDim[0]) * pointDim[1];
     const IGsize cellSlice = static_cast<IGsize>(cellDim[0]) * cellDim[1];
@@ -1000,15 +1246,12 @@ bool ResampleToImageFilter::Execute() {
             for (int j = 0; j <= span[1]; ++j) {
                 for (int i = 0; i <= span[0]; ++i) {
                     valid = valid &&
-                            (mask->ValueAt(ptid + static_cast<IGsize>(i) +
-                                           static_cast<IGsize>(j) * pointDim[0] +
+                            (mask->ValueAt(ptid + static_cast<IGsize>(i) + static_cast<IGsize>(j) * pointDim[0] +
                                            static_cast<IGsize>(k) * pointSlice) != 0);
                 }
             }
         }
-        if (!valid) {
-            cellGhost->ValueAt(cellId) = kHiddenCell;
-        }
+        if (!valid) { cellGhost->ValueAt(cellId) = kHiddenCell; }
     }
 
     // 挂载输出属性（点数据）。
@@ -1030,12 +1273,16 @@ bool ResampleToImageFilter::Execute() {
             if (mask->ValueAt(p) != 0) ++validCount;
         }
         std::string info;
-        info += "采样维度 " + std::to_string(dims[0]) + "×" + std::to_string(dims[1]) + "×" +
-                std::to_string(dims[2]) + "（" +
-                std::to_string(static_cast<long long>(numberOfGridPoints)) + " 格点 / " +
+        info += "采样维度 " + std::to_string(dims[0]) + "×" + std::to_string(dims[1]) + "×" + std::to_string(dims[2]) +
+                "（" + std::to_string(static_cast<long long>(numberOfGridPoints)) + " 格点 / " +
                 std::to_string(static_cast<long long>(numberOfOutCells)) + " 单元）；";
         info += "有效格点 " + std::to_string(static_cast<long long>(validCount)) + "/" +
                 std::to_string(static_cast<long long>(numberOfGridPoints)) + "。";
+        if (cellTypeCounts.count(IG_POLYHEDRON)) {
+            info += m_UseVTKPolyhedronCompatibility
+                            ? " 多面体单元属性使用 ParaView 6.2 兼容包围盒判定，非严格几何包含；共享点按源单元顺序归属。"
+                            : " 多面体单元属性使用三角化边界射线判定。";
+        }
         if (!conflictDetail.empty()) {
             info += " 同名数组冲突：点数据优先，以下单元数组已被忽略（" + conflictDetail + "）。";
         }

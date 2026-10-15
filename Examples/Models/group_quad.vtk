@@ -1,0 +1,32 @@
+# vtk DataFile Version 2.0
+GroupDatasets Test 3 - Quad Surface Mesh
+ASCII
+DATASET POLYDATA
+POINTS 8 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+1.0 1.0 0.0
+0.0 1.0 0.0
+2.0 0.0 0.0
+3.0 0.0 0.0
+3.0 1.0 0.0
+2.0 1.0 0.0
+POLYGONS 2 10
+4 0 1 2 3
+4 4 5 6 7
+POINT_DATA 8
+SCALARS Pressure float 1
+LOOKUP_TABLE default
+101.3
+102.1
+103.4
+104.9
+111.3
+112.1
+113.4
+114.9
+CELL_DATA 2
+SCALARS Strain float 1
+LOOKUP_TABLE default
+0.0012
+0.0034

@@ -24,6 +24,8 @@
 #include "iGameShaderManager.h"
 #include "iGameTextOverlay2DActor.h"
 #include <chrono>
+#include <utility>
+#include <vector>
 
 IGAME_NAMESPACE_BEGIN
 
@@ -93,6 +95,12 @@ public:
      */
     SmartPointer<Model> GetModelById(int modelID);
     bool SetModelById(int modelID, SmartPointer<Model>model);
+
+    /**
+     * @brief 列出场景中所有模型（含模型 id），供工具面板枚举输入模型用。
+     * @return {模型 id, 模型指针} 列表，按模型 id 升序。
+     */
+    std::vector<std::pair<IGuint, SmartPointer<Model>>> GetAllModels();
 
     /**
      * @brief 根据索引获取数据对象。

@@ -1,4 +1,4 @@
-﻿#include "iGameModelGeometryFilter.h"
+#include "iGameModelGeometryFilter.h"
 #include "Convert/iGameConvertToSurfaceMeshFilter.h"
 #include "Mutex/iGameAtomicMutex.h"
 #include "iGameThreadPool.h"
@@ -1268,6 +1268,12 @@ struct ExtractSG : public ExtractCellBoundaries {
     void Initialize() override { this->ExtractCellBoundaries::Initialize(); }
 
     void ExecuteBlanking() {
+        // VTK CellGhostTypes（vtkDataSetAttributes.h）中，渲染时需空白化（隐藏）的单元位：
+        //   DUPLICATECELL = 1   并行重复单元
+        //   REFINEDCELL   = 8   被更细块细化掉的粗单元
+        //   HIDDENCELL    = 32  仅为保持连通性而存在、数值应被忽略的单元
+        //   EXTERIORCELL  = 16 是真实边界单元，不隐藏。
+        constexpr unsigned char kBlankMask = 1 | 8 | 32;
         auto size = Mesh->GetDimensionSize();
         const igIndex d0 = size[0], d1 = size[1], d2 = size[2];
         const igIndex cd0 = d0 - 1, cd1 = d1 - 1, cd2 = d2 - 1;
@@ -1279,12 +1285,12 @@ struct ExtractSG : public ExtractCellBoundaries {
             for (igIndex j = 0; j < cd1; ++j) {
                 for (igIndex i = 0; i < cd0; ++i) {
                     const igIndex cellId = i + cd0 * j + cellPlane01 * k;
-                    if ((this->CellGhosts[cellId] & 32) != 0) continue; // 跳过 ghost 单元
+                    if ((this->CellGhosts[cellId] & kBlankMask) != 0) continue; // 跳过 ghost 单元
                     if (this->CellVis && !this->CellVis[cellId]) continue;
                     const igIndex base = i + d0 * j + plane01 * k;
 
                     // k- 面
-                    if (k == 0 || (this->CellGhosts[cellId - cellPlane01] & 32) != 0) {
+                    if (k == 0 || (this->CellGhosts[cellId - cellPlane01] & kBlankMask) != 0) {
                         vhs[0] = base;
                         vhs[1] = base + 1;
                         vhs[2] = base + 1 + d0;
@@ -1293,7 +1299,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // k+ 面
-                    if (k == cd2 - 1 || (this->CellGhosts[cellId + cellPlane01] & 32) != 0) {
+                    if (k == cd2 - 1 || (this->CellGhosts[cellId + cellPlane01] & kBlankMask) != 0) {
                         vhs[0] = base + plane01;
                         vhs[1] = base + plane01 + 1;
                         vhs[2] = base + plane01 + 1 + d0;
@@ -1302,7 +1308,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // j- 面
-                    if (j == 0 || (this->CellGhosts[cellId - cd0] & 32) != 0) {
+                    if (j == 0 || (this->CellGhosts[cellId - cd0] & kBlankMask) != 0) {
                         vhs[0] = base;
                         vhs[1] = base + 1;
                         vhs[2] = base + 1 + plane01;
@@ -1311,7 +1317,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // j+ 面
-                    if (j == cd1 - 1 || (this->CellGhosts[cellId + cd0] & 32) != 0) {
+                    if (j == cd1 - 1 || (this->CellGhosts[cellId + cd0] & kBlankMask) != 0) {
                         vhs[0] = base + d0;
                         vhs[1] = base + d0 + 1;
                         vhs[2] = base + d0 + 1 + plane01;
@@ -1320,7 +1326,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // i- 面
-                    if (i == 0 || (this->CellGhosts[cellId - 1] & 32) != 0) {
+                    if (i == 0 || (this->CellGhosts[cellId - 1] & kBlankMask) != 0) {
                         vhs[0] = base;
                         vhs[1] = base + d0;
                         vhs[2] = base + d0 + plane01;
@@ -1329,7 +1335,7 @@ struct ExtractSG : public ExtractCellBoundaries {
                         f2c.emplace_back(cellId);
                     }
                     // i+ 面
-                    if (i == cd0 - 1 || (this->CellGhosts[cellId + 1] & 32) != 0) {
+                    if (i == cd0 - 1 || (this->CellGhosts[cellId + 1] & kBlankMask) != 0) {
                         vhs[0] = base + 1;
                         vhs[1] = base + 1 + d0;
                         vhs[2] = base + 1 + d0 + plane01;

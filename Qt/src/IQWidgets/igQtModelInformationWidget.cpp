@@ -139,6 +139,9 @@ void igQtModelInformationWidget::updateInformationFrame() {
     this->show();
 
     auto obj = currentModel->GetDataObject();
+    // 显示对象优先用调用方指定的"当前选中对象"（选中多块子块时为子块本身），
+    // 未指定时回落为当前模型的根 DataObject（保持原有行为）。
+    if (m_OverrideDataObject) { obj = m_OverrideDataObject; }
 
     // 处理文件属性
     iGame::Property::Pointer p;

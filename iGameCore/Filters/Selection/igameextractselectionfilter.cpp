@@ -128,12 +128,17 @@ bool ExtractSelectionFilter::Execute() {
     std::vector<igIndex> cellIds;
     PointSet::Pointer output;
     if (m_SelectionType == IG_POINT) {
-        output = PointSet::New();
+        auto vertices = UnstructuredMesh::New();
+        vertices->SetViewStyle(IG_POINTS);
+        vertices->SetShellRenderingOption(false);
+        output = vertices;
         pointIds.assign(selected.begin(), selected.end());
         for (auto id : pointIds) {
             if (id < 0 || static_cast<IGsize>(id) >= input->GetNumberOfPoints())
                 return fail("Selected point ID is out of range.");
             output->GetPoints()->AddPoint(input->GetPoint(id));
+            igIndex vertex = static_cast<igIndex>(vertices->GetNumberOfPoints() - 1);
+            vertices->AddCell(&vertex, 1, IG_VERTEX);
         }
     } else {
         auto mesh = DynamicCast<UnstructuredMesh>(input);

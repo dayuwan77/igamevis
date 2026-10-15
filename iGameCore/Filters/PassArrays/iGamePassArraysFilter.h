@@ -13,8 +13,24 @@ public:
     I_OBJECT(PassArrays);
     static Pointer New() { return new PassArrays; }
 
-    // 设置需要过滤掉的属性名称列表（点/单元共用）
-    void SetArrayNames(const std::vector<std::string>& names) { m_ArrayNames = names; }
+    /* ---------- 点数据 (Point Data) 选择 ---------- */
+    // 设置需要保留的点属性名称
+    void SetPointArrayNames(const std::vector<std::string>& names);
+    void AddPointArrayName(const std::string& name);
+    const std::vector<std::string>& GetPointArrayNames() const { return m_PointArrayNames; }
+
+    /* ---------- 单元数据 (Cell Data) 选择 ---------- */
+    // 设置需要保留的单元属性名称
+    void SetCellArrayNames(const std::vector<std::string>& names);
+    void AddCellArrayName(const std::string& name);
+    const std::vector<std::string>& GetCellArrayNames() const { return m_CellArrayNames; }
+
+    // 同时设置点数据与单元数据的选择（两者分开保存，不会互相影响）
+    void SetArrayNames(const std::vector<std::string>& pointNames,
+                       const std::vector<std::string>& cellNames);
+
+    // 清空所有选择（输出将不保留任何属性数组）
+    void ClearArrayNames();
 
     bool Execute() override;
 
@@ -26,7 +42,8 @@ protected:
     ~PassArrays() override = default;
 
 private:
-    std::vector<std::string> m_ArrayNames;
+    std::vector<std::string> m_PointArrayNames;
+    std::vector<std::string> m_CellArrayNames;
 };
 
 IGAME_NAMESPACE_END
