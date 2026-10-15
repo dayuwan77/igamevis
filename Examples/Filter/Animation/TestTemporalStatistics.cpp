@@ -226,6 +226,10 @@ int main(int argc, char** argv) {
                           attribute.pointer->GetDimension() == dimension &&
                           attribute.pointer->GetNumberOfElements() == count,
                   "输出数组 " + name + item.first + " 的隶属 / 维度 / 元素数与源一致");
+            // 与 ParaView 一致：输出数组的数据类型沿用源数组
+            Check(attribute.pointer.IsNotNull() &&
+                          attribute.pointer->GetArrayType() == source.pointer->GetArrayType(),
+                  "输出数组 " + name + item.first + " 的数据类型与源一致");
         }
 
         // 抽样元素：拿滤波器结果与“测试自己按帧重算”的参考值对比
@@ -285,6 +289,16 @@ int main(int argc, char** argv) {
     }
 
     Check(arrayCount > 0, "源数据里至少有 1 个数组参与统计");
+
+    // 与 ParaView 对应：输出里记录了本次处理的时间步（iGame 写在 Metadata，ParaView 写在 FieldData）
+    if (auto* metadata = output->GetMetadata()) {
+        auto timeSteps = metadata->GetDoubleArray("time_steps");
+        Check(timeSteps.IsNotNull() &&
+                      timeSteps->GetNumberOfElements() == static_cast<IGsize>(files.size()),
+              "输出 Metadata 记录的时间步数与帧数一致（time_steps）");
+    } else {
+        Check(false, "输出对象带 Metadata");
+    }
 
     // ---- 汇总 ----
     std::cout << "\n=== 汇总 ===\n"

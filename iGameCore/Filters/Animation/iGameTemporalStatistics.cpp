@@ -62,13 +62,34 @@ bool iGameTemporalStatistics::Accumulator::AddFrame(ArrayObject::Pointer array) 
     return true;
 }
 
-ArrayObject::Pointer iGameTemporalStatistics::Accumulator::BuildArray(int kind,
-                                                                      const std::string& name) const {
-    // 需要双精度输出时把这里换成 DoubleArray::New()
-    auto array = FloatArray::New();
+ArrayObject::Pointer iGameTemporalStatistics::NewArrayLike(IGenum arrayType, const std::string& name,
+                                                           int channels, IGsize count) {
+    // 与 vtkTemporalStatistics 一致：输出数组沿用源数组的数据类型
+    // （整型数组的平均值同样在写回时按整型截断，和 ParaView 表现相同）
+    ArrayObject::Pointer array;
+    switch (arrayType) {
+        case IG_DoubleArray: array = DoubleArray::New(); break;
+        case IG_IntArray:
+        case IG_INTARRAY: array = IntArray::New(); break;
+        case IG_UnsignedIntArray: array = UnsignedIntArray::New(); break;
+        case IG_CharArray: array = CharArray::New(); break;
+        case IG_UnsignedCharArray: array = UnsignedCharArray::New(); break;
+        case IG_ShortArray: array = ShortArray::New(); break;
+        case IG_UnsignedShortArray: array = UnsignedShortArray::New(); break;
+        case IG_LongLongArray: array = LongLongArray::New(); break;
+        case IG_UnsignedLongLongArray: array = UnsignedLongLongArray::New(); break;
+        case IG_FloatArray:
+        default: array = FloatArray::New(); break;
+    }
     array->SetName(name);
     array->SetDimension(channels);
     array->Resize(count);
+    return array;
+}
+
+ArrayObject::Pointer iGameTemporalStatistics::Accumulator::BuildArray(int kind, const std::string& name,
+                                                                      IGenum arrayType) const {
+    auto array = NewArrayLike(arrayType, name, channels, count);
     if (count == 0 || channels <= 0) { return array; }
 
     const double divisor = (frameCount > 0) ? static_cast<double>(frameCount) : 1.0;
@@ -235,6 +256,7 @@ bool iGameTemporalStatistics::ResolveSources(const std::vector<FrameBlock>& temp
         SourceInfo info;
         info.name = baseAttribute.pointer->GetName();
         info.attachment = baseAttribute.attachmentType;
+        info.arrayType = baseAttribute.pointer->GetArrayType();
         info.dimension = baseAttribute.pointer->GetDimension();
         // 逐分量统计：输出通道数 = 源维度（标量源自然退化为 1）
         info.channels = (info.dimension > 0) ? info.dimension : 1;
@@ -392,20 +414,24 @@ bool iGameTemporalStatistics::WriteStatistics(
             const auto& accumulator = accumulators[s][b];
 
             if (m_ComputeAverage) {
-                auto array = accumulator.BuildArray(StatisticAverage, source.name + kAverageSuffix);
+                auto array = accumulator.BuildArray(StatisticAverage, source.name + kAverageSuffix,
+                                                    source.arrayType);
                 destination->AddAttribute(attributeType, source.attachment, array, ComputeDataRange(array));
             }
             if (m_ComputeMinimum) {
-                auto array = accumulator.BuildArray(StatisticMinimum, source.name + kMinimumSuffix);
+                auto array = accumulator.BuildArray(StatisticMinimum, source.name + kMinimumSuffix,
+                                                    source.arrayType);
                 destination->AddAttribute(attributeType, source.attachment, array, ComputeDataRange(array));
             }
             if (m_ComputeMaximum) {
-                auto array = accumulator.BuildArray(StatisticMaximum, source.name + kMaximumSuffix);
+                auto array = accumulator.BuildArray(StatisticMaximum, source.name + kMaximumSuffix,
+                                                    source.arrayType);
                 destination->AddAttribute(attributeType, source.attachment, array, ComputeDataRange(array));
             }
             if (m_ComputeStandardDeviation) {
                 auto array = accumulator.BuildArray(StatisticStandardDeviation,
-                                                    source.name + kStandardDeviationSuffix);
+                                                    source.name + kStandardDeviationSuffix,
+                                                    source.arrayType);
                 destination->AddAttribute(attributeType, source.attachment, array, ComputeDataRange(array));
             }
         }
@@ -486,6 +512,18 @@ bool iGameTemporalStatistics::Execute() {
 
     if (frameNum == 1) {
         AddWarning("输入只有 1 帧：平均值 = 该帧值，最小值 = 最大值 = 该帧值，标准差 = 0。");
+    }
+
+    // 与 ParaView 对应：记录本次处理的时间步。
+    // iGame 没有 vtkFieldData 那样的场数据容器，等价地写进输出对象的 Metadata（名字沿用 time_steps）。
+    if (auto* metadata = output->GetMetadata()) {
+        auto timeSteps = DoubleArray::New();
+        timeSteps->SetDimension(1);
+        timeSteps->SetName("time_steps");
+        for (unsigned int f = 0; f < frameNum; ++f) {
+            timeSteps->AddValue(static_cast<double>(frames->GetTargetTimeValue(f)));
+        }
+        metadata->AddDoubleArray("time_steps", timeSteps);
     }
 
     output->SetName(input->GetName() + "_temporal_statistics");

@@ -92,8 +92,8 @@ private:
         bool AddFrame(ArrayObject::Pointer array);
         //! 一帧处理结束（含该数组在本帧缺失的情况）后调用。
         void MarkFrameProcessed() { ++frameCount; }
-        //! kind 见 Statistic。
-        ArrayObject::Pointer BuildArray(int kind, const std::string& name) const;
+        //! kind 见 Statistic；arrayType 为源数组类型，输出数组沿用该类型（与 vtkTemporalStatistics 一致）。
+        ArrayObject::Pointer BuildArray(int kind, const std::string& name, IGenum arrayType) const;
     };
 
     //! 第 index 帧的一块数据：geometry 提供点 / 单元，attributes 是该帧该块的属性集。
@@ -106,6 +106,7 @@ private:
     struct SourceInfo {
         std::string name{};
         IGenum attachment{IG_POINT};
+        IGenum arrayType{IG_FloatArray}; //!< 源数组类型：输出统计数组沿用（与 ParaView 一致）
         int dimension{1};
         int channels{1};
         bool valid{true};       //!< 规模随帧变化时置 false，该数组整体丢弃
@@ -132,6 +133,8 @@ private:
                                           IGenum attachment = IG_NONE);
     //! 属性范围：dim + 1 个元素，[0] = 模长范围，[1 + c] = 第 c 分量范围。
     static DoubleArray::Pointer ComputeDataRange(ArrayObject::Pointer array);
+    //! 按源数组类型创建同类型输出数组（IntArray / FloatArray / DoubleArray / ...）。
+    static ArrayObject::Pointer NewArrayLike(IGenum arrayType, const std::string& name, int channels, IGsize count);
     //! 记录一条非致命提示（去重 + 上限）。
     void AddWarning(const std::string& text);
 

@@ -18,12 +18,14 @@
 | 数组范围 | **全部数组**自动参与统计(无"选数组"参数,对标 ParaView 默认全选) |
 | 统计量 | 平均值 / 最小值 / 最大值 / **标准差**,可在面板上分别勾选,默认**全开**(与 VTK 9.4 的 `vtkTemporalStatistics` 一致) |
 | 输出命名 | `<数组名>_average` / `_minimum` / `_maximum` / `_stddev` |
+| 输出类型 | **沿用源数组的数据类型**(源是 double 就输出 double,源是整型就输出整型,与 ParaView 一致) |
 | 统计粒度 | **逐元素**:每个点(`IG_POINT`)/ 每个单元(`IG_CELL`)各得一份值,颜色映射后逐元素变化 |
 | 向量 | 逐分量统计,输出与源同维的向量(不额外产生模长分量) |
 | 平均口径 | 忽略时间间隔、每帧等权;平均值 = 累加和 ÷ **总帧数** |
 | 标准差 | **总体标准差**(平方偏差和 ÷ 总帧数,再开方),与 ParaView 一致 |
 | 输出对象 | **新数据集**:点坐标与单元拓扑沿用输入(共享),属性集全新;多块输入输出"容器根 + 每块子对象" |
 | 容错 | 某帧缺数组 → 跳过该帧的值(仍按总帧数求平均)并提示;数组规模随帧变化 → 丢弃该数组并提示;**都不会整体失败** |
+| 时间步记录 | 输出对象的 `Metadata` 里记录本次处理的时间步(`time_steps`,DoubleArray);对应 ParaView 往输出 FieldData 写 `time_steps` |
 
 ---
 
@@ -126,8 +128,8 @@ build\Examples\Release\testTemporalStatistics.exe "C:\igame\git\repos\iGameVis\t
 build\Examples\Release\testTemporalStatistics.exe "C:\igame\git\repos\iGameVis\test\Animation Test\result-case1" --all
 ```
 
-校验内容:四个统计数组是否齐全、隶属 / 维度 / 元素数是否与源一致;抽样元素(0、1/4、1/2、3/4、末尾)逐分量与"测试自己按帧重算"的参考值比对(平均 / 最小 / 最大 / 总体标准差);并检查 `最小值 ≤ 平均值 ≤ 最大值`、`标准差 ≥ 0`。
-实测结果:48 帧、16 个源数组、130 个抽样比对值、848 条断言、0 失败。数据目录缺失(code-only checkout 未拉 LFS 素材)时程序打印跳过信息并返回 77,CTest 记为 Skipped。
+校验内容:四个统计数组是否齐全、隶属 / 维度 / 元素数是否与源一致、**数据类型是否与源一致**;抽样元素(0、1/4、1/2、3/4、末尾)逐分量与"测试自己按帧重算"的参考值比对(平均 / 最小 / 最大 / 总体标准差);`最小值 ≤ 平均值 ≤ 最大值`、`标准差 ≥ 0`;以及输出 `Metadata` 里的 `time_steps` 记录数是否等于帧数。
+实测结果:48 帧、16 个源数组、130 个抽样比对值、**913 条断言、0 失败**。数据目录缺失(code-only checkout 未拉 LFS 素材)时程序打印跳过信息并返回 77,CTest 记为 Skipped。
 
 ---
 
@@ -143,13 +145,24 @@ build\Examples\Release\testTemporalStatistics.exe "C:\igame\git\repos\iGameVis\t
 - **多块时序**:每帧含多个块时,输出是"容器根 + 每块一个子对象",统计数组挂在各子块上,根行没有数组
 - **几何类型支持范围**:`UnstructuredMesh`、`SurfaceMesh`、`VolumeMesh`(基础)、`PointSet` 已支持;多面体体网格的面-体索引、`StructuredMesh`、`LagrangeUnstructuredMesh` 尚未支持,`Execute()` 会返回失败并说明
 - **输出命名固定**为 `<输入名>_temporal_statistics`,重复执行会得到同名多份,需要区分请自行改名
-- **结果精度**:统计数组统一写 `FloatArray`(单精度),累加用 `double`;需要双精度输出可把 `Accumulator::BuildArray` 里的 `FloatArray::New()` 改成 `DoubleArray::New()`
+- **结果类型沿用输入**:统计数组与源数组**同类型**(整型源的平均值同样按整型截断,表现与 ParaView 相同);累加过程用 `double`,最后写回源类型
+- **时间步记录**:输出对象的 `Metadata` 里有 `time_steps`(DoubleArray),记录本滤波器实际处理的每个时间步,可用于核对统计范围
 - **帧缓存**:执行时会按需 `EnableCache(frameNum)` 缓存全部帧,大网格长时序注意内存占用;统计过程不改动当前播放帧
 - **与「逐帧属性差值」的区别**:`iGameAttrDiff` 把结果写回输入对象(同一模型加属性),本滤波器产出**新模型**
 
 ---
 
-## 五、相关文件
+## 五、与 ParaView 的已知差异
+
+| 项 | 说明 |
+| --- | --- |
+| 场数据(FieldData)统计 | ParaView 会一并统计 `FieldData` 数组;iGame 的 `AttributeSet` 只有点/单元(及若干交互用)归属,**没有场数据容器**,故不做 |
+| 累加精度 | ParaView 用输入类型累加(整型数组是整型运算);我们用 `double` 累加、写回时再按源类型截断,正常量级下结果一致,极大数据下我们不会像 ParaView 那样有溢出风险 |
+| 执行模型 | ParaView 是 temporal algorithm,支持增量 / in-situ 跨多次执行累加;iGame 是一次性读完全部帧统计 |
+| 后缀 | 固定为 `_average` / `_minimum` / `_maximum` / `_stddev`,不提供自定义后缀 |
+| 输入类型 | 支持 `UnstructuredMesh` / `SurfaceMesh` / `VolumeMesh`(基础) / `PointSet`;结构化网格、多面体面-体索引、Lagrange 暂不支持 |
+
+## 六、相关文件
 
 | 路径 | 说明 |
 | --- | --- |
