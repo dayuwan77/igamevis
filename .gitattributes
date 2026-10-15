@@ -7,3 +7,47 @@ test/streamtest/*.vtk filter=lfs diff=lfs merge=lfs -text
 "test/Format Validation Test/ansys/*.rst" filter=lfs diff=lfs merge=lfs -text
 ThirdParty/Python/pyAnsysLib/ansys_to_pvd_converter.exe filter=lfs diff=lfs merge=lfs -text
 ThirdParty/Python/pyLsDynaLib/lsdyna_to_pvd_converter.exe filter=lfs diff=lfs merge=lfs -text
+
+# Small text fixtures for the two filter regression examples.
+Examples/Models/ExtractLocationTetraPair.vtk -filter -diff -merge text
+Examples/Models/ExtractLocationConnectedSteppedSolid.vtk -filter -diff -merge text
+Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
+Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
+Examples/Models/group_tet.vtk -filter -diff -merge text
+Examples/Models/group_hex.vtk -filter -diff -merge text
+Examples/Models/group_quad.vtk -filter -diff -merge text
+Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
+Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text
+
+# Keep upstream's small plain-text example fixtures outside Git LFS.
+Examples/Models/ElevationSlopeTerrain.vtk -filter -diff -merge text
+Examples/Models/ElevationTerraces.vtk -filter -diff -merge text
+Examples/Models/ExtractEnclosedPoints_Points_Cloud1.vtk -filter -diff -merge text
+Examples/Models/ExtractEnclosedPoints_Surface_Sphere.vtk -filter -diff -merge text
+Examples/Models/FeatureEdges_Cube.vtk -filter -diff -merge text
+Examples/Models/FeatureEdges_NonManifold.vtk -filter -diff -merge text
+Examples/Models/GhostCell_Pyramid.vtk -filter -diff -merge text
+Examples/Models/GhostCell_TwoTets.vtk -filter -diff -merge text
+Examples/Models/LinearExtrusion_ClosedCube.vtk -filter -diff -merge text
+Examples/Models/LinearExtrusion_OpenSurface.vtk -filter -diff -merge text
+Examples/Models/OutlineCorners_Box.vtk -filter -diff -merge text
+Examples/Models/rectangle_structured_2d.vtk -filter -diff -merge text
+Examples/Models/test_mesh.vtk -filter -diff -merge text
+Examples/Models/tube_test.vtk -filter -diff -merge text
+# Small text fixture for the TextureMapToCylinder standalone-line regression.
+Examples/Models/TextureMapToCylinder_loose_line.vtk -filter -diff -merge text
+
+# Keep development-branch small plain-text example fixtures outside Git LFS.
+Examples/Models/ExtractBlockFlat.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockNested.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockThreeTypes.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockDeep.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockHexahedron.vtu -filter -diff -merge text
+Examples/Models/ExtractSelectionTriangles.vtu -filter -diff -merge text
+Examples/Models/ExtractSelectionTetrahedra.vtu -filter -diff -merge text
+Examples/Models/PerlinNoise_Test.vtk -filter -diff -merge text
+Examples/Models/YieldCriteria_Test.vtk -filter -diff -merge text
+Examples/Models/ResampleCubeVector.vtk -filter -diff -merge text
+Examples/Models/TextureMapSphere.vtk -filter -diff -merge text
+Examples/Models/GhostDemo.vtk -filter -diff -merge text
+Examples/Models/Tet_Plane.vtk -filter -diff -merge text

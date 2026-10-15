@@ -217,6 +217,7 @@ public:
         this->IsPolyhedronType = true;
     }
     bool GetIsPolyhedronType() { return this->IsPolyhedronType; }
+    CellArray* GetVolumeFaces() const { return m_VolumeFaces; }
     void SetIsPolyhedronType(bool flag) { this->IsPolyhedronType = flag; }
     //Get real size of DataObject
     IGsize GetRealMemorySize() override;

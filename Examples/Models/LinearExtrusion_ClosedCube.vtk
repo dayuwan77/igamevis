@@ -1,0 +1,52 @@
+# vtk DataFile Version 3.0
+LinearExtrusionFilter test model B: closed unit cube (unit square extruded by (0,0,1)), no boundary edge (B=0)
+ASCII
+DATASET POLYDATA
+POINTS 8 float
+0 0 0
+1 0 0
+1 1 0
+0 1 0
+0 0 1
+1 0 1
+1 1 1
+0 1 1
+POLYGONS 12 48
+3 0 1 2
+3 0 2 3
+3 4 5 6
+3 4 6 7
+3 0 1 5
+3 0 5 4
+3 1 2 6
+3 1 6 5
+3 2 3 7
+3 2 7 6
+3 3 0 4
+3 3 4 7
+POINT_DATA 8
+SCALARS point_id int 1
+LOOKUP_TABLE default
+0
+1
+2
+3
+4
+5
+6
+7
+CELL_DATA 12
+SCALARS face_id int 1
+LOOKUP_TABLE default
+10
+11
+20
+21
+30
+31
+40
+41
+50
+51
+60
+61

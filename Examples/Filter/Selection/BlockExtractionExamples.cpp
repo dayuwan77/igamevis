@@ -36,6 +36,35 @@ int main() {
             Check(ExtractBlockFilter::GetBlocks(input).size() == 2, "input hierarchy unchanged");
             std::cout << file << ": index/path and name extraction passed; 5 points, 2 cells\n";
         }
+        auto mixed = FileIO::ReadFile("Examples/Models/ExtractBlockThreeTypes.vtm");
+        Check(mixed != nullptr, "read three-type fixture");
+        const char* names[]{"Triangles", "Tetrahedra", "Hexahedron"};
+        const std::vector<std::vector<int>> paths{{0}, {1, 0}, {1, 1}};
+        const IGsize points[]{5, 5, 8}, cells[]{2, 2, 1};
+        const IGenum types[]{IG_TRIANGLE, IG_TETRA, IG_HEXAHEDRON};
+        for (int i = 0; i < 3; ++i) {
+            for (int mode = 0; mode < 2; ++mode) {
+                auto filter = ExtractBlockFilter::New();
+                filter->SetInput(mixed);
+                if (mode == 0) filter->SetBlockPath(paths[i]);
+                else filter->SetBlockName(names[i]);
+                if (!filter->Execute()) throw std::runtime_error(filter->GetLastError());
+                auto result = DynamicCast<UnstructuredMesh>(filter->GetOutput());
+                Check(result && result->GetNumberOfPoints() == points[i] &&
+                      result->GetNumberOfCells() == cells[i], "three-type counts");
+                Check(result->GetCellType(0) == types[i], "three-type topology");
+                Check(FileIO::WriteFile(std::string("ExtractionResults/") + names[i] +
+                    (mode == 0 ? "-path.vtk" : "-name.vtk"), result), "write three-type output");
+            }
+        }
+        auto deep = FileIO::ReadFile("Examples/Models/ExtractBlockDeep.vtm");
+        auto deepFilter = ExtractBlockFilter::New();
+        deepFilter->SetInput(deep);
+        deepFilter->SetBlockPath({1, 0, 0});
+        Check(deepFilter->Execute() && deepFilter->GetOutput()->GetName() == "DeepHexahedron_extracted_block",
+              "recursive reader preserves XML indices and names");
+        deepFilter->SetBlockName("DeepHexahedron");
+        Check(deepFilter->Execute(), "recursive named extraction from loaded VTM");
         std::cout << "BlockExtractionExamples: all cases passed\n";
         return 0;
     } catch (const std::exception& error) {

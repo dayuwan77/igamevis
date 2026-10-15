@@ -44,6 +44,7 @@ bool CellArray::DeepCopy(CellArray::Pointer o) {
     auto offsets = UnsignedIntArray::New();
     auto deleted = DeleteMarker::New();
     buffer->DeepCopy(o->m_Buffer);
+    m_Offsets = UnsignedIntArray::New();
     offsets->DeepCopy(o->m_Offsets);
     deleted->DeepCopy(o->m_DeleteMasker);
     m_Buffer = buffer;

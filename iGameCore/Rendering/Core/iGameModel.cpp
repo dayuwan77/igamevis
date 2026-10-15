@@ -1,4 +1,5 @@
 #include "iGameModel.h"
+#include "iGameVisibleBlockTraversal.h"
 #include "iGameFilter.h"
 #include "iGameInteractor.h"
 #include "iGamePointSet.h"
@@ -179,6 +180,14 @@ ForEachDrawObject(DataObject::Pointer root,
             ForEachDrawObject(it->second, fn);
         }
     }
+}
+
+// 绘制遍历：只把「叶子」绘制对象交给回调（容器自身不绘制，保持既有语义）；
+// 递归下钻以支持嵌套多块/组合容器（此前只遍历一层，嵌套容器的叶子画不出来）。
+static void
+ForEachRenderableLeaf(DataObject::Pointer root,
+                      const std::function<void(DrawObject::Pointer)>& fn) {
+    RenderingDetail::ForEachVisibleLeaf(root, fn);
 }
 } // namespace
 
@@ -493,17 +502,7 @@ void Model::Draw() {
         }
     };
 
-    auto drawObject = DynamicCast<DrawObject>(m_DataObject);
-    if (!drawObject->HasSubDataObject()) {
-        draw(drawObject);
-    } else {
-        for (auto it = drawObject->SubDataObjectIteratorBegin();
-             it != drawObject->SubDataObjectIteratorEnd(); it++) {
-            auto subDataObj = it->second;
-            auto subDrawObj = DynamicCast<DrawObject>(subDataObj);
-            draw(subDrawObj);
-        }
-    }
+    ForEachRenderableLeaf(m_DataObject, draw);
 }
 
 void Model::DrawWithTransparency() {
@@ -631,17 +630,7 @@ void Model::DrawWithTransparency() {
         }
     };
 
-    auto drawObject = DynamicCast<DrawObject>(m_DataObject);
-    if (!drawObject->HasSubDataObject()) {
-        draw(drawObject);
-    } else {
-        for (auto it = drawObject->SubDataObjectIteratorBegin();
-             it != drawObject->SubDataObjectIteratorEnd(); it++) {
-            auto subDataObj = it->second;
-            auto subDrawObj = DynamicCast<DrawObject>(subDataObj);
-            draw(subDrawObj);
-        }
-    }
+    ForEachRenderableLeaf(m_DataObject, draw);
 }
 
 void Model::DrawWithVolume() {
@@ -678,17 +667,7 @@ void Model::DrawWithVolume() {
         }
     };
 
-    auto drawObject = DynamicCast<DrawObject>(m_DataObject);
-    if (!drawObject->HasSubDataObject()) {
-        draw(drawObject);
-    } else {
-        for (auto it = drawObject->SubDataObjectIteratorBegin();
-             it != drawObject->SubDataObjectIteratorEnd(); it++) {
-            auto subDataObj = it->second;
-            auto subDrawObj = DynamicCast<DrawObject>(subDataObj);
-            draw(subDrawObj);
-        }
-    }
+    ForEachRenderableLeaf(m_DataObject, draw);
 }
 
 void Model::DrawPhase1() {
@@ -965,17 +944,7 @@ void Model::DrawPhase1() {
     };
     #endif
 
-    auto drawObject = DynamicCast<DrawObject>(m_DataObject);
-    if (!drawObject->HasSubDataObject()) {
-        draw(drawObject);
-    } else {
-        for (auto it = drawObject->SubDataObjectIteratorBegin();
-             it != drawObject->SubDataObjectIteratorEnd(); it++) {
-            auto subDataObj = it->second;
-            auto subDrawObj = DynamicCast<DrawObject>(subDataObj);
-            draw(subDrawObj);
-        }
-    }
+    ForEachRenderableLeaf(m_DataObject, draw);
 #endif
 }
 
@@ -1294,17 +1263,7 @@ void Model::DrawPhase2() {
     };
     #endif
 
-    auto drawObject = DynamicCast<DrawObject>(m_DataObject);
-    if (!drawObject->HasSubDataObject()) {
-        draw(drawObject);
-    } else {
-        for (auto it = drawObject->SubDataObjectIteratorBegin();
-             it != drawObject->SubDataObjectIteratorEnd(); it++) {
-            auto subDataObj = it->second;
-            auto subDrawObj = DynamicCast<DrawObject>(subDataObj);
-            draw(subDrawObj);
-        }
-    }
+    ForEachRenderableLeaf(m_DataObject, draw);
 #endif
 }
 
@@ -1391,17 +1350,7 @@ void Model::TestOcclusionResults() {
         // }
     };
 
-    auto drawObject = DynamicCast<DrawObject>(m_DataObject);
-    if (!drawObject->HasSubDataObject()) {
-        draw(drawObject);
-    } else {
-        for (auto it = drawObject->SubDataObjectIteratorBegin();
-             it != drawObject->SubDataObjectIteratorEnd(); it++) {
-            auto subDataObj = it->second;
-            auto subDrawObj = DynamicCast<DrawObject>(subDataObj);
-            draw(subDrawObj);
-        }
-    }
+    ForEachRenderableLeaf(m_DataObject, draw);
 #endif
 }
 

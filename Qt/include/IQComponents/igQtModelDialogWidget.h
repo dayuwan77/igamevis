@@ -17,6 +17,7 @@
 #include <QTreeWidget>
 #include <functional>
 #include <iostream>
+#include <vector>
 
 class QDockWidget;
 
@@ -41,6 +42,9 @@ public:
 public slots:
     int addModelToModelTree(iGame::Model::Pointer model);
     ModelTreeWidgetItem* getItemFromObject(iGame::DataObject::Pointer obj);
+    /** 模型树里全部顶层模型项（顺序与树一致）。注意场景模型池里还有中心坐标轴这类
+     *  内部模型，它们不在模型树中，因此不会出现在这里。 */
+    QList<ModelTreeWidgetItem*> getAllModelItems() const;
     void updateAllAttriubute(iGame::DataObject::Pointer obj);
     void refreshAnimationAttributes(iGame::DataObject::Pointer obj);
     void updateItemName(iGame::DataObject::Pointer obj);
@@ -63,6 +67,33 @@ public slots:
 
     void setTreeDockCollapsed(bool collapsed);
     bool isTreeDockCollapsed() const { return m_treeCollapsed; }
+
+    /**
+     * 【单输入 filter 用】当前选中的单个数据对象。
+     *
+     * - 选中顶层模型  -> 该模型的 DataObject
+     * - 选中多块子块  -> 该子块的 DataObject（不是父模型）
+     * - 无任何选中    -> 回退为当前模型的 DataObject（保持既有行为）
+     */
+    iGame::DataObject::Pointer GetCurrentDataObject();
+
+    /**
+     * 【多输入 filter 用】当前选中的一组数据对象（如多选合组）。
+     *
+     * - 顶层模型行与多块子块行都会被映射为各自的 DataObject
+     * - 属性行会被忽略
+     * - 未多选时最多返回 1 个；需 Ctrl / Shift 配合多选
+     */
+    std::vector<iGame::DataObject::Pointer> GetSelectedDataObjects();
+
+    /**
+     * 刷新模型树所有节点的眼睛图标，使其与各自数据的【真实可见性】一致。
+     *
+     * 适用场景：显隐切换会间接触及其他行的图标 —— 顶层模型的显隐递归作用于
+     * 多块子块；容器（组）行的图标以【子树中是否还有可见节点】为准。
+     * 因此每次切换后统一重刷全树，只刷新图标、不传播状态。
+     */
+    void RefreshModelTreeVisibilityIcons();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

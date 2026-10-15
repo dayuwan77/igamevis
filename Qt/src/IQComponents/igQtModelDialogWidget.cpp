@@ -731,6 +731,17 @@ igQtModelDialogWidget::igQtModelDialogWidget(QWidget* parent) : QObject(parent),
     connect(modelTreeWidget, &igQtModelTreeWidget::ViewCloudPicture, this, &igQtModelDialogWidget::updateCloudPicture);
 }
 
+QList<ModelTreeWidgetItem*> igQtModelDialogWidget::getAllModelItems() const {
+    QList<ModelTreeWidgetItem*> items;
+    if (!modelTreeWidget) return items;
+    for (int i = 0; i < modelTreeWidget->topLevelItemCount(); ++i) {
+        if (auto* item = dynamic_cast<ModelTreeWidgetItem*>(modelTreeWidget->topLevelItem(i))) {
+            items.append(item);
+        }
+    }
+    return items;
+}
+
 void igQtModelDialogWidget::refreshStyle() {
     if (m_treeDock) {
         if (auto* bar = dynamic_cast<DockTitleBar*>(m_treeDock->titleBarWidget())) {
@@ -932,6 +943,9 @@ QString igQtModelDialogWidget::renameModelRow(iGame::DataObject::Pointer obj, co
     // 用户看到的就是“转换后自动跳回第一帧”。改名只影响文字，模型信息面板直接刷新即可。
     obj->SetName(finalName.toStdString());
     item->setName(finalName);
+    // 信息框显示被改名的对象（与 updateCurrentModelInfo 的"当前对象覆盖"同口径；
+    // 若沿用上一次的 override，可能残留"此前选中的子块"）。
+    ui->ModelInformationWidget->setOverrideDataObject(obj);
     ui->ModelInformationWidget->updateInformationFrame();
     return finalName;
 }
@@ -954,7 +968,7 @@ int igQtModelDialogWidget::addDataObjectToModelTree(iGame::DataObject::Pointer o
     auto attrSet = obj->GetAttributeSet()->GetAllAttributes();
     for (int i = 0; i < attrSet->GetNumberOfElements(); i++) {
         auto& attr = attrSet->GetElement(i);
-        if (attr.isDeleted) continue;
+        if (attr.isDeleted || !attr.pointer) continue;
         AttribTreeWidgetItem* child = new AttribTreeWidgetItem(i, modelTreeWidget, item);
         const QString attrName = QString::fromStdString(attr.pointer->GetName());
         child->setText(0, attrName);
@@ -1081,6 +1095,9 @@ int igQtModelDialogWidget::addModelToModelTree(iGame::Model::Pointer model) {
 int igQtModelDialogWidget::updateCurrentModelInfo() {
     //    qDebug() << ui->modelTreeWidget->currentIndex();
 
+    // 信息框按"当前选中对象"显示：选中子块时为子块本身，无选中回落模型根对象 ——
+    // 与属性面板、filter 输入源同源。
+    ui->ModelInformationWidget->setOverrideDataObject(GetCurrentDataObject());
     ui->ModelInformationWidget->updateInformationFrame();
     Q_EMIT CurrendModelChanged();
 
@@ -1101,7 +1118,9 @@ void igQtModelDialogWidget::updateCurrentModelProperty() {
         return;
     }
     //currentModel = model;
-    auto obj = DynamicCast<iGame::DrawObject>(model->GetDataObject());
+    // 显示"当前选中对象"的显示属性：选中子块时为子块本身，无选中时回落模型根对象 ——
+    // 与 filter 输入源同源（GetCurrentDataObject），选中语义全 UI 统一。
+    auto obj = DynamicCast<iGame::DrawObject>(GetCurrentDataObject());
     if (obj) {
         prop_PointSize->setEnabled(true);
         prop_PointSize->setValue(obj->GetPointSize());
@@ -1123,7 +1142,8 @@ void igQtModelDialogWidget::updateCurrentModelProperty(iGame::Model* model) {
     scene->SetCurrentModel(model);
 
     //currentModel = model;
-    auto obj = DynamicCast<iGame::DrawObject>(model->GetDataObject());
+    // 同上：显示"当前选中对象"的显示属性（选中子块时为子块本身，无选中回落根对象）。
+    auto obj = DynamicCast<iGame::DrawObject>(GetCurrentDataObject());
     if (obj) {
         prop_PointSize->setEnabled(true);
         prop_PointSize->setValue(obj->GetPointSize());
@@ -1206,33 +1226,27 @@ void igQtModelDialogWidget::deleteCurrentModel() {
 }
 
 void igQtModelDialogWidget::onPropertyChanged(QtProperty* property, const QVariant& value) {
-    auto currentModel = GetCurrentModel();
+    // 写入目标与属性面板的显示对象同源：选中子块时即子块本身，无选中回落模型根对象。
+    // （面板显示谁，改动就写回谁 —— 避免"看到子块的值、却改到根对象"的错位。）
+    auto obj = DynamicCast<iGame::DrawObject>(GetCurrentDataObject());
+    if (!obj) { return; }
     if (property == prop_PointSize) {
         //std::cout << value.toInt() << std::endl;
-        if (currentModel) {
-            auto obj = DynamicCast<iGame::DrawObject>(currentModel->GetDataObject());
-            if (obj && obj->GetPointSize() != value.toInt() && value.toInt() > 0) {
-                obj->SetPointSize(value.toInt());
-                Update();
-            }
+        if (obj->GetPointSize() != value.toInt() && value.toInt() > 0) {
+            obj->SetPointSize(value.toInt());
+            Update();
         }
     } else if (property == pror_LineWidth) {
         //std::cout << value.toDouble() << std::endl;
-        if (currentModel) {
-            auto obj = DynamicCast<iGame::DrawObject>(currentModel->GetDataObject());
-            if (obj && obj->GetLineWidth() != value.toInt() && value.toInt() > 0) {
-                obj->SetLineWidth(value.toInt());
-                Update();
-            }
+        if (obj->GetLineWidth() != value.toInt() && value.toInt() > 0) {
+            obj->SetLineWidth(value.toInt());
+            Update();
         }
     } else if (property == prop_Transparency) {
         //std::cout << value.toDouble() << std::endl;
-        if (currentModel) {
-            auto obj = DynamicCast<iGame::DrawObject>(currentModel->GetDataObject());
-            if (obj && obj->GetTransparency() != value.toDouble() && value.toDouble() >= 0 && value.toDouble() <= 1.0) {
-                obj->SetTransparency(value.toFloat());
-                Update();
-            }
+        if (obj->GetTransparency() != value.toDouble() && value.toDouble() >= 0 && value.toDouble() <= 1.0) {
+            obj->SetTransparency(value.toFloat());
+            Update();
         }
     }
 }
@@ -1242,147 +1256,69 @@ iGame::Model* igQtModelDialogWidget::GetCurrentModel() {
     return scene->GetCurrentModel();
 }
 
+iGame::DataObject::Pointer igQtModelDialogWidget::GetCurrentDataObject() {
+    // 1) 优先取模型树中【当前选中】的数据对象：
+    //    选中多块装配体的子块时，返回的是子块本身，而不是它的父模型。
+    if (modelTreeWidget) {
+        auto selected = modelTreeWidget->getSingleSelectedDataObject();
+        if (selected) { return selected; }
+    }
+
+    // 2) 没有任何选中时，回退为"当前模型的 DataObject"，保持既有行为不变。
+    auto scene = iGame::SceneManager::Instance()->GetCurrentScene();
+    if (!scene) { return nullptr; }
+    auto model = scene->GetCurrentModel();
+    return model ? model->GetDataObject() : nullptr;
+}
+
+std::vector<iGame::DataObject::Pointer> igQtModelDialogWidget::GetSelectedDataObjects() {
+    if (!modelTreeWidget) { return {}; }
+    return modelTreeWidget->getSelectedDataObjects();
+}
+
+void igQtModelDialogWidget::RefreshModelTreeVisibilityIcons() {
+    if (!modelTreeWidget) { return; }
+    modelTreeWidget->syncVisibilityIcons();
+}
+
 
 void igQtModelDialogWidget::positionTreeDockToRendererCorner(QWidget* rendererWidget) {
     if (!rendererWidget || !m_treeDock) return;
+    if (!(m_treeDock->features() & QDockWidget::DockWidgetFloatable)) return;
 
-    // 如果不允许悬浮，就不要强制 setFloating(true)，否则会变成系统浮动窗
-    if (!(m_treeDock->features() & QDockWidget::DockWidgetFloatable)) {
-        return;
-    }
-
-    // 确保dock widget是悬浮状态，然后设置无边框
     m_treeDock->setFloating(true);
-    // 使用无边框 floating（可通过自定义 title bar 拖拽移动）
     m_treeDock->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
-    // 關閉透明背景，讓樣式表的背景與邊框生效
     m_treeDock->setAttribute(Qt::WA_TranslucentBackground, false);
-
-    int dockWidth = m_treeCollapsed ? kTreeCollapsedSize : 300;
-    int dockHeight = m_treeCollapsed ? kTreeCollapsedSize : 250;
-    m_treeDock->resize(dockWidth, dockHeight);
-    m_treeDock->show(); // window flags 变更后需要 show()
-    
-    // 等待窗口完全显示后再计算位置
-    QApplication::processEvents();
-    
-    // 获取dock窗口的实际大小（窗口显示后可能略有调整）
-    QSize actualDockSize = m_treeDock->size();
-
-    // 获取OpenGL渲染窗口在屏幕上的几何信息
-    // rendererWidget本身就是centralWidget，直接使用它作为渲染窗口
-    QWidget* actualRendererWidget = rendererWidget;
-    
-    // 获取渲染窗口的几何信息
-    // 直接获取窗口的四个角点的全局坐标
-    QPoint rendererTopLeft = actualRendererWidget->mapToGlobal(QPoint(0, 0));
-    QPoint rendererBottomRight = actualRendererWidget->mapToGlobal(QPoint(actualRendererWidget->width(), actualRendererWidget->height()));
-
-    // 计算悬浮窗口的位置：layerdialog的右下角对应渲染窗口的右下角，留出边距
-    int margin = 15; // 边距
-    
-    // layerdialog的左上角位置（全局坐标）= 渲染窗口右下角 - layerdialog实际大小 - 边距
-    QPoint dockTopLeft(
-            rendererBottomRight.x() - actualDockSize.width() - margin,
-            rendererBottomRight.y() - actualDockSize.height() - margin
-    );
-
-    // 获取渲染窗口所在的屏幕，确保窗口完全在屏幕内
-    QScreen* screen = nullptr;
-    if (QWidget* mainWindow = rendererWidget->window()) {
-        screen = mainWindow->screen();
-    }
-    if (!screen) {
-        // 如果无法获取，使用计算位置所在的屏幕
-        screen = QApplication::screenAt(dockTopLeft);
-    }
-    if (!screen) {
-        // 如果还是无法获取，使用主屏幕
-        screen = QApplication::primaryScreen();
-    }
-    
-    if (screen) {
-        QRect screenGeometry = screen->availableGeometry();
-        
-        // 计算layerdialog的右下角位置
-        QPoint dockBottomRight = dockTopLeft + QPoint(actualDockSize.width(), actualDockSize.height());
-        
-        // 检查并调整位置，确保窗口完全在屏幕内
-        // 优先保持layerdialog的右下角对应渲染窗口的右下角
-        
-        // 如果右下角超出屏幕右边界
-        if (dockBottomRight.x() > screenGeometry.right()) {
-            // 调整到屏幕右边界内，但确保仍然在渲染窗口右侧
-            int newX = screenGeometry.right() - actualDockSize.width() - margin;
-            // 计算调整后layerdialog的右下角X坐标
-            int newDockRight = newX + actualDockSize.width();
-            
-            // 只有当调整后的layerdialog右下角仍然在渲染窗口右下角的右侧时才调整
-            // 如果调整后会移到渲染窗口左侧，则保持原位置（即使部分超出屏幕）
-            if (newDockRight >= rendererBottomRight.x() - margin) {
-                // 调整后的位置仍然在渲染窗口右侧，使用新位置
-                dockTopLeft.setX(newX);
-            }
-            // 否则保持原位置，即使部分超出屏幕也比移到左侧好
-        }
-        
-        // 如果右下角超出屏幕下边界
-        if (dockBottomRight.y() > screenGeometry.bottom()) {
-            dockTopLeft.setY(screenGeometry.bottom() - actualDockSize.height() - margin);
-        }
-        
-        // 确保左上角也在屏幕内（防止窗口完全超出屏幕）
-        // 但如果渲染窗口在右侧，layerdialog绝对不应该被移到屏幕左侧
-        if (dockTopLeft.x() < screenGeometry.left()) {
-            // 检查渲染窗口的位置：如果渲染窗口在屏幕右侧，绝对不调整到左侧
-            int rendererRight = rendererBottomRight.x();
-            int rendererLeft = rendererTopLeft.x();
-            
-            // 如果渲染窗口的右边界在屏幕中心右侧，说明渲染窗口在右侧
-            // 此时layerdialog不应该被移到屏幕左侧，保持原位置
-            // 或者，如果layerdialog的右下角在渲染窗口右侧，也不应该移到左侧
-            int dockRight = dockTopLeft.x() + actualDockSize.width();
-            bool rendererOnRight = (rendererRight > screenGeometry.center().x() || rendererLeft > screenGeometry.center().x());
-            bool dockOnRightOfRenderer = (dockRight >= rendererBottomRight.x() - margin);
-            
-            if (rendererOnRight || dockOnRightOfRenderer) {
-                // 渲染窗口在右侧，或者layerdialog在渲染窗口右侧
-                // 绝对不调整到屏幕左侧，保持原位置
-                // 完全不进行调整，直接跳过
-            } else {
-                // 渲染窗口在屏幕左侧或中间，且layerdialog不在渲染窗口右侧
-                // 可以调整到屏幕左边界（但这种情况不应该发生）
-                dockTopLeft.setX(screenGeometry.left() + margin);
-            }
-        }
-        if (dockTopLeft.y() < screenGeometry.top()) {
-            dockTopLeft.setY(screenGeometry.top() + margin);
-        }
-    }
-
-    // 最终检查：如果渲染窗口在屏幕右侧，确保layerdialog不会出现在屏幕左侧
-    if (screen) {
-        QRect screenGeometry = screen->availableGeometry();
-        int rendererRight = rendererBottomRight.x();
-        
-        // 如果渲染窗口在屏幕右侧（右边界在屏幕中心右侧）
-        if (rendererRight > screenGeometry.center().x()) {
-            // 确保layerdialog不会出现在屏幕左侧
-            if (dockTopLeft.x() < screenGeometry.left() + 100) {
-                // layerdialog出现在屏幕左侧，这是错误的
-                // 强制放在渲染窗口右下角
-                dockTopLeft.setX(rendererBottomRight.x() - actualDockSize.width() - margin);
-                dockTopLeft.setY(rendererBottomRight.y() - actualDockSize.height() - margin);
-            }
-        }
-    }
-    
-
-    // 设置悬浮窗口的位置（使用全局坐标）
-    m_treeDock->move(dockTopLeft);
-
-    // 确保窗口可见并激活
+    m_treeDock->resize(m_treeCollapsed ? kTreeCollapsedSize : 300,
+                       m_treeCollapsed ? kTreeCollapsedSize : 250);
     m_treeDock->show();
     m_treeDock->raise();
-    m_treeDock->activateWindow();
+
+    // Wait until macOS has applied the floating-window flags and native frame
+    // before reading the final size and placing the dock in Qt's logical pixels.
+    QTimer::singleShot(0, this, [this, rendererWidget]() {
+        if (!rendererWidget || !m_treeDock) return;
+
+        const int margin = 15;
+        const QSize dockSize = m_treeDock->size();
+        const QRect rendererRect(rendererWidget->mapToGlobal(QPoint(0, 0)), rendererWidget->size());
+        QPoint topLeft(rendererRect.right() - dockSize.width() + 1 - margin,
+                       rendererRect.bottom() - dockSize.height() + 1 - margin);
+
+        QScreen* screen = rendererWidget->screen();
+        if (!screen) screen = QGuiApplication::screenAt(rendererRect.center());
+        if (!screen) screen = QGuiApplication::primaryScreen();
+        if (screen) {
+            const QRect available = screen->availableGeometry().adjusted(margin, margin, -margin, -margin);
+            const int maxX = qMax(available.left(), available.right() - dockSize.width() + 1);
+            const int maxY = qMax(available.top(), available.bottom() - dockSize.height() + 1);
+            topLeft.setX(qBound(available.left(), topLeft.x(), maxX));
+            topLeft.setY(qBound(available.top(), topLeft.y(), maxY));
+        }
+
+        m_treeDock->move(topLeft);
+        m_treeDock->show();
+        m_treeDock->raise();
+        m_treeDock->activateWindow();
+    });
 }

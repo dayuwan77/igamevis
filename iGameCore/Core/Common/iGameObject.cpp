@@ -258,7 +258,7 @@ protected:
 class CallbackBase {
 public:
     CallbackBase(){}
-    ~CallbackBase(){}
+    virtual ~CallbackBase() = default;
 	virtual bool operator()(Object*, unsigned long, void*) = 0;
 };
 

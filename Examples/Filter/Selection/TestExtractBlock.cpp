@@ -1,6 +1,8 @@
 #include "Selection/iGameExtractBlockFilter.h"
 #include "iGameUnstructuredMesh.h"
 #include "iGameCompositeDataObject.h"
+#include "iGameStructuredMesh.h"
+#include "iGameVisibleBlockTraversal.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -117,6 +119,43 @@ int main() {
         filter->SetInput(brokenRoot);
         filter->SetBlockIndex(0);
         Check(!filter->Execute() && !filter->GetOutput(), "short attribute rejected");
+        for (igIndex depth : {igIndex{1}, igIndex{2}}) {
+            auto structured = StructuredMesh::New();
+            igIndex dimensions[]{2, 2, depth};
+            structured->SetDimensionSize(dimensions);
+            for (igIndex z = 0; z < depth; ++z)
+                for (igIndex y = 0; y < 2; ++y)
+                    for (igIndex x = 0; x < 2; ++x)
+                        structured->GetPoints()->AddPoint(Point(x, y, z));
+            structured->GenStructuredCellConnectivities();
+            auto material = IntArray::New();
+            material->SetName("material");
+            material->AddValue(9);
+            structured->GetAttributeSet()->AddAttribute(IG_SCALAR, IG_CELL, material);
+            auto container = TestComposite::New();
+            container->children = {structured};
+            filter->SetInput(container);
+            filter->SetBlockIndex(0);
+            Check(filter->Execute(), "structured extraction");
+            auto result = DynamicCast<StructuredMesh>(filter->GetOutput());
+            Check(result && result->GetDimensionSize()[2] == depth && result->GetNumberOfCells() == 1,
+                  "structured dimensions and topology preserved");
+            Check(result->GetPoints() != structured->GetPoints() &&
+                  result->GetAttributeSet()->GetAttribute(0).pointer->GetValue(0) == 9,
+                  "structured geometry and cell attributes copied");
+        }
+        auto visibleRoot = DrawObject::New();
+        auto visibleGroup = DrawObject::New();
+        visibleRoot->AddSubDataObject(Mesh("surface", 0));
+        visibleGroup->AddSubDataObject(Mesh("nested", 2));
+        visibleRoot->AddSubDataObject(visibleGroup);
+        int count = 0;
+        RenderingDetail::ForEachVisibleLeaf(visibleRoot, [&](DrawObject::Pointer) { ++count; });
+        Check(count == 2, "nested rendering visits all visible leaves");
+        visibleGroup->SetVisibility(false);
+        count = 0;
+        RenderingDetail::ForEachVisibleLeaf(visibleRoot, [&](DrawObject::Pointer) { ++count; });
+        Check(count == 1, "hidden group suppresses descendants");
         std::cout << "ExtractBlock: all regression checks passed\n";
         return 0;
     } catch (const std::exception& e) {

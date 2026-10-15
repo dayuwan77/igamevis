@@ -17,21 +17,28 @@
 #include <iostream>
 #include <string>
 
-int main(
-    int argc,
-    char** argv) {
-    const bool noRender = argc == 3 && std::string(argv[2]) == "--no-render";
-    if (argc != 2 && !noRender) {
-        std::cerr
-            << "Usage: "
-            << "testFeatureEdgesVisualization.exe "
-            << "<model-file>"
-            << std::endl;
-        return 1;
+// Regression: merge bd5b333c removed argument parsing but retained the noRender
+// check, breaking CI compilation. Preserve the default model, accept one model
+// path and --no-render in either order, and reject unknown or extra arguments.
+// In headless mode, all mesh/attribute checks must finish before returning.
+// Fix: pending commit (Restore FeatureEdges visualization CLI parsing).
+int main(int argc, char** argv) {
+    bool noRender = false;
+    bool hasModelPath = false;
+    std::string fileName = "./Models/FeatureEdges_Cube.vtk";
+    for (int i = 1; i < argc; ++i) {
+        const std::string argument = argv[i];
+        if (argument == "--no-render") {
+            noRender = true;
+        } else if (!argument.empty() && argument[0] != '-' && !hasModelPath) {
+            fileName = argument;
+            hasModelPath = true;
+        } else {
+            std::cerr << "Usage: " << argv[0]
+                      << " [model-file] [--no-render]" << std::endl;
+            return 1;
+        }
     }
-
-    const std::string fileName =
-        argv[1];
 
     std::cout
         << "Input file: "

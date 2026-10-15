@@ -50,6 +50,7 @@ public:
 private:
     iGameCGNSReader();
     Points::Pointer m_Points{nullptr};
+    DoubleArray::Pointer m_Coordinates;
     StructuredMesh::Pointer m_StructuredMesh{nullptr};
     UnstructuredMesh::Pointer m_UnstructuredMesh{nullptr};
     VolumeMesh::Pointer m_VolumeMesh{nullptr};

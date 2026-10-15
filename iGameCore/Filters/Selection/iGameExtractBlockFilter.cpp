@@ -1,6 +1,7 @@
 #include "iGameExtractBlockFilter.h"
 #include "iGameCompositeDataObject.h"
 #include "iGameUnstructuredMesh.h"
+#include "iGameStructuredMesh.h"
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -137,7 +138,31 @@ DataObject::Pointer CopyBlock(DataObject::Pointer input, std::string& error,
     }
     DataObject::Pointer output;
     IGsize cellCount = 0;
-    if (auto source = DynamicCast<UnstructuredMesh>(input)) {
+    if (auto source = DynamicCast<StructuredMesh>(input)) {
+        igIndex dimensions[3];
+        std::copy_n(source->GetDimensionSize(), 3, dimensions);
+        if (dimensions[0] < 2 || dimensions[1] < 2 || dimensions[2] < 1) {
+            error = "Unsupported structured mesh dimensions.";
+            return nullptr;
+        }
+        IGsize pointCount = 1;
+        for (auto dimension : dimensions) {
+            if (static_cast<IGsize>(dimension) > std::numeric_limits<IGsize>::max() / pointCount) {
+                error = "Structured mesh dimensions overflow.";
+                return nullptr;
+            }
+            pointCount *= dimension;
+        }
+        if (source->GetNumberOfPoints() != pointCount) {
+            error = "Structured dimensions do not match point count.";
+            return nullptr;
+        }
+        auto result = StructuredMesh::New();
+        result->SetDimensionSize(dimensions);
+        cellCount = static_cast<IGsize>(dimensions[0] - 1) * (dimensions[1] - 1) *
+                    (dimensions[2] > 1 ? dimensions[2] - 1 : 1);
+        output = result;
+    } else if (auto source = DynamicCast<UnstructuredMesh>(input)) {
         auto result = UnstructuredMesh::New();
         auto cells = CellArray::New();
         if (!source->GetCells() || !source->GetCellTypes() ||
@@ -189,6 +214,8 @@ DataObject::Pointer CopyBlock(DataObject::Pointer input, std::string& error,
         points->DeepCopy(source->GetPoints());
         auto result = DynamicCast<PointSet>(output);
         result->SetPoints(points);
+        if (auto structured = DynamicCast<StructuredMesh>(output))
+            structured->GenStructuredCellConnectivities();
         if (!ExtractBlockDetail::CopyAttributes(input, output, AllIds(source->GetNumberOfPoints()),
                                               AllIds(cellCount), cellCount != 0, error)) return nullptr;
     }

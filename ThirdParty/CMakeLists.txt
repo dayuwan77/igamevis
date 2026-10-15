@@ -13,10 +13,10 @@ add_subdirectory(cnpy)
 if (NOT EMSCRIPTEN)
     add_subdirectory(Python)
 endif ()
-add_subdirectory(nanoflann)
 add_subdirectory(zstd/build/cmake)
 
 if (ENABLE_CGNS_MODULE)
+    find_package(Threads REQUIRED)
     # if you want to set cgns static build , please configure in CGNS directory's CMakeLists.txt
     # On Linux prefer static build to simplify deployment (avoid missing shared artifacts)
     if (UNIX AND NOT APPLE)
@@ -24,16 +24,12 @@ if (ENABLE_CGNS_MODULE)
     endif ()
 
     # 在系统环境变量里设置HDF5_HOME，值为HDF5路径
-    if (DEFINED ENV{HDF5_HOME})
-        set(HDF5_DIR "$ENV{HDF5_HOME}/cmake")
-    else ()
-        if (WIN32)
+    if (NOT HDF5_DIR OR HDF5_DIR MATCHES "-NOTFOUND$")
+        if (DEFINED ENV{HDF5_HOME})
+            set(HDF5_DIR "$ENV{HDF5_HOME}/cmake")
+        elseif (WIN32 AND EXISTS "C:/Program Files/HDF_Group/HDF5/1.13.0/share/cmake")
             set(HDF5_DIR "C:/Program Files/HDF_Group/HDF5/1.13.0/share/cmake")
         endif ()
-    endif ()
-    if (WIN32 AND NOT HDF5_DIR)
-        set(HDF5_DIR "D:/anaconda3/Library/cmake/hdf5"
-            CACHE PATH "HDF5 CMake configuration directory")
     endif ()
     set(HDF5_BUILD_SHARED_LIBS OFF)
     set(HDF5_USE_STATIC_LIBRARIES ON)
@@ -54,3 +50,9 @@ if (ENABLE_CGNS_MODULE)
 
     message(" HDF5 PATH: " ${HDF5_DIR})
 endif ()
+
+# CGNS owns the uninstall target; nanoflann can attach its own uninstall step.
+if (ENABLE_CGNS_MODULE)
+    set(MASTER_PROJECT_HAS_TARGET_UNINSTALL ON CACHE BOOL "Use the existing uninstall target" FORCE)
+endif ()
+add_subdirectory(nanoflann)

@@ -6,10 +6,7 @@
 // 对应 VTK vtkResampleToImage / ParaView 的 Resample To Image：
 //   - 参数：采样维度（各轴格点数）、是否使用输入包围盒、显式采样范围、
 //           遇到不支持的单元类型是否终止、是否对 ID/整型数组禁用线性插值；
-//   - 执行前显示规模：输入点数/单元数、单元类型统计（受支持/不受支持）、
-//     以及预估输出格点数/单元数与内存量级；规模过大时弹窗二次确认；
-//   - 执行后把 filter->GetMessage() 的诊断信息显示在面板上，避免静默的
-//     不完整结果（不支持的单元类型、同名数组冲突、离散数组处理方式等）。
+//   - 仅展示用户参数；规模过大时的二次确认和执行失败提示保持不变。
 // ============================================================================
 
 #include <IQCore/igQtExportModule.h>
@@ -38,7 +35,7 @@ public:
 
     static QDockWidget* createDockWidget(QWidget* parent);
 
-    /// 打开面板 / 切换模型时调用：刷新输入规模、单元类型统计与预估输出规模。
+    /// 打开面板 / 切换模型时调用：绑定输入并刷新执行按钮状态。
     void setCurrentModel(iGame::Model* model);
 
 signals:
@@ -47,7 +44,7 @@ signals:
 
 private slots:
     void onRunClicked();
-    void refreshEstimate();
+    void refreshInputState();
 
 private:
     void initUI();
@@ -57,6 +54,5 @@ private:
     Ui::igQtResampleToImage* ui{nullptr};
     iGame::Model* m_currentModel{nullptr};
     iGame::DataObject::Pointer m_input;
-    iGame::DataObject::Pointer m_meshData; ///< 统一转换后的 UnstructuredMesh（用于单元类型统计）
-    QString m_lastDiagnostic;              ///< 上次执行的诊断信息，与预估信息一起显示
+    iGame::DataObject::Pointer m_meshData; ///< 适配后的网格（用于判断面板是否可执行）
 };

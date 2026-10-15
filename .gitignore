@@ -36,3 +36,5 @@
 /Examples/out/
 
 CMakeUserPresets.json
+/Examples/Models/test/
+/Examples/Models/save_pv.cgns
