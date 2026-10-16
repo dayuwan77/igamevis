@@ -1,5 +1,7 @@
 #include <IQWidgets/igQtExtractLocationWidget.h>
 #include "IQCore/igQtMainWindow.h"
+#include "Selection/iGameExtractBlockFilter.h"
+#include <set>
 #include <IQWidgets/igQtProbeWidget.h>
 #include <map>
 //
@@ -7883,9 +7885,109 @@ void igQtMainWindow::initAllFilters() {
         });
         dialog->show();
     });
+
+    auto* extractBlock = developingFiltersBatch2->addAction(QStringLiteral("提取数据块 (Extract Block)"));
+    extractBlock->setObjectName(QStringLiteral("actionExtractBlock"));
+    connect(extractBlock, &QAction::triggered, this, [this]() {
+        for (auto* panel : findChildren<igQtFilterDialogDockWidget*>()) {
+            if (panel->property("extractBlockPanel").toBool()) {
+                panel->show();
+                panel->raise();
+                panel->activateWindow();
+                return;
+            }
+        }
+        auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+        auto model = scene ? scene->GetCurrentModel() : nullptr;
+        auto input = model ? model->GetDataObject() : nullptr;
+        if (ExtractBlockFilter::GetBlocks(input).empty()) {
+            showDarkFramelessMessage(QStringLiteral("提取数据块"),
+                QStringLiteral("请选择多块模型的根节点，当前模型没有可提取的子块。"));
+            return;
+        }
+        struct BlockEntry { std::vector<int> path; std::string name; };
+        std::vector<BlockEntry> entries;
+        std::vector<QString> labels;
+        std::set<DataObject*> active;
+        std::function<bool(DataObject::Pointer, std::vector<int>)> visit;
+        visit = [&](DataObject::Pointer parent, std::vector<int> path) {
+            if (path.size() > 64 || entries.size() > 10000 || !active.insert(parent.get()).second)
+                return false;
+            const auto children = ExtractBlockFilter::GetBlocks(parent);
+            for (size_t i = 0; i < children.size(); ++i) {
+                if (!children[i]) continue;
+                auto childPath = path;
+                childPath.push_back(static_cast<int>(i));
+                QStringList parts;
+                for (int index : childPath) parts << QString::number(index);
+                const auto name = children[i]->GetName();
+                entries.push_back({childPath, name});
+                labels.push_back(QStringLiteral("[%1] %2").arg(parts.join(","),
+                    name.empty() ? QStringLiteral("未命名") : QString::fromStdString(name)));
+                if (!visit(children[i], childPath)) return false;
+            }
+            active.erase(parent.get());
+            return true;
+        };
+        if (!visit(input, {}) || entries.empty()) {
+            showDarkFramelessMessage(QStringLiteral("提取数据块"),
+                QStringLiteral("块层级为空、存在循环或过于复杂，无法列出可选块。"));
+            return;
+        }
+        auto* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setProperty("extractBlockPanel", true);
+        dialog->setFilterTitle(QStringLiteral("提取数据块"));
+        dialog->setFilterDescription(QStringLiteral("输入：%1").arg(
+            QString::fromStdString(input->GetName()).toHtmlEscaped()));
+        dialog->setParameterLayoutVertical();
+        const int modeId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+            QStringLiteral("选择方式"), std::vector<QString>{QStringLiteral("编号路径"), QStringLiteral("块名称")});
+        const int blockId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+            QStringLiteral("数据块"), labels);
+        auto* blocks = qobject_cast<QComboBox*>(dialog->getWidget(blockId));
+        blocks->setObjectName(QStringLiteral("extractBlockChoice"));
+        blocks->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        blocks->setMinimumContentsLength(20);
+        blocks->setMaxVisibleItems(12);
+        dialog->getWidget(modeId)->setObjectName(QStringLiteral("extractBlockMode"));
+        dialog->setMinimumWidth(400);
+        dialog->resize(440, 340);
+        dialog->setApplyFunctor([this, dialog, scene, model, input, entries, modeId, blockId]() {
+            if (scene->GetCurrentModel() != model || model->GetDataObject() != input) {
+                showDarkFramelessMessage(QStringLiteral("提取数据块"),
+                    QStringLiteral("输入模型已切换，请关闭此窗口后重新打开。"));
+                return;
+            }
+            bool modeOk = false, blockOk = false;
+            const int mode = dialog->getComboIndex(modeId, modeOk);
+            const int index = dialog->getComboIndex(blockId, blockOk);
+            if (!modeOk || !blockOk || mode < 0 || mode > 1 || index < 0 ||
+                static_cast<size_t>(index) >= entries.size()) return;
+            auto filter = ExtractBlockFilter::New();
+            filter->SetInput(input);
+            if (mode == 0) filter->SetBlockPath(entries[index].path);
+            else filter->SetBlockName(entries[index].name);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("提取失败"), QString::fromStdString(filter->GetLastError()));
+                return;
+            }
+            modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), Algorithm);
+            modelTreeWidget->updateCloudPicture();
+            rendererWidget->update();
+            dialog->close();
+        });
+        dialog->show();
+    });
 }
 
 void igQtMainWindow::initAllDockWidgetConnectWithAction() {
+    auto* showModelTree = ui->menu_view->addAction(QStringLiteral("显示模型树"));
+    showModelTree->setObjectName(QStringLiteral("actionShowModelTree"));
+    connect(showModelTree, &QAction::triggered, this, [this]() {
+        if (!modelTreeWidget || !rendererWidget) return;
+        modelTreeWidget->setTreeDockCollapsed(false);
+        modelTreeWidget->positionTreeDockToRendererCorner(rendererWidget);
+    });
     // 显示并切换到对应 DockWidget / Tab
     auto showAndRaiseDock = [&](QDockWidget* dock) {
         if (!dock) return;

@@ -1,4 +1,5 @@
 #include "iGameModel.h"
+#include "iGameVisibleBlockTraversal.h"
 #include "iGameFilter.h"
 #include "iGameInteractor.h"
 #include "iGamePointSet.h"
@@ -186,14 +187,7 @@ ForEachDrawObject(DataObject::Pointer root,
 static void
 ForEachRenderableLeaf(DataObject::Pointer root,
                       const std::function<void(DrawObject::Pointer)>& fn) {
-    if (!root) return;
-    auto drawObject = DynamicCast<DrawObject>(root);
-    if (!drawObject) return;
-    if (!drawObject->HasSubDataObject()) { fn(drawObject); return; }
-    for (auto it = drawObject->SubDataObjectIteratorBegin();
-         it != drawObject->SubDataObjectIteratorEnd(); ++it) {
-        ForEachRenderableLeaf(it->second, fn);
-    }
+    RenderingDetail::ForEachVisibleLeaf(root, fn);
 }
 } // namespace
 

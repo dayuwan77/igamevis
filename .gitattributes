@@ -39,6 +39,13 @@ Examples/Models/tube_test.vtk -filter -diff -merge text
 Examples/Models/TextureMapToCylinder_loose_line.vtk -filter -diff -merge text
 
 # Keep development-branch small plain-text example fixtures outside Git LFS.
+Examples/Models/ExtractBlockFlat.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockNested.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockThreeTypes.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockDeep.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockHexahedron.vtu -filter -diff -merge text
+Examples/Models/ExtractSelectionTriangles.vtu -filter -diff -merge text
+Examples/Models/ExtractSelectionTetrahedra.vtu -filter -diff -merge text
 Examples/Models/PerlinNoise_Test.vtk -filter -diff -merge text
 Examples/Models/YieldCriteria_Test.vtk -filter -diff -merge text
 Examples/Models/ResampleCubeVector.vtk -filter -diff -merge text
