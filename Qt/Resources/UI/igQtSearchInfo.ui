@@ -47,6 +47,19 @@ QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px 0 5px; 
         </property>
        </widget>
       </item>
+      <item>
+       <widget class="QRadioButton" name="radioButton_Objects">
+        <property name="text">
+         <string>对象数据</string>
+        </property>
+        <property name="toolTip">
+         <string>显示模型 Metadata 中按对象保存的数值数组</string>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QRadioButton { font-size: 14px; color: #C8C8C8; }</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

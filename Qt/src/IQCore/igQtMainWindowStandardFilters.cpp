@@ -4,6 +4,7 @@
 #include <IQWidgets/igQtModelDrawWidget.h>
 #include <IQWidgets/igQtAxisAlignedReflectionWidget.h>
 #include <IQWidgets/igQtCountCellVerticesWidget.h>
+#include <IQWidgets/igQtConnectedSurfacePropertiesWidget.h>
 #include <IQWidgets/igQtExtractComponentWidget.h>
 #include <IQWidgets/igQtExtractEdgesWidget.h>
 #include <IQWidgets/igQtGenerateProcessIdsWidget.h>
@@ -20,8 +21,10 @@
 #include <CellSize/iGameCellSizeFilter.h>
 #include <iGameScene.h>
 #include <QDockWidget>
+#include <QMenu>
 #include <QScrollArea>
 #include <QStringList>
+#include <QTimer>
 #include <cmath>
 
 using namespace iGame;
@@ -66,8 +69,24 @@ bool igQtMainWindow::connectImportedFilterAction(QAction* action, const QString&
         "axis_aligned_reflection", "extract_component", "merge_vector_components",
         "rename_arrays", "resample_to_image", "resample_to_line",
         "resample_with_dataset", "triangle_strips", "texture_map_to_cylinder",
-        "tensor_principal_invariants"};
+        "tensor_principal_invariants", "compute_connected_surface_properties"};
     if (!ids.contains(filterId)) return false;
+
+    if (filterId == QStringLiteral("compute_connected_surface_properties")) {
+        QTimer::singleShot(0, this, [this, action]() {
+            auto* menu = findChild<QMenu*>(QStringLiteral("menu_developing_filters_batch2"));
+            if (!menu || menu->findChild<QAction*>(
+                                 QStringLiteral("action_developing_compute_connected_surface_properties"),
+                                 Qt::FindDirectChildrenOnly)) {
+                return;
+            }
+            auto* proxy = menu->addAction(
+                    QStringLiteral("计算连通表面属性 (Connected Surface Properties)"));
+            proxy->setObjectName(
+                    QStringLiteral("action_developing_compute_connected_surface_properties"));
+            connect(proxy, &QAction::triggered, this, [action]() { action->trigger(); });
+        });
+    }
 
     auto displayResult = [this](DataObject::Pointer output) {
         if (!output) return;
@@ -221,6 +240,36 @@ bool igQtMainWindow::connectImportedFilterAction(QAction* action, const QString&
                 connect(p, &igQtTextureMapToCylinderWidget::UpdateResultModel, this, displayResult);
             });
             panel->SetOriginDataObject(input);
+        } else if (id == "compute_connected_surface_properties") {
+            if (DynamicCast<SurfaceMesh>(input).IsNull()) {
+                failed(QStringLiteral("当前仅支持 SurfaceMesh（对应 ParaView PolyData 的多边形表面）。"
+                                      "体网格、结构网格或点集请先提取表面。"));
+                return;
+            }
+            auto* panel = findChild<igQtConnectedSurfacePropertiesWidget*>(
+                    QStringLiteral("ConnectedSurfacePropertiesWidget"),
+                    Qt::FindDirectChildrenOnly);
+            if (!panel) {
+                panel = new igQtConnectedSurfacePropertiesWidget(
+                        rendererWidget, modelTreeWidget, model, this);
+                panel->setOutputReadyCallback([this](DataObject* output) {
+                    ui->widget_SearchInfo->setCurrentModelData(output);
+                    if (!output) return;
+                    ui->widget_SearchInfo->setCurrentDataType(2);
+                    ui->dockWidget_SearchInfo->show();
+                    ui->dockWidget_SearchInfo->raise();
+                });
+            }
+            panel->setSourceModel(model);
+            if (!panel->isReady()) {
+                failed(QStringLiteral("当前仅支持 SurfaceMesh（对应 ParaView PolyData 的多边形表面）。"
+                                      "体网格、结构网格或点集请先提取表面。"));
+                return;
+            }
+            panel->show();
+            panel->raise();
+            panel->activateWindow();
+            return;
         }
         showFilterPanel(this, id);
     });

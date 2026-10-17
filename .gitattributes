@@ -24,6 +24,13 @@ Examples/Models/group_quad.vtk -filter -diff -merge text
 Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
 Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text
 Examples/Models/DecimatePolyline_Curve.vtk -filter -diff -merge text
+Examples/Models/AppendArcLength_test.vtk -filter -diff -merge text
+Examples/Models/ContourExtraction_cylinder_UnstructedGrid.vtk -filter -diff -merge text
+Examples/Models/Histogram_test.vtk -filter -diff -merge text
+Examples/Models/TensorPrincipalInvariants_field.vtk -filter -diff -merge text
+Examples/Models/TensorPrincipalInvariants_symmetric.vtk -filter -diff -merge text
+Examples/Models/cell_metric_hex.vtk -filter -diff -merge text
+Examples/Models/cell_metric_tet.vtk -filter -diff -merge text
 
 # Keep upstream's small plain-text example fixtures outside Git LFS.
 Examples/Models/ElevationSlopeTerrain.vtk -filter -diff -merge text
@@ -44,6 +51,11 @@ Examples/Models/tube_test.vtk -filter -diff -merge text
 Examples/Models/TensorPrincipalInvariants_loose_line.vtk -filter -diff -merge text
 # Small text fixture for the TextureMapToCylinder standalone-line regression.
 Examples/Models/TextureMapToCylinder_loose_line.vtk -filter -diff -merge text
+Examples/Models/TextureMapToCylinder_tube.vtk -filter -diff -merge text
+Examples/Models/TextureMapToPlaneCurvedSaddle.vtk -filter -diff -merge text
+Examples/Models/TextureMapToPlaneManualPatch.vtk -filter -diff -merge text
+Examples/Models/TextureMapToPlaneSlantedPatch.vtk -filter -diff -merge text
+Examples/Models/SurfaceTangents.vtk -filter -diff -merge text
 
 # Keep development-branch small plain-text example fixtures outside Git LFS.
 Examples/Models/PerlinNoise_Test.vtk -filter -diff -merge text
@@ -52,5 +64,6 @@ Examples/Models/ResampleCubeVector.vtk -filter -diff -merge text
 Examples/Models/TextureMapSphere.vtk -filter -diff -merge text
 Examples/Models/GhostDemo.vtk -filter -diff -merge text
 Examples/Models/Tet_Plane.vtk -filter -diff -merge text
+Examples/Models/RenameResample_test.vtk -filter -diff -merge text
 Examples/Models/AppendArcLength_test.vtk -filter -diff -merge text
 Examples/Models/Histogram_test.vtk -filter -diff -merge text

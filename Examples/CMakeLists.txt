@@ -209,6 +209,7 @@ set(IGAME_BATCH2_EXAMPLES
     testBatch2GeometryValidation
     testStandardFiltersMenu
     testTextureMapToPlane
+    testConnectedSurfaceProperties
 )
 set(IGAME_BATCH2_VISUAL_EXAMPLES
     testCountCellVertices
@@ -719,6 +720,8 @@ igame_add_example(testExtractSubset Filter/TestExtractSubset.cpp)
 igame_add_example(testExtractLocation Filter/DataProcessing/ExtractLocation/TestExtractLocation.cpp)
 igame_add_example(testOverlappingCellsDetector Filter/DataProcessing/OverlappingCellsDetector/TestOverlappingCellsDetector.cpp)
 igame_add_example(testTextureMapToPlane Filter/DataProcessing/TextureMapToPlane/TestTextureMapToPlane.cpp)
+igame_add_example(testConnectedSurfaceProperties
+    Filter/DataProcessing/ConnectedSurfaceProperties/TestConnectedSurfaceProperties.cpp)
 
 igame_add_example(testExtractLocationDrag Filter/DataProcessing/ExtractLocation/TestExtractLocationDrag.cpp)
 
