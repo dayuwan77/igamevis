@@ -7037,6 +7037,143 @@ void igQtMainWindow::initAllFilters() {
             QStringLiteral("随机向量 (Random Vectors)"));
 
     // 开发中filter/第二批：后续新增 filter 追加在该菜单末尾。
+    // ---------- 屈服准则 (Yield Criteria)：追加在“新增filter/第二批”菜单末尾 ----------
+    connect(developingFiltersBatch2->addAction(QStringLiteral("屈服准则 (Yield Criteria)")),
+            &QAction::triggered, this, [this](bool) {
+                auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+                auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+                if (!currentModel) {
+                    showDarkFramelessMessage(QStringLiteral("屈服准则"), QStringLiteral("请先选择一个模型。"));
+                    return;
+                }
+                auto object = currentModel->GetDataObject();
+                if (object == nullptr || iGame::DynamicCast<iGame::PointSet>(object).IsNull()) {
+                    showDarkFramelessMessage(QStringLiteral("屈服准则"),
+                                             QStringLiteral("当前对象不支持屈服准则（需要网格 / 点集）"));
+                    return;
+                }
+
+                // 候选张量数组：6 / 9 分量的数组（不强制要求被标记为张量类型），按附着位置分为点 / 单元两组
+                std::vector<QString> pointTensors;
+                std::vector<QString> cellTensors;
+                if (auto attrSet = object->GetAttributeSet()) {
+                    const size_t numAttrs = attrSet->GetNumberOfAttributes();
+                    for (size_t i = 0; i < numAttrs; ++i) {
+                        auto& attr = attrSet->GetAttribute(static_cast<IGsize>(i));
+                        if (attr.isDeleted || attr.pointer == nullptr) continue;
+                        const int dim = attr.pointer->GetDimension();
+                        if (dim != 6 && dim != 9) continue;
+                        const QString name = QString::fromStdString(attr.pointer->GetName());
+                        if (attr.attachmentType == IG_POINT) {
+                            pointTensors.push_back(name);
+                        } else if (attr.attachmentType == IG_CELL) {
+                            cellTensors.push_back(name);
+                        }
+                    }
+                }
+                if (pointTensors.empty() && cellTensors.empty()) {
+                    showDarkFramelessMessage(
+                            QStringLiteral("屈服准则"),
+                            QStringLiteral("当前模型没有 6 或 9 分量的张量数组（例如应力）"));
+                    return;
+                }
+
+                // 多选列表：用对话框现有的 addRowWidget 追加自定义控件（标签 + 可多选的 QListWidget），
+                // 不修改通用的 igQtFilterDialogDockWidget 类。
+                auto makeTensorList = [](const QString& title,
+                                         const std::vector<QString>& names) -> QListWidget* {
+                    auto* row = new QWidget;
+                    auto* layout = new QVBoxLayout(row);
+                    layout->setContentsMargins(0, 0, 0, 0);
+                    layout->setSpacing(2);
+                    auto* label = new QLabel(title, row);
+                    layout->addWidget(label);
+                    auto* list = new QListWidget(row);
+                    list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+                    list->setAlternatingRowColors(true);
+                    for (const auto& name : names) { list->addItem(name); }
+                    if (list->count() > 0) { list->setCurrentRow(0); }
+                    // 高度自适应：AdjustToContents 会让 sizeHint 反映全部条目的真实高度
+                    // （注意 sizeHintForRow 往往略小于实际行高，按它估算会差几像素而出现滚动条），
+                    // 这里直接把 sizeHint 作为最小高度，条目很多时再用 maximumHeight 限制。
+                    list->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+                    list->setMinimumHeight(list->sizeHint().height());
+                    const int maxRows = 8;
+                    const int rowHeight = std::max(20, list->sizeHintForRow(0));
+                    list->setMaximumHeight(maxRows * rowHeight + 2 * list->frameWidth() + 8);
+                    layout->addWidget(list);
+                    return list;
+                };
+
+                auto* dialog = new igQtFilterDialogDockWidget(this, true);
+                dialog->setFilterTitle(QStringLiteral("屈服准则"));
+                dialog->setFilterDescription(
+                        QStringLiteral("对张量数组求主应力，按所选准则输出结果数组（列表可多选，Ctrl / Shift 加选）"));
+                QListWidget* pointList = nullptr;
+                QListWidget* cellList = nullptr;
+                if (!pointTensors.empty()) {
+                    pointList = makeTensorList(QStringLiteral("点张量 (Point Tensors)"), pointTensors);
+                    dialog->addRowWidget(pointList->parentWidget());
+                }
+                if (!cellTensors.empty()) {
+                    cellList = makeTensorList(QStringLiteral("单元张量 (Cell Tensors)"), cellTensors);
+                    dialog->addRowWidget(cellList->parentWidget());
+                }
+                const std::vector<QString> criteria = {QStringLiteral("主应力 (Principal Stress)"),
+                                                       QStringLiteral("Tresca 准则"),
+                                                       QStringLiteral("von Mises 准则")};
+                auto* criterionList = makeTensorList(QStringLiteral("屈服准则 (Yield Criteria)"), criteria);
+                dialog->addRowWidget(criterionList->parentWidget());
+                dialog->show();
+                dialog->setApplyFunctor([=, this]() {
+                    // 收集两个多选列表里选中的张量数组
+                    std::vector<std::string> selectedTensors;
+                    auto collect = [&selectedTensors](QListWidget* list) {
+                        if (list == nullptr) { return; }
+                        for (auto* item : list->selectedItems()) {
+                            if (item != nullptr) { selectedTensors.push_back(item->text().toStdString()); }
+                        }
+                    };
+                    collect(pointList);
+                    collect(cellList);
+                    if (selectedTensors.empty()) {
+                        showDarkFramelessMessage(QStringLiteral("错误"),
+                                                 QStringLiteral("请至少选择一个张量数组。"));
+                        return;
+                    }
+                    // 收集选中的屈服准则（列表顺序：主应力 / Tresca / von Mises）
+                    std::vector<YieldCriteriaFilter::Criterion> selectedCriteria;
+                    for (auto* item : criterionList->selectedItems()) {
+                        if (item == nullptr) { continue; }
+                        switch (criterionList->row(item)) {
+                            case 0: selectedCriteria.push_back(YieldCriteriaFilter::PRINCIPAL_STRESS); break;
+                            case 1: selectedCriteria.push_back(YieldCriteriaFilter::TRESCA); break;
+                            case 2: selectedCriteria.push_back(YieldCriteriaFilter::VON_MISES); break;
+                            default: break;
+                        }
+                    }
+                    if (selectedCriteria.empty()) {
+                        showDarkFramelessMessage(QStringLiteral("错误"),
+                                                 QStringLiteral("请至少选择一个屈服准则。"));
+                        return;
+                    }
+
+                    auto filter = YieldCriteriaFilter::New();
+                    filter->SetTensorArrayNames(selectedTensors);
+                    filter->SetCriteria(selectedCriteria);
+                    filter->SetInput(object);
+                    if (filter->Execute()) {
+                        modelTreeWidget->addDataObjectToModelTree(filter->GetOutput(), ItemSource::Algorithm);
+                        modelTreeWidget->updateCloudPicture();
+                        rendererWidget->update();
+                        dialog->close();
+                    } else {
+                        showDarkFramelessMessage(QStringLiteral("错误"),
+                                                 QString::fromStdString(filter->GetStatusMessage()));
+                    }
+                });
+            });
+
     // ---------- 追加属性 (Append Attributes) ----------
     QAction* appendAttributesAction =
             developingFiltersBatch2->addAction(QStringLiteral("追加属性 (Append Attributes)"));

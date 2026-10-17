@@ -748,6 +748,9 @@ igame_add_example(testPerlinNoise Filter/AttributeManipulation/TestPerlinNoise.c
 igame_add_example(testTextureMapToSphere Filter/TextureMapToSphere/TestTextureMapToSphere.cpp)
 igame_add_example(testResampleWithDataSet Filter/TestResampleWithDataSet.cpp)
 
+# YieldCriteria: principal stress / Tresca / von Mises from a 6- or 9-component tensor array.
+igame_add_example(testYieldCriteria Filter/Tensor/TestYieldCriteria.cpp)
+
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
     set(IGAME_EXAMPLE_TARGETS "")
