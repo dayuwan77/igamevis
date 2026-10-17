@@ -542,7 +542,7 @@ igame_add_example(testLsDynaReader IO/LsDynaReader.cpp)
 
 # Animation / Filters
 igame_add_example(testAnimation Animation/TestAnimation.cpp)
-
+igame_add_example(testPassArray Filter/PassArrays/TestPassArrays.cpp)
 if (TARGET Qt_module AND TARGET iGameVis)
     find_package(Qt5 REQUIRED COMPONENTS Core Widgets OpenGL Charts Svg)
     igame_add_example(testAnimationPipelineValidation
@@ -598,7 +598,7 @@ igame_add_example(testLinearExtrusion Filter/TestLinearExtrusion.cpp)
 igame_add_example(testGenerateSurfaceTangents Filter/GenerateSurfaceTangents/TestGenerateSurfaceTangents.cpp)
 igame_add_example(testMedianFilter Filter/Median/TestMedianFilter.cpp)
 
-# ������ #5 + �е����� #28 ���ײ�������
+#        #5 +  е      #28    ײ       
 igame_add_example(testGhostCellModel Filter/GhostCell/TestGhostCellModel.cpp)
 igame_add_example(testPlaneSamplingFilter Filter/TestPlaneSampling.cpp)
 igame_add_example(testExtractEnclosedPoints Filter/TestExtractEnclosedPoints.cpp)
