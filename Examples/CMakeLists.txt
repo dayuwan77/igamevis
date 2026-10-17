@@ -150,6 +150,15 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Models")
             "${CMAKE_CURRENT_BINARY_DIR}/Models"
     )
 endif ()
+if (EXISTS "${CMAKE_SOURCE_DIR}/test/Streamline Test/StreamTest.vtk")
+    list(APPEND _IGAME_EXAMPLE_ASSET_COPY_COMMANDS
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/Models"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/test/Streamline Test/StreamTest.vtk"
+            "${CMAKE_CURRENT_BINARY_DIR}/Models/OverlappingCellsDetectorStreamTest.vtk"
+    )
+endif ()
 add_custom_target(iGameCopyExampleAssets ${_IGAME_EXAMPLE_ASSET_COPY_COMMANDS})
 
 set(IGAME_EXAMPLE_TARGETS "")

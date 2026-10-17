@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -35,7 +36,7 @@ struct CellPairHasher {
     }
 };
 
-using Tetrahedron = std::array<Point, 4>;
+using Tetrahedron = std::array<Vector3d, 4>;
 
 DataObject::Pointer CloneInputMesh(const DataObject::Pointer& input) {
     auto copyPoints = [](PointSet* source) {
@@ -187,9 +188,151 @@ bool OverlappingCellsDetectorFilter::Execute() {
         m_CandidateCellPairs.assign(uniqueCandidates.begin(), uniqueCandidates.end());
     }
 
-    const double numericalTolerance = std::max(1.0e-7, meshBound.diag() * 1.0e-6);
+    double maxAbsCoordinate = 0.0;
+    for (int axis = 0; axis < 3; ++axis) {
+        maxAbsCoordinate = std::max({maxAbsCoordinate, std::abs(meshBound.min[axis]),
+                                     std::abs(meshBound.max[axis])});
+    }
+    const double numericalTolerance = 100.0 * std::max(
+            std::sqrt(std::numeric_limits<double>::min()),
+            std::numeric_limits<double>::epsilon() * maxAbsCoordinate);
     // VTK 的 Tolerance 会使单元适度收缩；在本 Filter 的 SAT 判定中用最小共同投影长度表达同一语义。
     const double strictOverlapTolerance = std::max(numericalTolerance, m_Tolerance);
+
+    auto getVolume = [&](igIndex cellId, Cell::Pointer& owner) -> Volume* {
+        if (m_UnstructuredMesh.IsNull()) return m_VolumeMesh->GetVolume(cellId);
+        if (!m_UnstructuredMesh->GetCell(cellId, owner)) return nullptr;
+        return DynamicCast<Volume>(owner).get();
+    };
+
+    // Two conforming volume cells may share an entire (possibly warped) face.  Their
+    // tetrahedralizations can choose different diagonals on that face and create a
+    // false intersection.  ParaView avoids this by slightly shrinking cells before
+    // testing.  Preserve genuinely overlapping neighbours by suppressing a pair only
+    // when the two cell centres lie on opposite sides of the shared face.
+    auto sharesSeparatingFace = [&](igIndex firstCellId, igIndex secondCellId) {
+        struct CellGeometry {
+            IGenum type{};
+            std::vector<igIndex> pointIds;
+            std::vector<Vector3d> points;
+        };
+        auto readGeometry = [&](igIndex cellId) {
+            CellGeometry geometry;
+            const igIndex* pointIds = nullptr;
+            const int pointCount = !m_UnstructuredMesh.IsNull()
+                    ? m_UnstructuredMesh->GetCellPointIds(cellId, pointIds)
+                    : m_VolumeMesh->GetVolumes()->GetCellIds(cellId, pointIds);
+            geometry.type = !m_UnstructuredMesh.IsNull()
+                    ? m_UnstructuredMesh->GetCellType(cellId)
+                    : VolumeMesh::GetVolumeTypeWithPointNum(pointCount);
+            geometry.pointIds.assign(pointIds, pointIds + pointCount);
+            geometry.points.reserve(pointCount);
+            for (int pointIndex = 0; pointIndex < pointCount; ++pointIndex) {
+                const Point& point = !m_UnstructuredMesh.IsNull()
+                        ? m_UnstructuredMesh->GetPoint(pointIds[pointIndex])
+                        : m_VolumeMesh->GetPoint(pointIds[pointIndex]);
+                geometry.points.emplace_back(point[0], point[1], point[2]);
+            }
+            return geometry;
+        };
+
+        const CellGeometry first = readGeometry(firstCellId);
+        const CellGeometry second = readGeometry(secondCellId);
+
+        Vector3d firstCenter(0.0, 0.0, 0.0);
+        Vector3d secondCenter(0.0, 0.0, 0.0);
+        for (const auto& point : first.points) firstCenter += point;
+        for (const auto& point : second.points) secondCenter += point;
+        firstCenter /= first.points.size();
+        secondCenter /= second.points.size();
+
+        auto geometryHasFace = [](const CellGeometry& geometry, const auto& faces,
+                                  int faceCount, int faceSizeIndex,
+                                  const std::array<igIndex, 4>& pointIds, int pointCount) {
+            for (int faceIndex = 0; faceIndex < faceCount; ++faceIndex) {
+                if (faces[faceIndex][faceSizeIndex] != pointCount) continue;
+                bool sameFace = true;
+                for (int pointIndex = 0; pointIndex < pointCount; ++pointIndex) {
+                    const igIndex candidateId = geometry.pointIds[faces[faceIndex][pointIndex]];
+                    if (std::find(pointIds.begin(), pointIds.begin() + pointCount, candidateId) ==
+                        pointIds.begin() + pointCount) {
+                        sameFace = false;
+                        break;
+                    }
+                }
+                if (sameFace) return true;
+            }
+            return false;
+        };
+        auto secondHasFace = [&](const std::array<igIndex, 4>& pointIds, int pointCount) {
+            switch (second.type) {
+            case IG_TETRA:
+                return geometryHasFace(second, Tetra::faces, Tetra::NumberOfFaces,
+                                       Tetra::MaxFaceSize, pointIds, pointCount);
+            case IG_HEXAHEDRON:
+                return geometryHasFace(second, Hexahedron::faces, Hexahedron::NumberOfFaces,
+                                       Hexahedron::MaxFaceSize, pointIds, pointCount);
+            case IG_PRISM:
+                return geometryHasFace(second, Prism::faces, Prism::NumberOfFaces,
+                                       Prism::MaxFaceSize, pointIds, pointCount);
+            case IG_PYRAMID:
+                return geometryHasFace(second, Pyramid::faces, Pyramid::NumberOfFaces,
+                                       Pyramid::MaxFaceSize, pointIds, pointCount);
+            default:
+                return false;
+            }
+        };
+
+        auto checkFaces = [&](const auto& faces, int faceCount, int faceSizeIndex) {
+            for (int faceIndex = 0; faceIndex < faceCount; ++faceIndex) {
+                const int facePointCount = faces[faceIndex][faceSizeIndex];
+                std::array<igIndex, 4> facePointIds{};
+                for (int pointIndex = 0; pointIndex < facePointCount; ++pointIndex) {
+                    facePointIds[pointIndex] = first.pointIds[faces[faceIndex][pointIndex]];
+                }
+                if (!secondHasFace(facePointIds, facePointCount)) continue;
+
+                std::array<Vector3d, 4> facePoints{};
+                Vector3d faceCenter(0.0, 0.0, 0.0);
+                for (int pointIndex = 0; pointIndex < facePointCount; ++pointIndex) {
+                    facePoints[pointIndex] = first.points[faces[faceIndex][pointIndex]];
+                    faceCenter += facePoints[pointIndex];
+                }
+                faceCenter /= facePointCount;
+
+                Vector3d normal;
+                if (facePointCount == 3) {
+                    normal = (facePoints[1] - facePoints[0]).cross(facePoints[2] - facePoints[0]);
+                } else {
+                    const Vector3d du = (facePoints[1] - facePoints[0]) +
+                                        (facePoints[2] - facePoints[3]);
+                    const Vector3d dv = (facePoints[3] - facePoints[0]) +
+                                        (facePoints[2] - facePoints[1]);
+                    normal = du.cross(dv);
+                }
+                if (normal.norm() <= numericalTolerance * numericalTolerance) continue;
+
+                const double firstSide = normal.dot(firstCenter - faceCenter);
+                const double secondSide = normal.dot(secondCenter - faceCenter);
+                if (firstSide * secondSide < 0.0) return true;
+            }
+            return false;
+        };
+
+        switch (first.type) {
+        case IG_TETRA:
+            return checkFaces(Tetra::faces, Tetra::NumberOfFaces, Tetra::MaxFaceSize);
+        case IG_HEXAHEDRON:
+            return checkFaces(Hexahedron::faces, Hexahedron::NumberOfFaces,
+                              Hexahedron::MaxFaceSize);
+        case IG_PRISM:
+            return checkFaces(Prism::faces, Prism::NumberOfFaces, Prism::MaxFaceSize);
+        case IG_PYRAMID:
+            return checkFaces(Pyramid::faces, Pyramid::NumberOfFaces, Pyramid::MaxFaceSize);
+        default:
+            return false;
+        }
+    };
 
     std::vector<std::vector<Tetrahedron>> tetrahedra(cellCount);
     std::vector<bool> tetrahedraPrepared(cellCount, false);
@@ -197,32 +340,44 @@ bool OverlappingCellsDetectorFilter::Execute() {
         if (tetrahedraPrepared[cellId]) return !tetrahedra[cellId].empty();
         tetrahedraPrepared[cellId] = true;
 
-        Volume* volume = nullptr;
-        Cell::Pointer cell;
-        if (!m_UnstructuredMesh.IsNull()) {
-            if (!m_UnstructuredMesh->GetCell(cellId, cell)) {
-                m_LastError = std::string("无法创建单元 ") + std::to_string(cellId) + " 的几何对象。";
-                return false;
-            }
-            auto typedVolume = DynamicCast<Volume>(cell);
-            volume = typedVolume.get();
-        } else {
-            volume = m_VolumeMesh->GetVolume(cellId);
-        }
+        Cell::Pointer owner;
+        Volume* volume = getVolume(cellId, owner);
         if (volume == nullptr) {
             m_LastError = std::string("单元 ") + std::to_string(cellId) + " 不是可处理的体单元。";
             return false;
         }
-        for (const auto& tetraCell : volume->clipCelltoTetra()) {
-            if (tetraCell.IsNull() || tetraCell->GetNumberOfPoints() != 4) {
-                m_LastError = std::string("单元 ") + std::to_string(cellId) + " 的四面体分解失败。";
-                return false;
-            }
+        auto addTetrahedron = [&](int first, int second, int third, int fourth) {
             Tetrahedron tetra{};
-            for (int pointIndex = 0; pointIndex < 4; ++pointIndex) {
-                tetra[pointIndex] = tetraCell->GetPoint(pointIndex);
-            }
+            tetra[0] = volume->GetPoint(first);
+            tetra[1] = volume->GetPoint(second);
+            tetra[2] = volume->GetPoint(third);
+            tetra[3] = volume->GetPoint(fourth);
             tetrahedra[cellId].push_back(tetra);
+        };
+
+        switch (volume->GetCellType()) {
+        case IG_TETRA:
+            addTetrahedron(0, 1, 2, 3);
+            break;
+        case IG_HEXAHEDRON:
+            addTetrahedron(0, 1, 3, 4);
+            addTetrahedron(1, 2, 3, 6);
+            addTetrahedron(3, 4, 6, 7);
+            addTetrahedron(1, 4, 5, 6);
+            addTetrahedron(1, 3, 4, 6);
+            break;
+        case IG_PRISM:
+            addTetrahedron(0, 1, 2, 5);
+            addTetrahedron(0, 3, 4, 5);
+            addTetrahedron(0, 1, 4, 5);
+            break;
+        case IG_PYRAMID:
+            addTetrahedron(0, 1, 3, 4);
+            addTetrahedron(1, 2, 3, 4);
+            break;
+        default:
+            m_LastError = std::string("单元 ") + std::to_string(cellId) + " 的四面体分解失败。";
+            return false;
         }
         if (tetrahedra[cellId].empty()) {
             m_LastError = std::string("单元 ") + std::to_string(cellId) + " 未能分解为四面体。";
@@ -232,10 +387,10 @@ bool OverlappingCellsDetectorFilter::Execute() {
     };
 
     auto hasStrictProjectionOverlap = [&](const Tetrahedron& firstTetra, const Tetrahedron& secondTetra,
-                                          const Point& axis) {
+                                          const Vector3d& axis) {
         const double axisLength = axis.norm();
-        if (axisLength <= numericalTolerance) return true;
-        const Point normalizedAxis = axis / axisLength;
+        if (axisLength <= numericalTolerance * numericalTolerance) return true;
+        const Vector3d normalizedAxis = axis / axisLength;
         double firstMin = normalizedAxis.dot(firstTetra[0]);
         double firstMax = firstMin;
         double secondMin = normalizedAxis.dot(secondTetra[0]);
@@ -254,7 +409,7 @@ bool OverlappingCellsDetectorFilter::Execute() {
     auto tetrahedraOverlap = [&](const Tetrahedron& firstTetra, const Tetrahedron& secondTetra) {
         constexpr std::array<std::array<int, 3>, 4> faces{{{{0, 1, 2}}, {{0, 1, 3}}, {{0, 2, 3}}, {{1, 2, 3}}}};
         constexpr std::array<std::array<int, 2>, 6> edges{{{{0, 1}}, {{0, 2}}, {{0, 3}}, {{1, 2}}, {{1, 3}}, {{2, 3}}}};
-        std::vector<Point> axes;
+        std::vector<Vector3d> axes;
         axes.reserve(faces.size() * 2 + edges.size() * edges.size());
         for (const auto& face : faces) {
             axes.push_back((firstTetra[face[1]] - firstTetra[face[0]]).cross(firstTetra[face[2]] - firstTetra[face[0]]));
@@ -272,6 +427,7 @@ bool OverlappingCellsDetectorFilter::Execute() {
     };
 
     for (const auto& candidate : m_CandidateCellPairs) {
+        if (sharesSeparatingFace(candidate.first, candidate.second)) continue;
         if (!prepareTetrahedra(candidate.first) || !prepareTetrahedra(candidate.second)) return false;
         bool overlapFound = false;
         for (const auto& firstTetra : tetrahedra[candidate.first]) {
@@ -290,11 +446,13 @@ bool OverlappingCellsDetectorFilter::Execute() {
         }
     }
 
-    auto overlapArray = FloatArray::New();
+    auto overlapArray = LongLongArray::New();
     overlapArray->SetName(NumberOfOverlapsPerCellArrayName());
     overlapArray->SetDimension(1);
     overlapArray->Reserve(cellCount);
-    for (const auto count : m_NumberOfOverlapsPerCell) overlapArray->AddValue(static_cast<float>(count));
+    for (const auto count : m_NumberOfOverlapsPerCell) {
+        overlapArray->AddValue(static_cast<long long>(count));
+    }
 
     auto output = CloneInputMesh(GetInput(0));
     if (output.IsNull()) return fail("创建独立输出网格失败。");
