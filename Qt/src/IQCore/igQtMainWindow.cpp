@@ -7260,8 +7260,90 @@ void igQtMainWindow::initAllFilters() {
     });
 
 
-    bindDevelopmentAction("ghost_cells", [executeDevelopmentFilter]() {
-        executeDevelopmentFilter(QStringLiteral("Ghost 单元标记"), GhostCellFilter::New());
+        // Ghost 单元标记 (Ghost Cell Mask)：读 Cell Data 上的 vtkGhostType，按位输出 0/1 掩码
+    bindDevelopmentAction("ghost_cells", [this]() {
+        auto scene = rendererWidget ? rendererWidget->GetScene() : nullptr;
+        auto currentModel = scene ? scene->GetCurrentModel() : nullptr;
+        if (!currentModel) {
+            showDarkFramelessMessage(QStringLiteral("Ghost 单元标记"), QStringLiteral("请先选择一个模型。"));
+            return;
+        }
+        auto data = currentModel->GetDataObject();
+        if (data == nullptr) { return; }
+
+        // 收集 Cell Data 里的单分量数组，vtkGhostType 优先
+        std::vector<QString> candidates;
+        if (auto* attrs = data->GetAttributeSet()) {
+            for (IGsize i = 0; i < static_cast<IGsize>(attrs->GetNumberOfAttributes()); ++i) {
+                auto& attr = attrs->GetAttribute(i);
+                if (attr.isDeleted || attr.pointer.IsNull()) continue;
+                if (attr.attachmentType != IG_CELL) continue;
+                if (attr.pointer->GetDimension() != 1) continue;
+                candidates.push_back(QString::fromStdString(attr.pointer->GetName()));
+            }
+        }
+        if (candidates.empty()) {
+            showDarkFramelessMessage(QStringLiteral("Ghost 单元标记"),
+                                     QStringLiteral("当前模型的 Cell Data 里没有单分量数组（例如 vtkGhostType）。"));
+            return;
+        }
+        std::stable_sort(candidates.begin(), candidates.end(), [](const QString& a, const QString& b) {
+            return a.compare(QStringLiteral("vtkGhostType"), Qt::CaseInsensitive) == 0 &&
+                   b.compare(QStringLiteral("vtkGhostType"), Qt::CaseInsensitive) != 0;
+        });
+
+        auto* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("Ghost 单元标记 (Ghost Cell Mask)"));
+        dialog->setFilterDescription(
+                QStringLiteral("读取 Cell Data 的 ghost 标记，按 vtkGhostType 的位标志输出 0/1 掩码（GhostCellMask）"));
+        const int arrayId = dialog->addParameter(igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                                                 QStringLiteral("单元标记数组"), candidates);
+        const int anyId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                               QStringLiteral("任意 ghost 标记"), "true");
+        const int dupId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                               QStringLiteral("重复单元 DUPLICATECELL (1)"), "false");
+        const int refinedId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                                   QStringLiteral("细化单元 REFINEDCELL (8)"), "false");
+        const int exteriorId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                                    QStringLiteral("域外单元 EXTERIORCELL (16)"), "false");
+        const int hiddenId = dialog->addParameter(igQtFilterDialogDockWidget::QT_CHECK_BOX,
+                                                  QStringLiteral("隐藏单元 HIDDENCELL (32)"), "false");
+        dialog->show();
+        dialog->setApplyFunctor([=, this]() {
+            bool okCombo = false, okAny = false, okDup = false, okRefined = false, okExterior = false, okHidden = false;
+            const int comboIndex = dialog->getComboIndex(arrayId, okCombo);
+            const bool checkAny = dialog->getChecked(anyId, okAny);
+            const bool checkDuplicate = dialog->getChecked(dupId, okDup);
+            const bool checkRefined = dialog->getChecked(refinedId, okRefined);
+            const bool checkExterior = dialog->getChecked(exteriorId, okExterior);
+            const bool checkHidden = dialog->getChecked(hiddenId, okHidden);
+            if (!okCombo || !okAny || !okDup || !okRefined || !okExterior || !okHidden) {
+                showDarkFramelessMessage(QStringLiteral("参数错误"), QStringLiteral("参数读取失败。"));
+                return;
+            }
+            if (comboIndex < 0 || comboIndex >= static_cast<int>(candidates.size())) { return; }
+
+            auto filter = iGame::GhostCellFilter::New();
+            filter->SetGhostArrayName(candidates[comboIndex].toStdString());
+            filter->SetCheckAny(checkAny);
+            filter->SetCheckDuplicateCell(checkDuplicate);
+            filter->SetCheckRefinedCell(checkRefined);
+            filter->SetCheckExteriorCell(checkExterior);
+            filter->SetCheckHiddenCell(checkHidden);
+            filter->SetInput(0, data);
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("Ghost 单元标记"),
+                                         QStringLiteral("执行失败：请检查选择的单元标记数组。"));
+                return;
+            }
+            auto output = filter->GetOutput();
+            modelTreeWidget->addDataObjectToModelTree(output, ItemSource::Algorithm);
+            rendererWidget->update();
+            showDarkFramelessMessage(QStringLiteral("Ghost 单元标记"),
+                                     QStringLiteral("已生成单元属性 GhostCellMask（0/1，1 = ghost 单元）"),
+                                     true);
+            dialog->close();
+        });
     });
     bindDevelopmentAction("cell_mesh_metrics", [executeDevelopmentFilter]() {
         executeDevelopmentFilter(QStringLiteral("单元网格指标"), CellMeshMetricsFilter::New());
