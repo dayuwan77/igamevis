@@ -1865,6 +1865,28 @@ void igQtMainWindow::showDarkFramelessMessage(const QString& title, const QStrin
     igQtShowDarkFramelessMessage(this, title, text, useInformationIcon);
 }
 
+struct QuartileReportRow {
+    QString name;
+    QString attach;
+    double  min, q1, median, q3, max;
+};
+
+void showQuartilesReportDialog(QWidget* parent, const QVector<QuartileReportRow>& rows) {
+    QString report;
+    for (const auto& r : rows) {
+        report += QStringLiteral("%1 (%2): Min=%3  Q1=%4  Median=%5  Q3=%6  Max=%7\n")
+                          .arg(r.name)
+                          .arg(r.attach)
+                          .arg(r.min)
+                          .arg(r.q1)
+                          .arg(r.median)
+                          .arg(r.q3)
+                          .arg(r.max);
+    }
+    igQtDarkFramelessMessageDialog dlg(parent, QStringLiteral("四分位数统计结果"), report.trimmed(), true);
+    dlg.exec();
+}
+
 void igQtMainWindow::initAllFilters() {
     /* Data Processing 前两档：加宽以容纳较长参数标签，并关闭参数区滚动条（内容较少无需滚动） */
     auto tuneMeshSimplifyFilterDialog = [](igQtFilterDialogDockWidget* d) {
@@ -11088,6 +11110,111 @@ void igQtMainWindow::initAllFilters() {
                     dialog->close();
                 });
             });
+
+    // === Compute Quartiles Filter: 计算四分位数 (对标 ParaView Compute Quartiles) ===
+    connect(developingFiltersBatch2->addAction(QStringLiteral("Compute Quartiles")),
+            &QAction::triggered, this, [&](bool checked) {
+        auto currentModel = rendererWidget->GetScene()->GetCurrentModel();
+        if (!currentModel) {
+            showDarkFramelessMessage(QStringLiteral("无可用模型"),
+                                     QStringLiteral("请先加载并选择一个网格模型。"));
+            return;
+        }
+        auto obj = currentModel->GetDataObject();
+        if (!obj) {
+            showDarkFramelessMessage(QStringLiteral("无可用数据"),
+                                     QStringLiteral("当前模型没有可用的网格数据。"));
+            return;
+        }
+
+        auto attrs = obj->GetAttributeSet();
+        if (!attrs || attrs->GetNumberOfAttributes() == 0) {
+            showDarkFramelessMessage(QStringLiteral("无可用属性"),
+                                     QStringLiteral("当前模型没有可统计的标量属性。"));
+            return;
+        }
+
+        // 收集所有点标量属性 (dim==1) 供用户选择（与 ParaView 一致：仅点数据）
+        std::vector<IGsize> attrIndices;
+        std::vector<QString> attrNames;
+        attrNames.push_back(QStringLiteral("全部点标量属性 (ParaView 默认行为)"));
+        attrIndices.push_back((IGsize)-1); // 哨兵值：表示全部
+        for (IGsize i = 0; i < static_cast<IGsize>(attrs->GetNumberOfAttributes()); ++i) {
+            auto& attr = attrs->GetAttribute(i);
+            if (attr.isDeleted || !attr.pointer) continue;
+            if (attr.attachmentType != IG_POINT) continue; // vtkComputeQuartiles 只统计点数据数组
+            if (attr.pointer->GetDimension() != 1) continue; // 只统计标量
+            attrIndices.push_back(i);
+            attrNames.push_back(QStringLiteral("%1 (Point)")
+                                        .arg(QString::fromStdString(attr.pointer->GetName())));
+        }
+        if (attrNames.size() <= 1) {
+            showDarkFramelessMessage(QStringLiteral("无可用属性"),
+                                     QStringLiteral("当前模型没有点标量属性可用于计算四分位数。"));
+            return;
+        }
+
+        auto* dialog = new igQtFilterDialogDockWidget(this, true);
+        dialog->setFilterTitle(QStringLiteral("Compute Quartiles"));
+        dialog->setFilterDescription(QStringLiteral(
+                "计算点标量属性的四分位数统计：Min / Q1 / Median / Q3 / Max（Tukey hinges 定义）。\n"
+                "只统计点数据数组，单元数据数组不参与（与 ParaView 一致）。\n"
+                "输出一个 5 顶点的 PointSet，每个被统计属性 A 在输出上生成 \"A_Quartiles\" 数组（5 元素，对应 5 行）。"));
+        const int attrId = dialog->addParameter(
+                igQtFilterDialogDockWidget::QT_COMBO_BOX,
+                QStringLiteral("标量属性"), attrNames);
+        dialog->show();
+
+        dialog->setApplyFunctor([=, this]() {
+            bool ok = false;
+            const int choice = dialog->getComboIndex(attrId, ok);
+            if (!ok || choice < 0 || choice >= static_cast<int>(attrIndices.size())) {
+                showDarkFramelessMessage(QStringLiteral("参数错误"),
+                                         QStringLiteral("请选择有效的标量属性。"));
+                return;
+            }
+
+            auto filter = ComputeQuartilesFilter::New();
+            filter->SetInput(obj);
+
+            const IGsize selectedIdx = attrIndices[static_cast<size_t>(choice)];
+            if (selectedIdx == (IGsize)-1) {
+                // 全部标量属性模式 (ParaView 默认)
+                // 不调用 SetAttributeByName / SetAttributeByIndex，使用默认 m_ProcessAll=true
+            } else {
+                // 单属性模式
+                auto& attr = obj->GetAttributeSet()->GetAttribute(selectedIdx);
+                filter->SetAttributeByName(attr.pointer->GetName());
+            }
+
+            if (!filter->Execute()) {
+                showDarkFramelessMessage(QStringLiteral("执行失败"),
+                                         QString::fromStdString(filter->GetMessage()));
+                return;
+            }
+
+            // 收集结果行
+            QVector<QuartileReportRow> rows;
+            for (const auto& r : filter->GetResults()) {
+                rows.push_back({ QString::fromStdString(r.arrayName),
+                                 r.attachmentType == IG_CELL ? QStringLiteral("cell")
+                                                             : QStringLiteral("point"),
+                                 r.min, r.q1, r.median, r.q3, r.max });
+            }
+
+            auto outObj = filter->GetOutput();
+            if (outObj) {
+                outObj->SetName("compute_quartiles_result");
+                // 挂树会切换当前模型并触发"重看"逻辑，这里阻断信号避免重复弹窗
+                QSignalBlocker blocker(modelTreeWidget);
+                modelTreeWidget->addDataObjectToModelTree(outObj, Algorithm);
+                rendererWidget->update();
+            }
+
+            showQuartilesReportDialog(this, rows);
+            dialog->close();
+        });
+    });
 
 }
 

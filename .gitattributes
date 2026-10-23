@@ -89,6 +89,11 @@ Examples/Models/SurfaceVectors_A_sphere.vtk -filter -diff -merge text
 Examples/Models/SurfaceVectors_B_hill.vtk -filter -diff -merge text
 Examples/Models/SurfaceVectors_C_cylinder.vtk -filter -diff -merge text
 
+# Small text fixtures for the ParaView-aligned batch-2 filter (Compute Quartiles).
+Examples/Models/Quartiles_plane.vtk -filter -diff -merge text
+Examples/Models/ComputeQuartiles_A_sphere.vtk -filter -diff -merge text
+Examples/Models/ComputeQuartiles_B_hill.vtk -filter -diff -merge text
+Examples/Models/ComputeQuartiles_C_hex_volume.vtk -filter -diff -merge text
 # Plain-text fixtures included by PR #124 (which also includes PR #95).
 Examples/Models/DeflectNormals_SphereSurface.vtk -filter -diff -merge text
 Examples/Models/DeflectNormals_WaveSurface.vtk -filter -diff -merge text

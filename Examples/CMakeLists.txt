@@ -552,20 +552,14 @@ igame_add_example(testSmooth Filter/Smooth/TestSmooth.cpp)
 # IO (optional modules)
 igame_add_example(testSplineReaderCPU IO/SplineReaderCPU.cpp)
 
-# Transform
-igame_add_example(testTransform Filter/TestTransform.cpp)
 # MeshQuality
 igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
 # Time Series
 igame_add_example(testExtractTimeSteps Filter/TimeSeries/TestExtractTimeSteps.cpp)
-#Data Processing
-igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
-igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
-
 
 # Time Series
 igame_add_example(testTemporalShiftScale Filter/TimeSeries/TestTemporalShiftScale.cpp)
-#Data Processing
+# Data Processing (kept here as the canonical occurrence)
 igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
 igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 igame_add_example(testSpectralReaderCPU ../iGameCore/IO/Spectral/tests/SpectralReaderValidation.cxx)
@@ -748,7 +742,6 @@ igame_add_example(testCountCellFacesOutput Filter/FeatureExtraction/CountCellFac
 igame_add_example(testFeatureEdgeRegion Filter/FeatureExtraction/FeatureEdgeRegion.cpp)
 igame_add_example(testThresholdAndGenerateIds Filter/TestThresholdAndGenerateIds.cpp)
 igame_add_example(testWarpByVector Filter/TestWarpByVector.cpp)
-igame_add_example(testMeshQuality Filter/MeshQuality/TestMeshQuality.cpp)
 igame_add_example(testPointLineInterpolator Filter/PointLineInterpolator/TestPointLineInterpolator.cpp)
 igame_add_example(testPointSetToOctree Filter/Convert/TestPointSetToOctree.cpp)
 igame_add_example(testResampleOctreeChecks Filter/Convert/TestResampleOctreeChecks.cpp)
@@ -757,8 +750,6 @@ igame_add_example(testPointVolumeInterpolatorSelfCheck Filter/Interpolation/Test
 igame_add_example(testShrink Filter/Shrink/TestShrink.cpp)
 igame_add_example(testShrinkModel Filter/Shrink/TestShrinkModel.cpp)
 igame_add_example(testSurfaceNormalsFilter Filter/SurfaceNormals/TestSurfaceNormalsFilter.cpp)
-igame_add_example(testVolumeMeshSimplification Filter/TestVolumeMeshSimplification.cpp)
-igame_add_example(testMeshTetrahedralize Filter/TestMeshTetrahedralize.cpp)
 
 # Warp By Scalar: displaces points along a normal by a point scalar array.
 igame_add_example(testWarpByScalar Filter/WarpByScalar/TestWarpByScalar.cpp)
@@ -825,6 +816,9 @@ igame_add_example(testSurfaceVectors Filter/TestSurfaceVectors.cpp)
 # Random Attributes / Deflect Normals
 igame_add_example(testRandomAttributes Filter/TestRandomAttributes.cpp)
 igame_add_example(testDeflectNormals Filter/TestDeflectNormals.cpp)
+
+# Batch 2 filter aligned with ParaView (Compute Quartiles).
+igame_add_example(testComputeQuartiles Filter/TestComputeQuartiles.cpp)
 
 get_property(IGAME_EXAMPLE_TARGETS DIRECTORY PROPERTY IGAME_EXAMPLE_TARGETS)
 if (NOT IGAME_EXAMPLE_TARGETS)
