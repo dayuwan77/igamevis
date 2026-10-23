@@ -534,18 +534,62 @@ bool igQtMainWindow::connectThirdBatchFilterAction(QAction* action, const QStrin
                 return f->GetOutput();
             };
         } else if (id == "volume_mesh_simplification") {
-            auto* reduction = panel->number("reduction", QStringLiteral("目标简化比例"), 0.5, 0, 0.9999);
-            auto* count = panel->integer("targetCount", QStringLiteral("目标四面体数（0 使用比例）"), 0, 0, 100000000);
-            auto* boundary = panel->check("preserveBoundary", QStringLiteral("保留边界"), true);
+            auto* method = panel->choice(
+                    "method", QStringLiteral("简化方法"),
+                    {QStringLiteral("四面体塌缩"), QStringLiteral("边塌缩")});
+            auto* reduction = panel->number("reduction", QStringLiteral("目标保留比例（0..1）"), 0.5, 0, 1);
+            auto* count = panel->integer("targetCount", QStringLiteral("目标顶点数量（0 使用比例）"), 0, 0, 100000000);
+            auto* boundary = panel->check("preserveBoundary", QStringLiteral("边界处理"), true);
             auto* attrs = panel->check("allAttributes", QStringLiteral("使用全部点属性"), true);
+            auto* boundaryLabel = qobject_cast<QLabel*>(panel->form->labelForField(boundary));
+            auto* boundaryDescription = new QLabel(panel);
+            boundaryDescription->setObjectName(QStringLiteral("boundaryDescription"));
+            boundaryDescription->setWordWrap(true);
+            panel->form->addRow(boundaryDescription);
+
+            // 两种简化方法的边界语义不同：四面体塌缩锁定边界，边塌缩允许
+            // 真实边界边在几何约束下继续坍缩。切换方法时同步更新界面说明。
+            auto updateBoundaryDescription = [=](int methodIndex) {
+                if (methodIndex == 0) {
+                    if (boundaryLabel) boundaryLabel->setText(QStringLiteral("锁定边界点"));
+                    boundary->setToolTip(
+                            QStringLiteral("开启后，包含边界点的四面体不参与坍缩，边界保持不动。"));
+                    boundaryDescription->setText(
+                            QStringLiteral("四面体塌缩：开启边界保护后锁定边界点，"
+                                           "所有接触边界的四面体都不会被坍缩。"));
+                } else {
+                    if (boundaryLabel) boundaryLabel->setText(QStringLiteral("约束边界边坍缩"));
+                    boundary->setToolTip(
+                            QStringLiteral("开启后，禁止边界点与内部点合并；"
+                                           "真实边界边仍可在几何约束下坍缩。"));
+                    boundaryDescription->setText(
+                            QStringLiteral("边坍缩：开启边界保护后，边界不会完全锁死；"
+                                           "真实边界边仍可在位置、法向和原始边界误差约束下坍缩。"));
+                }
+            };
+            connect(method, QOverload<int>::of(&QComboBox::currentIndexChanged), panel,
+                    updateBoundaryDescription);
+            updateBoundaryDescription(method->currentIndex());
+
             run = [=]() {
                 auto tetra = MeshTetrahedralize::New(); tetra->SetInput(input);
                 if (!tetra->Execute()) throw std::runtime_error(tetra->m_failReason);
-                auto f = TetraEdgeSimplification::New(); f->SetInput(tetra->GetOutput());
-                f->SetTargetReduction(reduction->value()); f->SetTargetTetraCount(count->value());
-                f->SetPreserveBoundary(boundary->isChecked()); f->SetUseAllPointAttributes(attrs->isChecked());
-                if (!f->Execute()) throw std::runtime_error("体网格简化失败。");
-                return f->GetOutput();
+                if (!tetra->GetOutput()) throw std::runtime_error("四面体化未生成有效输出。");
+
+                auto executeSimplification = [=](auto filter) -> DataObject::Pointer {
+                    filter->SetInput(tetra->GetOutput());
+                    filter->SetTargetReduction(reduction->value());
+                    filter->SetTargetTetraCount(count->value());
+                    filter->SetPreserveBoundary(boundary->isChecked());
+                    filter->SetUseAllPointAttributes(attrs->isChecked());
+                    if (!filter->Execute() || !filter->GetOutput())
+                        throw std::runtime_error("体网格简化失败。");
+                    return filter->GetOutput();
+                };
+
+                if (method->currentIndex() == 0)
+                    return executeSimplification(TetraSimplification::New());
+                return executeSimplification(TetraEdgeSimplification::New());
             };
         }
         panel->form->addRow(panel->status);

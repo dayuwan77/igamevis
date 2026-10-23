@@ -1,4 +1,4 @@
-﻿#include "iGameVTKAbstractReader.h"
+#include "iGameVTKAbstractReader.h"
 #include "iGameByteSwap.h"
 #include <vector>
 IGAME_NAMESPACE_BEGIN
@@ -1019,6 +1019,11 @@ bool VTKAbstractReader::ReadSurfaceMesh() {
             //return false;
         }
     }
+    // A LINES-only POLYDATA has no triangles to fill. Show its polylines
+    // immediately; retain the full POINTS array, including unreferenced points.
+    if (m_SurfaceMesh->GetNumberOfFaces() == 0 && m_SurfaceMesh->GetNumberOfEdges() > 0) {
+        m_SurfaceMesh->SetViewStyle(IG_WIREFRAME);
+    }
     return true;
 }
 bool VTKAbstractReader::ReadStructuredGrid() {
@@ -1118,6 +1123,9 @@ bool VTKAbstractReader::ReadStructuredGrid() {
     return true;
 }
 CellArray::Pointer VTKAbstractReader::CreateCellArray(ArrayObject::Pointer CellsID, ArrayObject::Pointer CellsConnect) {
+    // 每次新建数组：原实现复用成员 m_CellArray，会让 LINES / POLYGONS 共用同一个数组互相覆盖；
+    // 且 CellArray::Reset() 不重置 m_NumberOfCells / m_FixedCellSize / m_UseOffsets，也不补回
+    // 偏移数组的起始 0，导致变长单元（如 3/4/2/2 的折线）连通性整体错位。
     // Each POLYGONS/LINES section owns its connectivity. Reset removes the
     // initial zero offset (breaking mixed polygons), and also overwrites any
     // preceding section that already holds this same CellArray.

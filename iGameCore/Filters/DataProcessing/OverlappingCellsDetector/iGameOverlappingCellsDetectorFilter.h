@@ -25,7 +25,7 @@ public:
     void SetTolerance(double tolerance) { m_Tolerance = tolerance < 0.0 ? 0.0 : tolerance; }
     double GetTolerance() const { return m_Tolerance; }
 
-    /// 当前 iGame 实现支持的输入：UnstructuredMesh 或 VolumeMesh 中的线性体单元
+    /// 支持 SurfaceMesh / UnstructuredMesh 的三角形、平面凸四边形，或线性体单元
     /// (Tetra、Hexahedron、Prism、Pyramid)。三维 StructuredMesh 在已具备体单元连接关系时
     /// 也可通过 VolumeMesh 路径处理。其他数据对象或单元类型会安全失败。
     const std::string& GetLastError() const { return m_LastError; }
@@ -37,7 +37,7 @@ public:
         return m_OverlappingCellPairs;
     }
 
-    /// 与输出单元标量逐项对应；值表示该单元与多少个其他单元发生真实体积重叠。
+    /// 与输出单元标量逐项对应；统计面单元的内部相交或体单元的真实体积重叠。
     const std::vector<igIndex>& GetNumberOfOverlapsPerCell() const {
         return m_NumberOfOverlapsPerCell;
     }

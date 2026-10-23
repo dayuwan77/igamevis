@@ -905,6 +905,9 @@ void igQtModelDialogWidget::rebuildAttributes(iGame::DataObject::Pointer obj, bo
         child->setIcon(0, igQtModelTreeIcons::Cell());
         child->setDimension(1);
     }
+    BuildSubObjectTreeSkeleton(item, obj);
+    item->viewAttribute(-1);
+    iGame::DynamicCast<iGame::DrawObject>(obj)->ForceReConvertToDrawableData();
 
     if (!preserveDisplay) {
         blocker.unblock();

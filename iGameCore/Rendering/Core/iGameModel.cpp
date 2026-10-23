@@ -455,7 +455,7 @@ void Model::Draw() {
 #endif
             }
 
-            if (viewStyle & IG_WIREFRAME) {
+            if (renderableObject->IsLineRenderingEnabled()) {
 #ifdef __EMSCRIPTEN__
                 if (combinedSurfaceWireframe) {
                     glDepthMask(GL_FALSE);
@@ -476,7 +476,8 @@ void Model::Draw() {
                     m_Scene->m_ShaderManager->ApplyWebFallbackUniforms(shader);
 #endif
                     shader->SetUniform3f("inputColor",
-                                         renderableObject->GetLineColor());
+                                         (viewStyle & IG_WIREFRAME) ? renderableObject->GetLineColor()
+                                                                   : renderableObject->GetDefaultColor());
                 }
 
                 // 如果是样条对象，强制用黑色绘制控制线
@@ -576,9 +577,10 @@ void Model::DrawWithTransparency() {
 
 #ifdef __EMSCRIPTEN__
         const bool drawTransparentWireframe =
-                (viewStyle & IG_WIREFRAME) && !(viewStyle & IG_SURFACE);
+                ((viewStyle & IG_WIREFRAME) && !(viewStyle & IG_SURFACE)) ||
+                ((viewStyle & IG_SURFACE) && renderableObject->HasExplicitLineCells());
 #else
-        const bool drawTransparentWireframe = viewStyle & IG_WIREFRAME;
+        const bool drawTransparentWireframe = renderableObject->IsLineRenderingEnabled();
 #endif
         if (drawTransparentWireframe) {
             if (useColor && !colorWithCell) {
@@ -597,7 +599,8 @@ void Model::DrawWithTransparency() {
                 #endif
                 shader->SetUniformi("uUseLighting", 0);
                 shader->SetUniformi("colorMode", 2);
-                shader->SetUniform3f("inputColor", renderableObject->GetLineColor());
+                shader->SetUniform3f("inputColor", (viewStyle & IG_WIREFRAME) ? renderableObject->GetLineColor()
+                                                                           : renderableObject->GetDefaultColor());
             }
 
             glLineWidth(renderableObject->m_LineWidth);
@@ -741,13 +744,14 @@ void Model::DrawPhase1() {
             }
         }
 
-        if (viewStyle & IG_WIREFRAME) {
+        if (surfaceObject->IsLineRenderingEnabled()) {
             if (useColor) {
                 m_Scene->GetShader(ShaderType::NOLIGHT)->Use();
             } else {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
-                shader->SetUniform3f("inputColor", igm::vec3{0.0f, 0.0f, 0.0f});
+                shader->SetUniform3f("inputColor", (viewStyle & IG_WIREFRAME) ? surfaceObject->GetLineColor()
+                                                                           : surfaceObject->GetDefaultColor());
             }
 
             // 如果是样条对象，强制用黑色绘制控制线
@@ -873,13 +877,14 @@ void Model::DrawPhase1() {
             }
         }
 
-        if (viewStyle & IG_WIREFRAME) {
+        if (surfaceObject->IsLineRenderingEnabled()) {
             if (useColor && !colorWithCell) {
                 m_Scene->GetShader(ShaderType::NOLIGHT)->Use();
             } else {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
-                shader->SetUniform3f("inputColor", igm::vec3{0.0f, 0.0f, 0.0f});
+                shader->SetUniform3f("inputColor", (viewStyle & IG_WIREFRAME) ? surfaceObject->GetLineColor()
+                                                                           : surfaceObject->GetDefaultColor());
             }
 
             // 如果是样条对象，强制用黑色绘制控制线
@@ -1018,13 +1023,14 @@ void Model::DrawPhase2() {
             }
         }
 
-        if (viewStyle & IG_WIREFRAME) {
+        if (surfaceObject->IsLineRenderingEnabled()) {
             if (useColor) {
                 m_Scene->GetShader(ShaderType::NOLIGHT)->Use();
             } else {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
-                shader->SetUniform3f("inputColor", igm::vec3{0.0f, 0.0f, 0.0f});
+                shader->SetUniform3f("inputColor", (viewStyle & IG_WIREFRAME) ? surfaceObject->GetLineColor()
+                                                                           : surfaceObject->GetDefaultColor());
             }
 
             // 如果是样条对象，强制用黑色绘制控制线
@@ -1152,13 +1158,14 @@ void Model::DrawPhase2() {
             }
         }
 
-        if (viewStyle & IG_WIREFRAME) {
+        if (surfaceObject->IsLineRenderingEnabled()) {
             if (useColor && !colorWithCell) {
                 m_Scene->GetShader(ShaderType::NOLIGHT)->Use();
             } else {
                 auto shader = m_Scene->GetShader(ShaderType::PURECOLOR);
                 shader->Use();
-                shader->SetUniform3f("inputColor", igm::vec3{0.0f, 0.0f, 0.0f});
+                shader->SetUniform3f("inputColor", (viewStyle & IG_WIREFRAME) ? surfaceObject->GetLineColor()
+                                                                           : surfaceObject->GetDefaultColor());
             }
 
             // 如果是样条对象，强制用黑色绘制控制线

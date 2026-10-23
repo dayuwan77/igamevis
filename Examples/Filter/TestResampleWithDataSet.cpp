@@ -21,6 +21,7 @@
 
 #include "iGameAttributeSet.h"
 #include "iGameCellArray.h"
+#include "iGameCellType.h"
 #include "iGameFlatArray.h"
 #include "iGamePointSet.h"
 #include "iGamePoints.h"
@@ -402,6 +403,58 @@ void TestTrilinearHexahedron() {
     Check(mask.size() == 3 && mask[0] && mask[1] && !mask[2], "hex containment including outside point");
 }
 
+// Bug: sampling a triangle surface searched expanding shells of empty voxels.
+// Expected: surface/near-surface points interpolate, off-surface points stay
+// invalid, and tolerance hits across voxel boundaries must not be lost.
+// Fix: pending commit. These are filter correctness checks, not timing tests.
+void TestTriangleSurfaceSampling() {
+    auto source = iGame::UnstructuredMesh::New();
+    source->AddPoint(iGame::Point(0.f, 0.f, 0.f));
+    source->AddPoint(iGame::Point(.9999f, 0.f, 0.f));
+    source->AddPoint(iGame::Point(0.f, .9999f, 0.f));
+    source->AddPoint(iGame::Point(4.f, 4.f, 4.f)); // Sets voxel boundaries at integers.
+    igIndex ids[3] = {0, 1, 2};
+    source->AddCell(ids, 3, iGame::IG_TRIANGLE);
+    auto field = iGame::FloatArray::New();
+    field->SetName("linear");
+    field->SetDimension(1);
+    field->Resize(4);
+    for (int i = 0; i < 4; ++i) {
+        const auto& p = source->GetPoint(i);
+        field->SetValue(i, p[0] + 2.f * p[1]);
+    }
+    source->GetAttributeSet()->AddScalar(IG_POINT, field);
+    auto probe = iGame::PointSet::New();
+    probe->AddPoint(iGame::Point(.2f, .3f, 0.f));
+    probe->AddPoint(iGame::Point(.2f, .3f, .0002f));
+    probe->AddPoint(iGame::Point(1.0001f, 0.f, 0.f)); // Next voxel, within barycentric tolerance.
+    probe->AddPoint(iGame::Point(0.f, 0.f, .01f)); // Explicit snapping can reach a triangle vertex.
+    probe->AddPoint(iGame::Point(3.f, 3.f, 3.f));
+    auto filter = iGame::ResampleWithDataSet::New();
+    filter->SetSourceData(source);
+    filter->SetProbeData(probe);
+    filter->SetTolerance(1e-4);
+    Check(filter->Execute(), "triangle surface sampling execution");
+    const auto mask = filter->GetSampleValidMask();
+    Check(mask.size() == 5 && mask[0] && mask[1] && mask[2] && !mask[3] && !mask[4],
+          "triangle surface, tolerance, boundary and empty-space masks");
+    auto output = filter->GetResampledData();
+    auto result = output ? FindPointArray(output->GetAttributeSet(), "linear", nullptr) : nullptr;
+    Check(result != nullptr, "triangle sampled field exists");
+    if (result) {
+        CheckNear(result->GetElementValue(0, 0), .8, 1e-5, "triangle linear interpolation");
+        CheckNear(result->GetElementValue(1, 0), .8, 1e-5, "near-plane projection within tolerance");
+        CheckNear(result->GetElementValue(4, 0), 0., 1e-6, "empty-space value is zero");
+    }
+    filter->SetSnappingRadius(.01);
+    Check(filter->Execute(), "triangle snapping execution");
+    Check(filter->GetSampleValidMask()[3] != 0, "explicit snapping still reaches the surface");
+    filter->SetSourceData(MakeUnitHexahedron());
+    filter->SetProbeData(MakeProbePoints());
+    filter->SetSnappingRadius(-1.);
+    Check(filter->Execute() && filter->GetSampleValidMask()[0], "filter reuse after triangle source");
+}
+
 } // namespace
 
 int main() {
@@ -419,6 +472,7 @@ int main() {
     TestSnappingRadius();
     TestErrorPaths();
     TestTrilinearHexahedron();
+    TestTriangleSurfaceSampling();
 
     std::cout << "\n==== 结果：" << (g_Failed == 0 ? "全部通过" : std::to_string(g_Failed) + " 项失败") << " ===="
               << std::endl;

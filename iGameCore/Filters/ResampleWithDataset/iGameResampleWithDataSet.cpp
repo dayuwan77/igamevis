@@ -2266,6 +2266,16 @@ std::vector<std::vector<igIndex>> ResampleWithDataSet::BuildUniformGrid(const Un
 
     std::vector<std::vector<igIndex>> grid(static_cast<size_t>(nx) * ny * nz);
 
+    m_TriangleGrid = true;
+    m_TriangleBounds.clear();
+    for (igIndex id = 0; id < static_cast<igIndex>(mesh->GetNumberOfCells()); ++id) {
+        if (mesh->GetCellType(id) != IG_TRIANGLE || mesh->GetCells()->GetCellSize(id) != 3) {
+            m_TriangleGrid = false;
+            break;
+        }
+    }
+    if (m_TriangleGrid) { m_TriangleBounds.resize(mesh->GetNumberOfCells()); }
+
     igIndex ptIds[IGAME_CELL_MAX_SIZE];
     for (igIndex cellId = 0; cellId < static_cast<igIndex>(mesh->GetNumberOfCells()); ++cellId) {
         const int npts = mesh->GetCellPointIds(cellId, ptIds);
@@ -2279,6 +2289,20 @@ std::vector<std::vector<igIndex>> ResampleWithDataSet::BuildUniformGrid(const Un
                 const double v = static_cast<double>(p[j]);
                 minv[j] = std::min(minv[j], v);
                 maxv[j] = std::max(maxv[j], v);
+            }
+        }
+
+        if (m_TriangleGrid) {
+            auto& bounds = m_TriangleBounds[static_cast<size_t>(cellId)];
+            for (int j = 0; j < 3; ++j) {
+                // Two barycentric weights can be negative by kVTKParamDomainTol.
+                // Add the normal-distance tolerance as well, so a valid hit just
+                // across a voxel boundary cannot be discarded by the index.
+                const double padding = m_EffectiveTolerance + 2. * kVTKParamDomainTol * (maxv[j] - minv[j]);
+                minv[j] -= padding;
+                maxv[j] += padding;
+                bounds[j] = minv[j];
+                bounds[j + 3] = maxv[j];
             }
         }
 
@@ -2318,6 +2342,32 @@ bool ResampleWithDataSet::LocateSample(const UnstructuredMesh::Pointer& mesh, co
     const igIndex ix = std::max<igIndex>(0, std::min<igIndex>(nx - 1, static_cast<igIndex>((p[0] - bbox.min[0]) / voxelX)));
     const igIndex iy = std::max<igIndex>(0, std::min<igIndex>(ny - 1, static_cast<igIndex>((p[1] - bbox.min[1]) / voxelY)));
     const igIndex iz = std::max<igIndex>(0, std::min<igIndex>(nz - 1, static_cast<igIndex>((p[2] - bbox.min[2]) / voxelZ)));
+
+    // For triangles, tolerance-expanded bounds guarantee that every possible
+    // hit is in this bucket. Empty space needs no expanding nearest-cell search;
+    // explicit snapping remains handled by LocateNearestCell in Execute().
+    if (m_TriangleGrid) {
+        const auto& candidates = grid[static_cast<size_t>(ix) + static_cast<size_t>(iy) * nx +
+                                      static_cast<size_t>(iz) * nx * ny];
+        for (const igIndex cellId : candidates) {
+            const auto& bounds = m_TriangleBounds[static_cast<size_t>(cellId)];
+            bool outside = false;
+            for (int j = 0; j < 3; ++j) {
+                if (p[j] < bounds[j] || p[j] > bounds[j + 3]) { outside = true; break; }
+            }
+            if (outside) { continue; }
+            std::vector<double> weights;
+            if (!ComputeCellWeights(mesh, cellId, p, distTol, weights) || weights.empty()) { continue; }
+            igIndex ids[3];
+            mesh->GetCellPointIds(cellId, ids);
+            out.cellId = cellId;
+            out.point = p;
+            out.pointIds.assign(ids, ids + 3);
+            out.weights = std::move(weights);
+            return true;
+        }
+        return false;
+    }
 
     std::vector<igIndex> candidates;
     const igIndex maxRadius = std::max<igIndex>(nx, std::max<igIndex>(ny, nz));

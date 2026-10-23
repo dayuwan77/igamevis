@@ -14,6 +14,7 @@
 #include "iGameVolumeMesh.h"
 
 #include <string>
+#include <array>
 #include <vector>
 
 IGAME_NAMESPACE_BEGIN
@@ -198,6 +199,10 @@ private:
     DataObject::Pointer m_Output{};
     std::vector<igIndex> m_SampleCellIds;
     std::vector<unsigned char> m_SampleValidMask;
+    // Triangle bounds include both geometric and barycentric acceptance tolerances.
+    // Every possible hit is indexed in the query voxel, including boundary hits.
+    bool m_TriangleGrid{false};
+    std::vector<std::array<double, 6>> m_TriangleBounds;
 };
 
 IGAME_NAMESPACE_END

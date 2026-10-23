@@ -13,13 +13,29 @@ Examples/Models/ExtractLocationTetraPair.vtk -filter -diff -merge text
 Examples/Models/ExtractLocationConnectedSteppedSolid.vtk -filter -diff -merge text
 Examples/Models/OverlappingCellsDetectorValidation.vtk -filter -diff -merge text
 Examples/Models/OverlappingCellsDetectorFaceTouching.vtk -filter -diff -merge text
+# Small text fixtures for the MultiBlockGeometry filter regression sample.
+Examples/Models/assembly_cube_hex.vtk -filter -diff -merge text
+Examples/Models/assembly_empty_error.vtk -filter -diff -merge text
+Examples/Models/assembly_wedge_prism.vtk -filter -diff -merge text
+
 Examples/Models/group_tet.vtk -filter -diff -merge text
 Examples/Models/group_hex.vtk -filter -diff -merge text
 Examples/Models/group_quad.vtk -filter -diff -merge text
 Examples/Models/OutlineCorners_Plane.vtk -filter -diff -merge text
 Examples/Models/iGameValidateCellsFilter_mixed.vtk -filter -diff -merge text
+Examples/Models/DecimatePolyline_Curve.vtk -filter -diff -merge text
+Examples/Models/AppendArcLength_test.vtk -filter -diff -merge text
+Examples/Models/ContourExtraction_cylinder_UnstructedGrid.vtk -filter -diff -merge text
+Examples/Models/Histogram_test.vtk -filter -diff -merge text
+Examples/Models/TensorPrincipalInvariants_field.vtk -filter -diff -merge text
+Examples/Models/TensorPrincipalInvariants_symmetric.vtk -filter -diff -merge text
+Examples/Models/cell_metric_hex.vtk -filter -diff -merge text
+Examples/Models/cell_metric_tet.vtk -filter -diff -merge text
 
 # Keep upstream's small plain-text example fixtures outside Git LFS.
+Examples/Models/ConnectedSurfacePropertiesOpenPatch.vtk -filter -diff -merge text
+Examples/Models/ConnectedSurfacePropertiesPolyhedra.vtk -filter -diff -merge text
+Examples/Models/ConnectedSurfacePropertiesTwoBoxes.vtk -filter -diff -merge text
 Examples/Models/ElevationSlopeTerrain.vtk -filter -diff -merge text
 Examples/Models/ElevationTerraces.vtk -filter -diff -merge text
 Examples/Models/ExtractEnclosedPoints_Points_Cloud1.vtk -filter -diff -merge text
@@ -32,10 +48,19 @@ Examples/Models/LinearExtrusion_ClosedCube.vtk -filter -diff -merge text
 Examples/Models/LinearExtrusion_OpenSurface.vtk -filter -diff -merge text
 Examples/Models/OutlineCorners_Box.vtk -filter -diff -merge text
 Examples/Models/rectangle_structured_2d.vtk -filter -diff -merge text
+Examples/Models/Ribbon_Helix3D.vtk -filter -diff -merge text
+Examples/Models/Ribbon_Polylines2D.vtk -filter -diff -merge text
 Examples/Models/test_mesh.vtk -filter -diff -merge text
 Examples/Models/tube_test.vtk -filter -diff -merge text
+# Small text fixture for the TensorPrincipalInvariants standalone-line regression.
+Examples/Models/TensorPrincipalInvariants_loose_line.vtk -filter -diff -merge text
 # Small text fixture for the TextureMapToCylinder standalone-line regression.
 Examples/Models/TextureMapToCylinder_loose_line.vtk -filter -diff -merge text
+Examples/Models/TextureMapToCylinder_tube.vtk -filter -diff -merge text
+Examples/Models/TextureMapToPlaneCurvedSaddle.vtk -filter -diff -merge text
+Examples/Models/TextureMapToPlaneManualPatch.vtk -filter -diff -merge text
+Examples/Models/TextureMapToPlaneSlantedPatch.vtk -filter -diff -merge text
+Examples/Models/SurfaceTangents.vtk -filter -diff -merge text
 
 # Keep development-branch small plain-text example fixtures outside Git LFS.
 Examples/Models/PerlinNoise_Test.vtk -filter -diff -merge text
@@ -46,3 +71,33 @@ Examples/Models/ResampleCubeVector.vtk -filter -diff -merge text
 Examples/Models/TextureMapSphere.vtk -filter -diff -merge text
 Examples/Models/GhostDemo.vtk -filter -diff -merge text
 Examples/Models/Tet_Plane.vtk -filter -diff -merge text
+Examples/Models/RenameResample_test.vtk -filter -diff -merge text
+Examples/Models/AppendArcLength_test.vtk -filter -diff -merge text
+Examples/Models/Histogram_test.vtk -filter -diff -merge text
+
+# Region extraction fixtures are small plain-text models.
+Examples/Models/ExtractCellsByRegion_BoxCases.vtk -filter -diff -merge text
+Examples/Models/ExtractCellsByRegion_SphereCases.vtk -filter -diff -merge text
+# Small text fixtures for the ParaView-aligned batch-2 filter (Append Datasets).
+Examples/Models/AppendDatasets_A_curved_patch_left.vtk -filter -diff -merge text
+Examples/Models/AppendDatasets_A_curved_patch_right.vtk -filter -diff -merge text
+Examples/Models/AppendDatasets_B_hex_block.vtk -filter -diff -merge text
+Examples/Models/AppendDatasets_B_tet_mesh.vtk -filter -diff -merge text
+Examples/Models/AppendDatasets_C_hill_left.vtk -filter -diff -merge text
+Examples/Models/AppendDatasets_C_hill_right.vtk -filter -diff -merge text
+
+# Small text fixtures for the ParaView-aligned batch-2 filter (Surface Vectors).
+Examples/Models/SurfaceVectors_A_sphere.vtk -filter -diff -merge text
+Examples/Models/SurfaceVectors_B_hill.vtk -filter -diff -merge text
+Examples/Models/SurfaceVectors_C_cylinder.vtk -filter -diff -merge text
+
+# Small text fixtures for the ParaView-aligned batch-2 filter (Compute Quartiles).
+Examples/Models/Quartiles_plane.vtk -filter -diff -merge text
+Examples/Models/ComputeQuartiles_A_sphere.vtk -filter -diff -merge text
+Examples/Models/ComputeQuartiles_B_hill.vtk -filter -diff -merge text
+Examples/Models/ComputeQuartiles_C_hex_volume.vtk -filter -diff -merge text
+# Plain-text fixtures included by PR #124 (which also includes PR #95).
+Examples/Models/DeflectNormals_SphereSurface.vtk -filter -diff -merge text
+Examples/Models/DeflectNormals_WaveSurface.vtk -filter -diff -merge text
+Examples/Models/RandomAttributes_StructuredGrid.vtk -filter -diff -merge text
+Examples/Models/RandomAttributes_TetraMesh.vtk -filter -diff -merge text

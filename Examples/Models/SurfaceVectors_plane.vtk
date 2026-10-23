@@ -1,0 +1,41 @@
+# vtk DataFile Version 3.0
+SurfaceVectors test plane - 3x3 grid with point vector attribute (all points on surface)
+ASCII
+DATASET POLYDATA
+POINTS 9 float
+0 0 0  1 0 0  2 0 0
+0 1 0  1 1 0  2 1 0
+0 2 0  1 2 0  2 2 0
+
+POLYGONS 8 32
+3 0 1 4
+3 0 4 3
+3 1 2 5
+3 1 5 4
+3 3 4 7
+3 3 7 6
+3 4 5 8
+3 4 8 7
+
+POINT_DATA 9
+VECTORS Velocity float
+1.0 0.0 1.0
+1.0 0.5 1.0
+1.0 1.0 1.0
+0.5 1.0 1.0
+0.5 0.5 1.0
+0.5 0.0 1.0
+0.0 1.0 1.0
+0.0 0.5 1.0
+0.0 0.0 1.0
+
+CELL_DATA 8
+VECTORS CellVector float
+2.0 1.0 1.0
+1.5 0.5 1.0
+1.0 2.0 1.0
+0.5 1.5 1.0
+1.0 1.0 1.0
+0.5 0.5 1.0
+1.5 1.5 1.0
+2.0 2.0 1.0

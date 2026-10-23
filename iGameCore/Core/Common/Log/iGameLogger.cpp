@@ -9,6 +9,9 @@
 
 #include "iGameLogger.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
+#ifdef _WIN32
+#include <spdlog/details/windows_include.h>
+#endif
 #ifndef __EMSCRIPTEN__
 #include <spdlog/sinks/basic_file_sink.h>
 #endif
@@ -20,6 +23,12 @@ std::shared_ptr<spdlog::logger> Log::s_RenderingLogger;
 std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
 
 void Log::Init() {
+#ifdef _WIN32
+    // Log strings are UTF-8 (/utf-8). The Windows color sink uses WriteConsoleA,
+    // which otherwise decodes Chinese using the inherited console code page.
+    // Only change output decoding; redirected logs remain the original UTF-8 bytes.
+    if (::GetConsoleOutputCP() != 0) { ::SetConsoleOutputCP(CP_UTF8); }
+#endif
     //        spdlog::set_pattern("%^[%T] %n: %v%$");
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S][%n][%l$]: %v%$");
     auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();

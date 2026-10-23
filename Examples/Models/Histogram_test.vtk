@@ -1,0 +1,96 @@
+# vtk DataFile Version 3.0
+Histogram test model: point array v + vec, cell array c, vtkGhostType in FIELD FieldData
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 20 float
+0 0 0
+1 0 0
+2 0 0
+3 0 0
+4 0 0
+5 0 0
+6 0 0
+7 0 0
+8 0 0
+9 0 0
+10 0 0
+11 0 0
+12 0 0
+13 0 0
+14 0 0
+15 0 0
+16 0 0
+17 0 0
+18 0 0
+19 0 0
+CELLS 4 16
+3 0 1 2
+3 3 4 5
+3 6 7 8
+3 9 10 11
+CELL_TYPES 4
+5
+5
+5
+5
+POINT_DATA 20
+SCALARS v float 1
+LOOKUP_TABLE default
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+VECTORS vec float
+0 0 0
+1 2 0
+2 4 0
+3 6 0
+4 8 0
+5 10 0
+6 12 0
+7 14 0
+8 16 0
+9 18 0
+10 20 0
+11 22 0
+12 24 0
+13 26 0
+14 28 0
+15 30 0
+16 32 0
+17 34 0
+18 36 0
+19 38 0
+FIELD FieldData 1
+vtkGhostType 1 20 unsigned_char
+0 0 2 0
+1 0 0 0
+0 0 0 0
+0 0 0 0
+0 0 0 0
+CELL_DATA 4
+SCALARS c float 1
+LOOKUP_TABLE default
+1
+1
+2
+3
+FIELD FieldData 1
+vtkGhostType 1 4 unsigned_char
+0 32 1 0
