@@ -1,0 +1,30 @@
+# vtk DataFile Version 3.0
+ExtractSelection: two triangles sharing an edge, plus one unused point
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 float
+0 0 0
+1 0 0
+0 1 0
+1 1 0
+2 1 0
+CELLS 2 8
+3 0 1 2
+3 2 1 3
+CELL_TYPES 2
+5
+5
+POINT_DATA 5
+SCALARS temperature double 1
+LOOKUP_TABLE default
+10 11 12 13 14
+VECTORS velocity float
+0 1 2
+1 2 3
+2 3 4
+3 4 5
+4 5 6
+CELL_DATA 2
+SCALARS material int 1
+LOOKUP_TABLE default
+7 9

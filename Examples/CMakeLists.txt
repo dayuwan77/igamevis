@@ -792,6 +792,8 @@ igame_add_example(testAppendArcLengthChecks Filter/AppendArcLength/TestAppendArc
 # Append Attributes: merges point/cell attribute arrays from several inputs sharing the same layout.
 igame_add_example(testAppendAttributes Filter/AppendAttributes/TestAppendAttributes.cpp)
 
+igame_add_example(TestExtractSelection Filter/Selection/TestExtractSelection.cpp)
+igame_add_example(ExtractionExamples Filter/Selection/ExtractionExamples.cpp)
 # Connectivity
 igame_add_example(testConnectivity Filter/Connectivity/TestConnectivity.cpp)
 igame_add_example(testConnectivitySelfCheck Filter/Connectivity/TestConnectivitySelfCheck.cpp)
@@ -885,6 +887,8 @@ foreach(EXAMPLE_TARGET IN LISTS IGAME_EXAMPLE_TARGETS)
     igame_register_example_test(${EXAMPLE_TARGET})
 endforeach()
 
+set_tests_properties(TestExtractSelection ExtractionExamples
+    PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/..")
 add_test(NAME testSpectralReaderCPUSamples
     COMMAND "$<TARGET_FILE:testSpectralReaderCPU>" --samples
         "${CMAKE_CURRENT_SOURCE_DIR}/../test/Spectral Test"

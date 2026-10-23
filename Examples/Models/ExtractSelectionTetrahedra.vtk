@@ -1,0 +1,24 @@
+# vtk DataFile Version 3.0
+ExtractSelection: two tetrahedra sharing a face
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 5 float
+0 0 0
+1 0 0
+0 1 0
+0 0 1
+0 0 -1
+CELLS 2 10
+4 0 1 2 3
+4 0 2 1 4
+CELL_TYPES 2
+10
+10
+POINT_DATA 5
+SCALARS temperature double 1
+LOOKUP_TABLE default
+-5 -4 -3 -2 -1
+CELL_DATA 2
+SCALARS material int 1
+LOOKUP_TABLE default
+100 200
