@@ -36,17 +36,11 @@ void TransformFilter::SetScale(float sx,float sy,float sz){
     m_ScaleZ = sz;
 }
 
-/**
- * void TransformFilter::SetMatrix(const float matrix[4][4]){
-    for (int i = 0; i < 4; ++i){
-        for (int j = 0; j < 4; ++j){
-            m_Matrix[i][j] = matrix[i][j];
-        }
-    }
+void TransformFilter::SetPivot(float px,float py,float pz){
+    m_PivotX = px;
+    m_PivotY = py;
+    m_PivotZ = pz;
 }
- */
-
-
 
 void TransformFilter::BuildMatrix()
 {
@@ -125,7 +119,31 @@ void TransformFilter::BuildMatrix()
     MultiplyMatrix(Ry, RxS, RyRxS);
     float RzRyRxS[4][4]{};
     MultiplyMatrix(Rz, RyRxS, RzRyRxS);
-    MultiplyMatrix(T, RzRyRxS, m_Matrix);
+
+    // 轴心 (m_PivotX, m_PivotY, m_PivotZ)：旋转与缩放都绕该点进行
+    //   M = T * Piv(o) * R * S * Piv(-o)  等价于   p' = t + o + R*S*(p - o)
+    // 轴心取 (0,0,0) 时退化为 M = T * R * S，即原有行为
+    float PivotOut[4][4] =
+    {
+        {1.0f, 0.0f, 0.0f, m_PivotX},
+        {0.0f, 1.0f, 0.0f, m_PivotY},
+        {0.0f, 0.0f, 1.0f, m_PivotZ},
+        {0.0f, 0.0f, 0.0f, 1.0f}
+    };
+
+    float PivotIn[4][4] =
+    {
+        {1.0f, 0.0f, 0.0f, -m_PivotX},
+        {0.0f, 1.0f, 0.0f, -m_PivotY},
+        {0.0f, 0.0f, 1.0f, -m_PivotZ},
+        {0.0f, 0.0f, 0.0f, 1.0f}
+    };
+
+    float RS_PivotIn[4][4]{};
+    MultiplyMatrix(RzRyRxS, PivotIn, RS_PivotIn);
+    float PivotOut_RS_PivotIn[4][4]{};
+    MultiplyMatrix(PivotOut, RS_PivotIn, PivotOut_RS_PivotIn);
+    MultiplyMatrix(T, PivotOut_RS_PivotIn, m_Matrix);
 }
 
 
@@ -221,6 +239,28 @@ bool TransformFilter::Execute(){
             unstructuredOutput->SetAttributeSet(newAttributeSet);
 
             output = unstructuredOutput;
+            break;
+        }
+        case IG_POINT_SET:{
+            auto input = DynamicCast<PointSet>(dataObject);
+            if (input == nullptr){return false;}
+
+            auto pointSetOutput = PointSet::New();
+
+            pointSetOutput->SetName(input->GetName());
+            auto newPoints = Points::New();
+            if (!newPoints->DeepCopy(input->GetPoints())){
+                return false;
+            }
+            pointSetOutput->SetPoints(newPoints);
+
+            auto newAttributeSet = AttributeSet::New();
+            if (!newAttributeSet->DeepCopy(input->GetAttributeSet())){
+                return false;
+            }
+            pointSetOutput->SetAttributeSet(newAttributeSet);
+
+            output = pointSetOutput;
             break;
         }
 

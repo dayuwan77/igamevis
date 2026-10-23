@@ -7,9 +7,11 @@
 #include <iGameFileIO.h>
 #include <iGameStructuredMesh.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <numeric>
 #include <vector>
 
 namespace {
@@ -111,6 +113,37 @@ bool RunModelCase(const char* fileName, const std::vector<igIndex>& expectedCoun
     return true;
 }
 
+bool RunZeroOverlapModelCase(const char* fileName, IGsize expectedCellCount,
+                             const char* caseName) {
+    auto dataObject = iGame::FileIO::ReadFile(fileName);
+    auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(dataObject);
+    if (mesh.IsNull() || mesh->GetNumberOfCells() != expectedCellCount) {
+        std::cerr << "[FAIL] " << caseName << ": could not read the expected mesh\n";
+        return false;
+    }
+
+    auto filter = iGame::OverlappingCellsDetectorFilter::New();
+    filter->SetInput(mesh);
+    filter->SetTolerance(0.0);
+    if (!filter->Execute()) {
+        std::cerr << "[FAIL] " << caseName << ": filter execution failed\n";
+        return false;
+    }
+
+    const auto& counts = filter->GetNumberOfOverlapsPerCell();
+    const auto nonzeroCells = std::count_if(counts.begin(), counts.end(),
+                                            [](igIndex count) { return count != 0; });
+    const auto overlapPairs = std::accumulate(counts.begin(), counts.end(), igIndex{0}) / 2;
+    if (nonzeroCells != 0) {
+        std::cerr << "[FAIL] " << caseName << ": expected no overlaps, found "
+                  << overlapPairs << " pairs affecting " << nonzeroCells << " cells\n";
+        return false;
+    }
+
+    std::cout << "[PASS] " << caseName << '\n';
+    return true;
+}
+
 bool RunVolumeMeshCase(const CellPoints& firstCell, const CellPoints& secondCell) {
     auto mesh = iGame::VolumeMesh::New();
     auto points = iGame::Points::New();
@@ -138,11 +171,37 @@ bool RunVolumeMeshCase(const CellPoints& firstCell, const CellPoints& secondCell
     auto* attribute = output->GetAttributeSet()->GetArrayPointer(
             IG_SCALAR, IG_CELL,
             iGame::OverlappingCellsDetectorFilter::NumberOfOverlapsPerCellArrayName());
-    if (attribute == nullptr || attribute->GetNumberOfElements() != 2) {
-        std::cerr << "VolumeMesh: output cell scalar is missing\n";
+    if (attribute == nullptr || attribute->GetNumberOfElements() != 2 ||
+        attribute->GetArrayType() != IG_LongLongArray) {
+        std::cerr << "VolumeMesh: output 64-bit cell scalar is missing\n";
         return false;
     }
     std::cout << "[PASS] overlapping VolumeMesh hexahedra\n";
+    return true;
+}
+
+bool RunOverlappingSharedFaceHexahedraCase() {
+    auto mesh = iGame::UnstructuredMesh::New();
+    const CellPoints points{
+            {0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, {1.f, 1.f, 0.f}, {0.f, 1.f, 0.f},
+            {0.f, 0.f, 1.f}, {1.f, 0.f, 1.f}, {1.f, 1.f, 1.f}, {0.f, 1.f, 1.f},
+            {0.f, 0.f, 0.25f}, {1.f, 0.f, 0.25f},
+            {1.f, 1.f, 0.25f}, {0.f, 1.f, 0.25f}};
+    for (const auto& point : points) mesh->AddPoint(point);
+
+    igIndex firstCell[]{0, 1, 2, 3, 4, 5, 6, 7};
+    igIndex secondCell[]{8, 9, 10, 11, 4, 5, 6, 7};
+    mesh->AddCell(firstCell, 8, iGame::IG_HEXAHEDRON);
+    mesh->AddCell(secondCell, 8, iGame::IG_HEXAHEDRON);
+
+    auto filter = iGame::OverlappingCellsDetectorFilter::New();
+    filter->SetInput(mesh);
+    if (!filter->Execute() ||
+        filter->GetNumberOfOverlapsPerCell() != std::vector<igIndex>{1, 1}) {
+        std::cerr << "[FAIL] overlapping hexahedra sharing a face\n";
+        return false;
+    }
+    std::cout << "[PASS] overlapping hexahedra sharing a face\n";
     return true;
 }
 
@@ -212,6 +271,8 @@ int main() {
                            {1, 1, 0, 0}, "model: overlapping and disjoint tetrahedra");
     passed &= RunModelCase("./Models/OverlappingCellsDetectorFaceTouching.vtk",
                            {0, 0}, "model: face-touching tetrahedra");
+    passed &= RunZeroOverlapModelCase("./Models/OverlappingCellsDetectorStreamTest.vtk",
+                                      7472, "model: conforming curved hexahedral mesh");
     passed &= RunCase("disjoint tetrahedra", {{referenceTetra, iGame::IG_TETRA},
                                                {{{iGame::Point(2.0f, 0.0f, 0.0f), iGame::Point(3.0f, 0.0f, 0.0f),
                                                   iGame::Point(2.0f, 1.0f, 0.0f), iGame::Point(2.0f, 0.0f, 1.0f)}},
@@ -227,6 +288,7 @@ int main() {
     passed &= RunCase("overlapping prisms", {{referencePrism, iGame::IG_PRISM}, {overlappingPrism, iGame::IG_PRISM}}, {1, 1});
     passed &= RunCase("overlapping pyramids", {{referencePyramid, iGame::IG_PYRAMID}, {overlappingPyramid, iGame::IG_PYRAMID}}, {1, 1});
     passed &= RunVolumeMeshCase(referenceHex, overlappingHex);
+    passed &= RunOverlappingSharedFaceHexahedraCase();
     passed &= RunStructuredMeshCase();
     passed &= RunUnsupportedCase();
     return passed ? EXIT_SUCCESS : EXIT_FAILURE;

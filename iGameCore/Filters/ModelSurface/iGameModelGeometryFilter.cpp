@@ -8,6 +8,7 @@
 #include <omp.h>
 #endif
 #include <stdexcept>
+#include <unordered_map>
 IGAME_NAMESPACE_BEGIN
 #define ArrayList std::vector<ArrayObject>
 ModelGeometryFilter::ModelGeometryFilter() {
@@ -1043,6 +1044,7 @@ struct ExtractUG : public ExtractCellBoundaries {
     UnstructuredMesh::Pointer Mesh;
     std::shared_ptr<FaceHashMap> FaceMap;
     bool RemoveGhostInterFaces;
+    std::vector<unsigned char> DuplicateCells;
 
     ExtractUG(UnstructuredMesh* mesh, const char* cellVis, const unsigned char* cellGhost,
               const unsigned char* pointGhost, bool merging, bool removeGhostInterFaces)
@@ -1050,6 +1052,38 @@ struct ExtractUG : public ExtractCellBoundaries {
           RemoveGhostInterFaces(removeGhostInterFaces) {
         if (merging) { this->CreatePointMap(mesh->GetNumberOfPoints()); }
         this->FaceMap = std::make_shared<FaceHashMap>(static_cast<size_t>(mesh->GetNumberOfPoints()));
+        // Appending coincident volume meshes may retain identical cells. Feeding
+        // both copies to the face cancellation map deletes even exterior faces.
+        // Ignore subsequent *visible* copies only for extraction; preserve the
+        // source cells/attributes and the first visible cell's attribute mapping.
+        // Compare full ordered connectivity and type, including on hash collisions,
+        // so differently connected cells are never mistaken for duplicates.
+        DuplicateCells.resize(mesh->GetNumberOfCells(), 0);
+        std::unordered_multimap<size_t, igIndex> uniqueCells;
+        uniqueCells.reserve(mesh->GetNumberOfCells());
+        for (igIndex cellId = 0; cellId < mesh->GetNumberOfCells(); ++cellId) {
+            if (cellVis && !cellVis[cellId]) { continue; }
+            const auto type = mesh->GetCellType(cellId);
+            if (Cell::GetCellDimension(type) < 3) { continue; }
+            const igIndex* ids = nullptr;
+            const int count = mesh->GetCellPointIds(cellId, ids);
+            if (!ids || count <= 0) { continue; }
+            size_t hash = static_cast<size_t>(type);
+            for (int i = 0; i < count; ++i) {
+                hash ^= std::hash<igIndex>{}(ids[i]) + size_t(0x9e3779b9) + (hash << 6) + (hash >> 2);
+            }
+            const auto candidates = uniqueCells.equal_range(hash);
+            for (auto it = candidates.first; it != candidates.second; ++it) {
+                if (mesh->GetCellType(it->second) != type) { continue; }
+                const igIndex* previousIds = nullptr;
+                const int previousCount = mesh->GetCellPointIds(it->second, previousIds);
+                if (previousCount == count && std::equal(ids, ids + count, previousIds)) {
+                    DuplicateCells[cellId] = 1;
+                    break;
+                }
+            }
+            if (!DuplicateCells[cellId]) { uniqueCells.emplace(hash, cellId); }
+        }
         this->Initialize();
     }
 
@@ -1063,6 +1097,7 @@ struct ExtractUG : public ExtractCellBoundaries {
         if (this->Mesh) {
             auto cellTypes = Mesh->GetCellTypes()->RawPointer();
             for (cellId = beginCellId; cellId < endCellId; cellId++) {
+                if (DuplicateCells[cellId]) { continue; }
                 igIndex cellType = cellTypes[cellId];
                 if (Cell::GetCellDimension(cellType) < 3) { continue; }
                 //如果是虚拟Cell

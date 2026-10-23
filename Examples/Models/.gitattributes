@@ -1,0 +1,2 @@
+AppendReduce_plane*.vtk !filter !diff !merge text
+SurfaceVectors_plane.vtk !filter !diff !merge text

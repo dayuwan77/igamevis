@@ -1,0 +1,47 @@
+# vtk DataFile Version 3.0
+Assembly Component 1 - Hexahedral Mesh
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 12 float
+0.0 0.0 0.0
+1.0 0.0 0.0
+2.0 0.0 0.0
+0.0 1.0 0.0
+1.0 1.0 0.0
+2.0 1.0 0.0
+0.0 0.0 1.0
+1.0 0.0 1.0
+2.0 0.0 1.0
+0.0 1.0 1.0
+1.0 1.0 1.0
+2.0 1.0 1.0
+
+CELLS 2 18
+8 0 1 4 3 6 7 10 9
+8 1 2 5 4 7 8 11 10
+
+CELL_TYPES 2
+12
+12
+
+POINT_DATA 12
+SCALARS Temperature float 1
+LOOKUP_TABLE default
+20.0
+25.0
+30.0
+22.0
+27.0
+32.0
+40.0
+45.0
+50.0
+42.0
+47.0
+52.0
+
+CELL_DATA 2
+SCALARS VonMisesStress float 1
+LOOKUP_TABLE default
+105.2
+188.7

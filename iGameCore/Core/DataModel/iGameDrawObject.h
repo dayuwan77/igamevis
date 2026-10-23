@@ -46,6 +46,12 @@ public:
     void EnsureDrawableData();                        // 有待转换则立即执行
     bool IsDrawableConversionDeferred() const { return m_DrawableConversionDeferred; }
     virtual bool IsUseSinglePassWireframeRendering(); // 是否使用单通道线框渲染
+    // Explicit one-dimensional cells are part of the surface representation,
+    // independently of polygon wireframe edges.
+    virtual bool HasExplicitLineCells() const { return false; }
+    bool IsLineRenderingEnabled() const {
+        return (m_ViewStyle & IG_WIREFRAME) || ((m_ViewStyle & IG_SURFACE) && HasExplicitLineCells());
+    }
     IGenum GetDataObjectType() const override;
     IGsize GetRealMemorySize() override;
 
@@ -96,6 +102,12 @@ public:
     bool IsUseColor();        //是否使用颜色
     bool IsUseNormalSmooth(); //是否使用法线平滑
 
+    // 设置/清除用于光照的顶点法向：
+    //   SetLightingNormal(normals) 用给定点向量数组作为光照法向并启用法线平滑；
+    //   ClearLightingNormal()      清除自定义光照法向，回退到几何法向（面片导数）。
+    void SetLightingNormal(FloatArray::Pointer normals);
+    void ClearLightingNormal();
+
     void SetVisibility(bool f); //设置可见性
     bool GetVisibility();       //获取可见性
     /*ViewStyle's detail. See iGameType.h */
@@ -138,6 +150,20 @@ public:
     DrawObject::Pointer GetRenderableObject(bool useSimplified = false);
     void SetAutoBuildInteractionLod(bool enabled);
     bool GetAutoBuildInteractionLod() const;
+
+    /**
+     * @brief 设置配色器并同步到抽壳/简化网格（伪彩隔离用）。
+     *
+     * DataObject::SetColorMapper 是浅 setter：不传播、也不覆盖 m_RenderableMesh；
+     * 而抽壳网格是在【建壳瞬间】经 SyncRenderableState 与本体当时的配色器指针绑定的。
+     * 因此"组装完成后"换配色器（如 GroupDatasets 深拷贝克隆）必须用它，
+     * 否则壳会继续用建壳时刻的旧配色器烘焙伪彩（颜色与本体不一致）。
+     */
+    void SetColorMapperForRenderables(ScalarsToColors::Pointer cm) {
+        this->SetColorMapper(cm);
+        if (m_RenderableMesh.SurfaceMesh) { m_RenderableMesh.SurfaceMesh->SetColorMapper(cm); }
+        if (m_RenderableMesh.SimplifiedMesh) { m_RenderableMesh.SimplifiedMesh->SetColorMapper(cm); }
+    }
 
     // 设置/获取"始终置顶"标志位
     void SetAlwaysOnTop(bool enable);

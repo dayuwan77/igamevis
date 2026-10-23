@@ -4,6 +4,7 @@
 #include <IQWidgets/igQtModelDrawWidget.h>
 #include <IQWidgets/igQtAxisAlignedReflectionWidget.h>
 #include <IQWidgets/igQtCountCellVerticesWidget.h>
+#include <IQWidgets/igQtConnectedSurfacePropertiesWidget.h>
 #include <IQWidgets/igQtExtractComponentWidget.h>
 #include <IQWidgets/igQtExtractEdgesWidget.h>
 #include <IQWidgets/igQtGenerateProcessIdsWidget.h>
@@ -12,12 +13,18 @@
 #include <IQWidgets/igQtPointAndCellIdsWidget.h>
 #include <IQWidgets/igQtResampleToImageWidget.h>
 #include <IQWidgets/igQtResampleToLineWidget.h>
+#include <IQWidgets/igQtResampleWithDataSetWidget.h>
+#include <IQWidgets/igQtRenameArraysWidget.h>
+#include <IQWidgets/igQtTextureMapToCylinderWidget.h>
+#include <IQWidgets/igQtTensorPrincipalInvariantsWidget.h>
 #include <IQWidgets/igQtTriangleStripWidget.h>
 #include <CellSize/iGameCellSizeFilter.h>
 #include <iGameScene.h>
 #include <QDockWidget>
+#include <QMenu>
 #include <QScrollArea>
 #include <QStringList>
+#include <QTimer>
 #include <cmath>
 
 using namespace iGame;
@@ -60,8 +67,26 @@ bool igQtMainWindow::connectImportedFilterAction(QAction* action, const QString&
         "cell_size", "count_cell_vertices", "extract_edges",
         "global_point_and_cell_ids", "point_and_cell_ids", "process_ids", "reflect",
         "axis_aligned_reflection", "extract_component", "merge_vector_components",
-        "resample_to_image", "resample_to_line", "triangle_strips"};
+        "rename_arrays", "resample_to_image", "resample_to_line",
+        "resample_with_dataset", "triangle_strips", "texture_map_to_cylinder",
+        "tensor_principal_invariants", "compute_connected_surface_properties"};
     if (!ids.contains(filterId)) return false;
+
+    if (filterId == QStringLiteral("compute_connected_surface_properties")) {
+        QTimer::singleShot(0, this, [this, action]() {
+            auto* menu = findChild<QMenu*>(QStringLiteral("menu_developing_filters_batch2"));
+            if (!menu || menu->findChild<QAction*>(
+                                 QStringLiteral("action_developing_compute_connected_surface_properties"),
+                                 Qt::FindDirectChildrenOnly)) {
+                return;
+            }
+            auto* proxy = menu->addAction(
+                    QStringLiteral("计算连通表面属性 (Connected Surface Properties)"));
+            proxy->setObjectName(
+                    QStringLiteral("action_developing_compute_connected_surface_properties"));
+            connect(proxy, &QAction::triggered, this, [action]() { action->trigger(); });
+        });
+    }
 
     auto displayResult = [this](DataObject::Pointer output) {
         if (!output) return;
@@ -122,6 +147,12 @@ bool igQtMainWindow::connectImportedFilterAction(QAction* action, const QString&
                 connect(p, &igQtGenerateProcessIdsWidget::DrawProcessIdsModel, this, displayResult);
                 connect(p, &igQtGenerateProcessIdsWidget::UpdateProcessIdsModel, this, displayResult);
                 connect(p, &igQtGenerateProcessIdsWidget::ApplyFailed, this, failed);
+            });
+            panel->SetOriginDataObject(input);
+        } else if (id == "tensor_principal_invariants") {
+            auto* panel = filterPanel<igQtTensorPrincipalInvariantsWidget>(this, id, title, [&](auto* p, auto*) {
+                connect(p, &igQtTensorPrincipalInvariantsWidget::DrawResultModel, this, displayResult);
+                connect(p, &igQtTensorPrincipalInvariantsWidget::UpdateResultModel, this, displayResult);
             });
             panel->SetOriginDataObject(input);
         } else if (id == "merge_vector_components") {
@@ -197,6 +228,48 @@ bool igQtMainWindow::connectImportedFilterAction(QAction* action, const QString&
                 connect(p, &igQtResampleToLine::ResetInteractor, dock, &QDockWidget::hide);
             }, modelTreeWidget);
             panel->BindCurrentModel();
+        } else if (id == "resample_with_dataset") {
+            auto* panel = filterPanel<igQtResampleWithDataSet>(this, id, title, [](auto*, auto*) {}, modelTreeWidget);
+            panel->BindCurrentModel();
+        } else if (id == "rename_arrays") {
+            auto* panel = filterPanel<igQtRenameArrays>(this, id, title, [](auto*, auto*) {}, modelTreeWidget);
+            panel->BindCurrentModel();
+        } else if (id == "texture_map_to_cylinder") {
+            auto* panel = filterPanel<igQtTextureMapToCylinderWidget>(this, id, title, [&](auto* p, auto*) {
+                connect(p, &igQtTextureMapToCylinderWidget::DrawResultModel, this, displayResult);
+                connect(p, &igQtTextureMapToCylinderWidget::UpdateResultModel, this, displayResult);
+            });
+            panel->SetOriginDataObject(input);
+        } else if (id == "compute_connected_surface_properties") {
+            if (DynamicCast<SurfaceMesh>(input).IsNull()) {
+                failed(QStringLiteral("当前仅支持 SurfaceMesh（对应 ParaView PolyData 的多边形表面）。"
+                                      "体网格、结构网格或点集请先提取表面。"));
+                return;
+            }
+            auto* panel = findChild<igQtConnectedSurfacePropertiesWidget*>(
+                    QStringLiteral("ConnectedSurfacePropertiesWidget"),
+                    Qt::FindDirectChildrenOnly);
+            if (!panel) {
+                panel = new igQtConnectedSurfacePropertiesWidget(
+                        rendererWidget, modelTreeWidget, model, this);
+                panel->setOutputReadyCallback([this](DataObject* output) {
+                    ui->widget_SearchInfo->setCurrentModelData(output);
+                    if (!output) return;
+                    ui->widget_SearchInfo->setCurrentDataType(2);
+                    ui->dockWidget_SearchInfo->show();
+                    ui->dockWidget_SearchInfo->raise();
+                });
+            }
+            panel->setSourceModel(model);
+            if (!panel->isReady()) {
+                failed(QStringLiteral("当前仅支持 SurfaceMesh（对应 ParaView PolyData 的多边形表面）。"
+                                      "体网格、结构网格或点集请先提取表面。"));
+                return;
+            }
+            panel->show();
+            panel->raise();
+            panel->activateWindow();
+            return;
         }
         showFilterPanel(this, id);
     });

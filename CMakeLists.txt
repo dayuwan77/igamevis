@@ -236,12 +236,49 @@ if (EXAMPLE_COMPILE)
     add_subdirectory(Examples)
 endif ()
 
+if (EXAMPLE_COMPILE AND TARGET Qt_module)
+    add_executable(testConnectedSurfacePropertiesWidget
+        Examples/Filter/DataProcessing/ConnectedSurfaceProperties/TestConnectedSurfacePropertiesWidget.cpp)
+    target_include_directories(testConnectedSurfacePropertiesWidget PRIVATE ${CMAKE_SOURCE_DIR}/Qt)
+    target_link_libraries(testConnectedSurfacePropertiesWidget PRIVATE Qt_module iGameCore)
+endif ()
+
 if (ENABLE_WASM)
     add_subdirectory(Examples/Wasm)
 endif ()
 
-option(IGAME_BUILD_FILTER_CHECKS "Build filter regression check executables." OFF)
+# 无窗口的过滤器回归检查 exe（不依赖 Examples/HDF5，默认关闭；失败时返回非 0，可直接进 CI）
+option(IGAME_BUILD_FILTER_CHECKS "Build windowless filter regression check executables." OFF)
 if (IGAME_BUILD_FILTER_CHECKS)
+    add_executable(testHistogramChecks Examples/Filter/Histogram/TestHistogramChecks.cpp)
+    target_link_libraries(testHistogramChecks PRIVATE iGameCore)
+    target_compile_definitions(testHistogramChecks PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    add_executable(testAppendArcLengthChecks Examples/Filter/AppendArcLength/TestAppendArcLengthChecks.cpp)
+    target_link_libraries(testAppendArcLengthChecks PRIVATE iGameCore)
+    target_compile_definitions(testAppendArcLengthChecks PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    # 可视化测试：开 OpenGL 窗口显示过滤器结果（写法同 Examples/Filter/Convert/TestResampleToImage.cpp）
+    add_executable(testHistogram Examples/Filter/Histogram/TestHistogram.cpp)
+    target_link_libraries(testHistogram PRIVATE iGameCore)
+    target_compile_definitions(testHistogram PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    add_executable(testAppendArcLength Examples/Filter/AppendArcLength/TestAppendArcLength.cpp)
+    target_link_libraries(testAppendArcLength PRIVATE iGameCore)
+    target_compile_definitions(testAppendArcLength PRIVATE IGAME_PLATFORM_WINDOWS PLATFORM_WINDOWS IGAME_OPENGL_VERSION_460)
+
+    # 测试模型随 exe 一起放到 <exe 目录>/Models，运行时不必关心工作目录
+    set(_igameFilterCheckTargets testHistogramChecks testAppendArcLengthChecks testHistogram testAppendArcLength)
+    foreach (_filterCheck IN LISTS _igameFilterCheckTargets)
+        add_custom_command(TARGET ${_filterCheck} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_filterCheck}>/Models"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Models/Histogram_test.vtk"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Models/AppendArcLength_test.vtk"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/Examples/Models/Convert_Quad_Bicycle.vtk"
+                        "$<TARGET_FILE_DIR:${_filterCheck}>/Models"
+                COMMENT "Copying filter check models next to ${_filterCheck}")
+    endforeach ()
     add_executable(testResampleOctreeChecks Examples/Filter/Convert/TestResampleOctreeChecks.cpp)
     target_link_libraries(testResampleOctreeChecks PRIVATE iGameCore)
 
@@ -252,6 +289,9 @@ if (IGAME_BUILD_FILTER_CHECKS)
     target_link_libraries(testCGNSResample PRIVATE iGameCore)
 
     if (ENABLE_QT_MODULE)
+        add_executable(testHistogramChartChecks Examples/Filter/Histogram/TestHistogramChartChecks.cpp)
+        target_link_libraries(testHistogramChartChecks PRIVATE Qt_module)
+
         add_executable(testResampleUI Examples/Filter/Convert/TestResampleUI.cpp)
         target_link_libraries(testResampleUI PRIVATE Qt_module)
     endif ()

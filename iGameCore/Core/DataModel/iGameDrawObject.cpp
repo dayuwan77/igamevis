@@ -1,4 +1,4 @@
-#include "iGameDrawObject.h"
+﻿#include "iGameDrawObject.h"
 
 #include "DataProcessing/iGameMeshSimplificationFilterPro.h"
 #include "iGameScene.h"
@@ -147,6 +147,9 @@ void DrawObject::ConvertToDrawableData() {
 }
 
 bool DrawObject::IsUseSinglePassWireframeRendering() {
+    // Triangle edge masks cannot draw independent POLYDATA LINES. Use the
+    // surface + line passes for mixed-dimensional geometry.
+    if (HasExplicitLineCells()) { return false; }
     if (m_TriangleIndices->GetNumberOfElements() && m_TriangleEdgeMasks->GetNumberOfElements() &&
         (!m_RemoteRenderingEnabled || (m_ColorWithCell ? m_CellEdgeMaskAvailable : m_EdgeMaskAvailable))) {
         return true;
@@ -182,6 +185,7 @@ void DrawObject::SetRemoteRenderingEnabled(bool enabled) {
 
 bool DrawObject::NeedsExplicitWireframeGeometry(IGenum viewStyle) {
     if (!m_RemoteRenderingEnabled) return true; // main eagerly prepares explicit edges.
+    if (HasExplicitLineCells() && (viewStyle & (IG_SURFACE | IG_WIREFRAME))) { return true; }
     if ((viewStyle & IG_WIREFRAME) == 0) { return false; }
 #ifdef __EMSCRIPTEN__
     return true;
@@ -194,6 +198,9 @@ bool DrawObject::NeedsExplicitWireframeGeometry(IGenum viewStyle) {
 }
 
 void DrawObject::MarkWireframeGeometryDirtyIfNeeded(IGenum viewStyle) {
+    // Mixed geometry adds polygon boundary lines only in wireframe mode.
+    // Rebuild on representation changes without overwriting the input LINES.
+    if (HasExplicitLineCells()) { m_ReConvertToDrawableData = true; return; }
     if (!m_RemoteRenderingEnabled) return;
     // Composite parents only forward state, and shell-rendered sources forward
     // drawing to their SurfaceMesh. Mark only the leaf owning the draw arrays.
@@ -320,6 +327,27 @@ bool DrawObject::IsUseNormalSmooth() {
         IGAME_RENDERING_WARN("You have enabled normal smoothing, but have not provided normals.");
     }
     return m_UseNormalSmooth;
+}
+
+void DrawObject::SetLightingNormal(FloatArray::Pointer normals) {
+    if (normals && normals->GetNumberOfValues() > 0) {
+        m_Normals = normals;
+        m_UseNormalSmooth = true;
+        m_Normals->Modified(); // 让法向缓冲区(下帧 SyncGpuBuffers)据 mtime 重新上传
+    }
+    ForceReConvertToDrawableData();
+}
+
+void DrawObject::ClearLightingNormal() {
+    // 修复切换“使用几何法向 (Geometric)”时的崩溃：
+    // 顶点着色器 (Vertex.vert) 会无条件读取属性槽位 2 (in_Normal)，
+    // 而偏转法向模式已通过 SetNormalBufferToVAO 启用该槽位。
+    // 若此处把 m_Normals 替换为空数组，SyncGpuBuffers 会上传 0 字节的法向 VBO，
+    // 绘制时 NVIDIA 驱动从空缓冲抓取顶点导致访问冲突（读取 0xA90 等小地址）。
+    // 因此只关闭平滑法向标志，让片元着色器改用面片导数几何法向 (GetFaceNormal)，
+    // 保留已有法向缓冲数据不被清空。
+    m_UseNormalSmooth = false;
+    ForceReConvertToDrawableData();
 }
 
 void DrawObject::SetVisibility(bool f) {
@@ -461,6 +489,17 @@ void DrawObject::ViewCloudPicture(Scene* scene, int index, int dimension) {
         static_cast<int>(this->GetAttributeSet()->GetNumberOfAttributes()) > index) {
         auto& parentAttr = this->GetAttributeSet()->GetAttribute(index);
         auto parentDataRange = parentAttr.GetDataRange();
+
+        // A shell shares this mapper but must not set its range from a subset.
+        // Initialize it here from the owning object's selected component instead.
+        // Otherwise switching x -> magnitude can retain the x range: shell-only
+        // conversion returns before the owner's normal color conversion runs.
+        if (m_IsMainRenderableObject && m_ColorMapper && !m_ColorMapper->GetStable() &&
+            parentDataRange && dimension >= -1 &&
+            dimension + 1 < parentDataRange->GetNumberOfElements()) {
+            const int offset = 2 * (dimension + 1);
+            m_ColorMapper->SetRange(parentDataRange->GetValue(offset), parentDataRange->GetValue(offset + 1));
+        }
 
         if (m_RenderableMesh.SurfaceMesh &&
             m_RenderableMesh.SurfaceMesh->GetAttributeSet()->GetNumberOfAttributes() > index) {

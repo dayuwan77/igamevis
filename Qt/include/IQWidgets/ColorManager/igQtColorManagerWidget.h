@@ -29,6 +29,9 @@ public:
 	/** 从当前场景模型同步色条；无模型时返回 false。 */
 	bool syncFromCurrentModel();
 
+	/** 设置"当前数据对象"（选中优先语义）并透传给内部色条滑块（多块组子块编辑用）。 */
+	void setCurrentDataObject(iGame::DataObject::Pointer obj);
+
 public slots:
 	void resetColorRange();
 	void slotColorItemSel(QColor);

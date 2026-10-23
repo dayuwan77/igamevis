@@ -10,6 +10,7 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -161,7 +162,33 @@ bool HasOneReferencedDataSet(const std::string& utf8Path) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    // Optional inspection of the user's actual nested manifest, without UI/GL.
+    if (argc == 2) {
+        auto output = iGame::FileIO::ReadFile(argv[1]);
+        int leaves = 0;
+        IGsize cellCount = 0;
+        bool valid = true;
+        std::function<void(iGame::DataObject::Pointer)> inspect = [&](iGame::DataObject::Pointer node) {
+            auto draw = iGame::DynamicCast<iGame::DrawObject>(node);
+            if (!draw) { valid = false; return; }
+            (void)draw->GetVisibility();
+            if (node->HasSubDataObject()) {
+                for (auto it = node->SubDataObjectIteratorBegin(); it != node->SubDataObjectIteratorEnd(); ++it) {
+                    inspect(it->second);
+                }
+            } else {
+                auto mesh = iGame::DynamicCast<iGame::UnstructuredMesh>(node);
+                if (!mesh) { valid = false; return; }
+                ++leaves;
+                cellCount += mesh->GetNumberOfCells();
+                std::cout << node->GetName() << ": " << mesh->GetNumberOfCells() << " cells\n";
+            }
+        };
+        inspect(output);
+        std::cout << "Drawable tree=" << valid << ", leaves=" << leaves << ", cells=" << cellCount << '\n';
+        return valid && leaves > 0 ? 0 : 1;
+    }
     namespace fs = std::filesystem;
 
     const auto uniqueSuffix = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -242,6 +269,60 @@ int main() {
     }
 
     bool passed = true;
+
+    // Regression (pending commit): multiple top-level Block nodes produced a
+    // non-drawable root, crashing Model::SetPickedItemSwitch on file open.
+    // Nested blocks were also silently dropped. Keep every assembly drawable,
+    // preserve names and all leaves, and reject missing files at any depth.
+    // Verify mixed Block/DataSet siblings too: neither branch may be ignored.
+    const auto nestedPath = testRoot / "nested.vtm";
+    const std::string nestedVtm = R"xml(<VTKFile type="vtkMultiBlockDataSet" version="1.0">
+<vtkMultiBlockDataSet>
+ <Block index="0" name="VolumeAssembly">
+  <DataSet index="0" name="FirstLeaf" file="pieces/piece.vtu"/>
+  <Block index="1" name="InnerAssembly">
+   <DataSet index="0" name="DeepLeaf" file="pieces/piece.vtu"/>
+  </Block>
+ </Block>
+ <Block index="1" name="SurfaceAssembly">
+  <DataSet index="0" name="SurfaceLeaf" file="pieces/piece.vtu"/>
+ </Block>
+ <DataSet index="2" name="TopLeaf" file="pieces/piece.vtu"/>
+</vtkMultiBlockDataSet></VTKFile>)xml";
+    if (!WriteTextFile(nestedPath, nestedVtm)) {
+        passed = false;
+    } else {
+        auto nested = iGame::FileIO::ReadFile(iGame::FileSystem::PathToUtf8(nestedPath));
+        int assemblies = 0, leaves = 0;
+        bool treeValid = true;
+        std::function<void(iGame::DataObject::Pointer)> checkTree = [&](iGame::DataObject::Pointer node) {
+            auto draw = iGame::DynamicCast<iGame::DrawObject>(node);
+            if (!draw) { treeValid = false; return; }
+            (void)draw->GetVisibility();
+            if (node->HasSubDataObject()) {
+                ++assemblies;
+                for (auto it = node->SubDataObjectIteratorBegin(); it != node->SubDataObjectIteratorEnd(); ++it) {
+                    checkTree(it->second);
+                }
+            } else { ++leaves; }
+        };
+        checkTree(nested);
+        if (!treeValid || assemblies != 4 || leaves != 4 || !nested ||
+            nested->GetNumberOfSubDataObjects() != 3 ||
+            nested->SubDataObjectIteratorBegin()->second->GetName() != "VolumeAssembly") {
+            std::cerr << "Nested VTM lost drawable assemblies, names or leaves\n";
+            passed = false;
+        }
+        auto missingNested = nestedVtm;
+        const auto deep = missingNested.find("name=\"DeepLeaf\" file=\"pieces/piece.vtu\"");
+        missingNested.replace(deep, std::string("name=\"DeepLeaf\" file=\"pieces/piece.vtu\"").size(),
+                              "name=\"DeepLeaf\" file=\"pieces/nonexistent.vtu\"");
+        if (!WriteTextFile(nestedPath, missingNested) ||
+            iGame::FileIO::ReadFile(iGame::FileSystem::PathToUtf8(nestedPath))) {
+            std::cerr << "Nested VTM accepted a missing deep leaf\n";
+            passed = false;
+        }
+    }
 
     // Use UTF-8 in both slash forms; never convert through the Windows ACP.
     if (!HasOneReferencedDataSet(ForwardSlashUtf8Path(relativePathVtm))) {

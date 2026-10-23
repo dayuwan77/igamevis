@@ -1,0 +1,39 @@
+# vtk DataFile Version 3.0
+Assembly Component 2 - Wedge Mesh
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 8 float
+2.5 0.0 0.0
+4.5 0.0 0.0
+2.5 1.0 0.0
+2.5 0.0 1.0
+4.5 0.0 1.0
+2.5 1.0 1.0
+4.5 1.0 0.0
+4.5 1.0 1.0
+
+CELLS 2 14
+6 0 1 2 3 4 5
+6 1 6 2 4 7 5
+
+CELL_TYPES 2
+13
+13
+
+POINT_DATA 8
+SCALARS Pressure float 1
+LOOKUP_TABLE default
+101.3
+102.5
+101.8
+103.0
+104.2
+103.5
+102.8
+104.9
+
+CELL_DATA 2
+SCALARS Strain float 1
+LOOKUP_TABLE default
+0.0012
+0.0018

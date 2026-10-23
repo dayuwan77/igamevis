@@ -4,6 +4,7 @@
 #include "iGameSceneManager.h"
 
 #include <QMessageBox>
+#include <QSignalBlocker>
 
 #include <algorithm>
 #include <string>
@@ -32,8 +33,15 @@ QString ArrayTypeName(iGame::ArrayObject* array) {
         case IG_DoubleArray:
             return QStringLiteral("double");
         default:
-            return QStringLiteral("未知类型");
+            return {};
     }
+}
+
+bool IsMedianScalar(const iGame::AttributeSet::Attribute& attr, IGsize pointCount) {
+    return !attr.isDeleted && attr.pointer && attr.type == IG_SCALAR &&
+           attr.attachmentType == IG_POINT && attr.pointer->GetDimension() == 1 &&
+           attr.pointer->GetNumberOfValues() >= pointCount &&
+           !ArrayTypeName(attr.pointer.get()).isEmpty();
 }
 } // namespace
 
@@ -43,59 +51,64 @@ igQtMedianFilterWidget::igQtMedianFilterWidget(QWidget* parent) : QWidget(parent
     m_MedianFilter = nullptr;
 
     connect(ui->btnExecute, &QPushButton::clicked, this, &igQtMedianFilterWidget::MedianFilterExecute);
-    connect(ui->comboBox_ScalarIndex, &QComboBox::currentTextChanged, this,
+    connect(ui->comboBox_ScalarIndex, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &igQtMedianFilterWidget::UpdateScalarType);
+    ui->label_ScalarType->setWordWrap(true);
+    InitScalarList();
 }
 
 void igQtMedianFilterWidget::InitScalarList() {
-    ui->comboBox_ScalarIndex->clear();
-    m_ScalarArray = nullptr;
-    m_ScalarName.clear();
-
-    if (!m_OriginDataObject || !m_OriginDataObject->GetAttributeSet()) { igDebug("No OriginDataObject or No AttributeSet"); return; }
-    // 与等值面提取/等值面体提取一致：列出模型的全部属性，具体可用性由 Filter 校验并给出原因。
-    auto attrs = m_OriginDataObject->GetAttributeSet()->GetAllAttributes();
-    if (!attrs) { igDebug("No Attributes"); return; }
-
-    for (int i = 0; i < attrs->GetNumberOfElements(); i++) {
-        auto& attr = attrs->GetElement(i);
-        if (attr.isDeleted || !attr.pointer) { continue; }
-        ui->comboBox_ScalarIndex->addItem(QString::fromStdString(attr.pointer->GetName()));
-    }
-
-    if (ui->comboBox_ScalarIndex->count() > 0) {
-        ui->comboBox_ScalarIndex->setCurrentIndex(0);
-        UpdateScalarType();
-    }
-}
-
-void igQtMedianFilterWidget::UpdateScalarType() {
-    m_ScalarName = ui->comboBox_ScalarIndex->currentText().toStdString();
-    m_ScalarArray = nullptr;
-
-    if (!m_OriginDataObject || !m_OriginDataObject->GetAttributeSet()) {
-        ui->label_ScalarType->clear();
-        return;
-    }
-    auto attrs = m_OriginDataObject->GetAttributeSet()->GetAllAttributes();
-    if (attrs) {
-        for (int i = 0; i < attrs->GetNumberOfElements(); i++) {
-            auto& attr = attrs->GetElement(i);
-            if (attr.pointer && attr.pointer->GetName() == m_ScalarName) {
-                m_ScalarArray = attr.pointer;
-                break;
+    {
+        const QSignalBlocker blocker(ui->comboBox_ScalarIndex);
+        ui->comboBox_ScalarIndex->clear();
+        auto mesh = iGame::DynamicCast<iGame::StructuredMesh>(m_OriginDataObject);
+        auto attrs = mesh && mesh->GetAttributeSet()
+                         ? mesh->GetAttributeSet()->GetAllAttributes() : nullptr;
+        if (attrs && mesh->GetNumberOfPoints() > 0) {
+            for (int i = 0; i < attrs->GetNumberOfElements(); ++i) {
+                auto& attr = attrs->GetElement(i);
+                if (!IsMedianScalar(attr, mesh->GetNumberOfPoints())) { continue; }
+                // 保存原始属性索引：筛选后的位置及数组名都不能唯一标识属性。
+                ui->comboBox_ScalarIndex->addItem(
+                    QString::fromStdString(attr.pointer->GetName()), i);
             }
         }
     }
+    ui->comboBox_ScalarIndex->setEnabled(ui->comboBox_ScalarIndex->count() > 0);
+    UpdateScalarType();
+}
 
-    if (!m_ScalarArray) {
-        ui->label_ScalarType->clear();
+void igQtMedianFilterWidget::UpdateScalarType() {
+    m_ScalarArray = nullptr;
+    m_ScalarIndex = -1;
+    ui->btnExecute->setEnabled(false);
+
+    if (!m_OriginDataObject || !m_OriginDataObject->GetAttributeSet()) {
+        ui->label_ScalarType->setText(QStringLiteral("请先选择包含单分量点标量的结构化网格。"));
         return;
     }
+    auto mesh = iGame::DynamicCast<iGame::StructuredMesh>(m_OriginDataObject);
+    if (!mesh) {
+        ui->label_ScalarType->setText(QStringLiteral("中值滤波仅支持结构化网格。"));
+        return;
+    }
+    auto attrs = mesh->GetAttributeSet()->GetAllAttributes();
+    bool indexOk = false;
+    const int index = ui->comboBox_ScalarIndex->currentData().toInt(&indexOk);
+    if (!indexOk || !attrs || index < 0 || index >= attrs->GetNumberOfElements() ||
+        mesh->GetNumberOfPoints() == 0 ||
+        !IsMedianScalar(attrs->GetElement(index), mesh->GetNumberOfPoints())) {
+        ui->label_ScalarType->setText(QStringLiteral("没有可用的单分量点标量。可先提取分量，或将单元数据转换为点数据；数组数据须完整。"));
+        return;
+    }
+    auto& attr = attrs->GetElement(index);
+    m_ScalarIndex = index;
+    m_ScalarArray = attr.pointer;
+    ui->btnExecute->setEnabled(true);
 
     QString info = QStringLiteral("类型: %1").arg(ArrayTypeName(m_ScalarArray.get()));
-    auto dataRange = m_OriginDataObject->GetAttributeSet()->GetAttribute(m_ScalarName).GetDataRange();
-    if (m_ScalarArray->GetDimension() == 1 && dataRange && dataRange->GetNumberOfElements() >= 4) {
+    auto dataRange = attr.GetDataRange();
+    if (dataRange && dataRange->GetNumberOfValues() >= 4) {
         info += QStringLiteral(" | 范围: [%1, %2]").arg(dataRange->GetValue(2)).arg(dataRange->GetValue(3));
     }
     ui->label_ScalarType->setText(info);
@@ -107,7 +120,7 @@ void igQtMedianFilterWidget::SetOriginDataObject(iGame::DataObject::Pointer m_d)
     m_Generated = false;
     m_MedianFilter = iGame::MedianFilter::New();
     m_ResultMesh = iGame::StructuredMesh::New();
-    m_ResultMesh->SetName(m_OriginDataObject->GetName() + "_Median");
+    if (m_OriginDataObject) { m_ResultMesh->SetName(m_OriginDataObject->GetName() + "_Median"); }
     m_ResultMesh->AddObserver(iGame::Command::DeleteEvent, [&]() -> void { m_Generated = false; });
 
     // 2D 数据第三维固定为 1
@@ -123,6 +136,7 @@ void igQtMedianFilterWidget::SetOriginDataObject(iGame::DataObject::Pointer m_d)
 }
 
 void igQtMedianFilterWidget::MedianFilterExecute() {
+    UpdateScalarType();
     if (!m_OriginDataObject) { return; }
     if (!m_ScalarArray) {
         QMessageBox::warning(this, tr("中值滤波"), tr("请先选择一个单分量标量属性。"));
@@ -153,7 +167,7 @@ void igQtMedianFilterWidget::MedianFilterExecute() {
     if (!m_MedianFilter) { m_MedianFilter = iGame::MedianFilter::New(); }
     m_MedianFilter->SetProgressRange(0.0, 1.0);
     m_MedianFilter->SetInput(m_OriginDataObject);
-    m_MedianFilter->SetAttributeByName(m_ScalarName);
+    m_MedianFilter->SetAttributeByIndex(m_ScalarIndex);
     m_MedianFilter->SetKernelSize(kx, ky, kz);
     if (!m_MedianFilter->Execute()) {
         progressObserver->UpdateText("");

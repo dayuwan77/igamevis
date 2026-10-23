@@ -33,6 +33,6 @@ private:
     iGame::StructuredMesh::Pointer m_ResultMesh{nullptr};
     iGame::MedianFilter::Pointer m_MedianFilter{nullptr};
     iGame::ArrayObject::Pointer m_ScalarArray = nullptr;
-    std::string m_ScalarName = "";
+    int m_ScalarIndex = -1;
     bool m_Generated = false;
 };

@@ -30,13 +30,14 @@ public:
 
     static Pointer New(){return new TransformFilter;}
 
-    // void SetMatrix(const float matrix[4][4]);        暂时不需要直接输入矩阵的功能
-
     void SetTranslation(float tx,float ty,float tz);
 
     void SetRotation(float rx,float ry,float rz);
 
     void SetScale(float sx,float sy,float sz);
+
+    // 旋转 / 缩放的中心点（轴心）。默认 (0,0,0)，即旋转缩放都绕坐标原点，与原有行为完全一致。
+    void SetPivot(float px,float py,float pz);
 
     void BuildMatrix();
 
@@ -62,6 +63,10 @@ protected:
     float m_RotationX{0.0f};
     float m_RotationY{0.0f};
     float m_RotationZ{0.0f};
+
+    float m_PivotX{0.0f};
+    float m_PivotY{0.0f};
+    float m_PivotZ{0.0f};
 };
 
 IGAME_NAMESPACE_END

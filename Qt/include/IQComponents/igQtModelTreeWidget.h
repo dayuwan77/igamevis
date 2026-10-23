@@ -62,6 +62,15 @@ public:
     void setCurrentChild(QTreeWidgetItem* child);
     QTreeWidgetItem* getCurrentChild();
 
+    /**
+     * 按模型的【实际可见性】刷新眼睛图标；只改图标，不改变任何状态。
+     *
+     * 与 getVisibility() 同一准则：以「画面上是否真的可见」为准 ——
+     * 容器模型不绘制自身、只绘制子块，容器图标必须跟着子树变化；
+     * 组内的块是原模型的深拷贝克隆，显隐各自独立，按真实状态读取即可。
+     */
+    void refreshVisibilityIcon();
+
     int getModelId() const { return modelId; }
     void setModelId(int id) { modelId = id; }
 
@@ -295,11 +304,31 @@ public:
     std::vector<iGame::DataObject::Pointer> getSelectedDataObjects() const;
 
     /**
-     * 当前选中的【单个】数据对象（取选中集合的第一个）；无选中时返回 nullptr。
+     * 当前选中的【单个】数据对象；无选中时返回 nullptr。
+     *
+     * 多选时以 currentItem（最后点击 / 键盘移动到的那个）为准 —— selectedItems()
+     * 的返回顺序依赖内部选择模型的实现细节，不保证与用户点击顺序一致。
+     * currentItem 是属性行时，上下文取该属性行【所属】的数据对象：
+     *   · 子块属性行 -> 所属子块；顶层模型属性行 -> 模型根对象
+     *   （不能靠 selectedItems() 回落：点击属性行会 setCurrentItem，单选模式下
+     *     数据对象行的选中被清掉，回落会错误地拿到模型根 —— 信息框/色条会显示根）。
      *
      * 供【单输入 filter】使用：选中多块子块时会返回该子块本身。
      */
     iGame::DataObject::Pointer getSingleSelectedDataObject() const;
+
+    /**
+     * 按【每个节点的真实可见性】刷新整棵树的眼睛图标（只改图标，不改状态）。
+     *
+     * 为什么需要全树刷新（每次切换显隐后）：
+     *   · 顶层模型行的显隐会递归作用到多块子块（Model::Hide()），
+     *     展开出的子块行图标必须跟着变；
+     *   · 容器模型（组）不绘制自身，其图标以【子树中是否还有可见节点】为准，
+     *     任一子块切换后容器行图标也可能变化。
+     * 组内的块是原模型的深拷贝克隆，显隐相互独立 —— 本方法只按各节点真实的
+     * GetVisibility() 重刷图标，不传播任何状态。
+     */
+    void syncVisibilityIcons();
 
     //void setCurrentModelItem(ModelTreeWidgetItem* item);
     //ModelTreeWidgetItem* getCurrentModelItem();
