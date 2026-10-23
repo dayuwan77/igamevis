@@ -9960,7 +9960,21 @@ void igQtMainWindow::initAllFilters() {
     addDevelopmentAction(developingData, approvedFilter("force_static_mesh"),
             QStringLiteral("强制静态网格 (Force Static Mesh)"));
     auto forceStaticDevelopmentFilter = ForceStaticMeshFilter::New();
-    bindDevelopmentAction("force_static_mesh", [executeDevelopmentFilter, forceStaticDevelopmentFilter]() {
+    bindDevelopmentAction("force_static_mesh", [this, executeDevelopmentFilter, forceStaticDevelopmentFilter]() {
+        auto scene = rendererWidget->GetScene();
+        auto model = scene ? scene->GetCurrentModel() : nullptr;
+        auto input = model ? model->GetDataObject() : nullptr;
+        if (input && input->PeekTimeFrames() && input->PeekTimeFrames()->GetTimeNum() > 1) {
+            auto output = ui->widget_Animation->createForceStaticMeshResult();
+            if (!output) {
+                showDarkFramelessMessage(QStringLiteral("强制静态网格"), QStringLiteral("动画静态网格执行失败。"));
+                return;
+            }
+            if (auto* item = modelTreeWidget->getItemFromObject(input)) item->changeVisibility(false);
+            modelTreeWidget->addDataObjectToModelTree(output, Algorithm);
+            rendererWidget->update();
+            return;
+        }
         executeDevelopmentFilter(QStringLiteral("强制静态网格"), forceStaticDevelopmentFilter);
     });
 
