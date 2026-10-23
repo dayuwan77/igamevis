@@ -85,6 +85,8 @@
 #include "TriangleStrip/iGameTriangleStripFilter.h"
 #include "Connectivity/iGameConnectivityFilter.h"
 #include "ReverseSense/iGameReverseSenseFilter.h"
+
+#include "Animation/iGameTemporalStatistics.h"
 #include "WarpByVector/iGameWarpByVectorFilter.h"
 
 // ���� Filter �� Qt ǰ��ֱ��ʹ�ã�ͳһע���Ա�֤����ͷ�ɴ�
