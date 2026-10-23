@@ -116,6 +116,12 @@
 #include <IQWidgets/igQtPointVolumeInterpolatorWidget.h>
 #include <IQWidgets/igQtExtractLocationWidget.h>
 #include <IQWidgets/igQtHistogramChartWidget.h>
+#include <QtCharts/QBoxPlotSeries>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QtCharts/QBoxSet>
+#include <QtCharts/QLegend>
+#include <QColorDialog>
 #include <IQWidgets/igQtGlobalIdWidget.h>
 #include <IQWidgets/igQtSmoothWidget.h>
 #include <IQWidgets/igQtLinearExtrusionWidget.h>
@@ -1874,19 +1880,99 @@ struct QuartileReportRow {
 };
 
 void showQuartilesReportDialog(QWidget* parent, const QVector<QuartileReportRow>& rows) {
-    QString report;
-    for (const auto& r : rows) {
-        report += QStringLiteral("%1 (%2): Min=%3  Q1=%4  Median=%5  Q3=%6  Max=%7\n")
-                          .arg(r.name)
-                          .arg(r.attach)
-                          .arg(r.min)
-                          .arg(r.q1)
-                          .arg(r.median)
-                          .arg(r.q3)
-                          .arg(r.max);
+    auto* window = qobject_cast<QMainWindow*>(parent);
+    if (!window || rows.isEmpty()) return;
+    auto* dock = window->findChild<QDockWidget*>(QStringLiteral("dockWidget_Quartiles"));
+    auto* controls = window->findChild<QDockWidget*>(QStringLiteral("dockWidget_QuartilesSeries"));
+    if (!dock) {
+        dock = new QDockWidget(QStringLiteral("四分位数箱线图"), window);
+        dock->setObjectName(QStringLiteral("dockWidget_Quartiles"));
+        dock->setAllowedAreas(Qt::RightDockWidgetArea);
+        window->addDockWidget(Qt::RightDockWidgetArea, dock);
+        controls = new QDockWidget(QStringLiteral("箱线图系列"), window);
+        controls->setObjectName(QStringLiteral("dockWidget_QuartilesSeries"));
+        controls->setAllowedAreas(Qt::LeftDockWidgetArea);
+        window->addDockWidget(Qt::LeftDockWidgetArea, controls);
     }
-    igQtDarkFramelessMessageDialog dlg(parent, QStringLiteral("四分位数统计结果"), report.trimmed(), true);
-    dlg.exec();
+    auto* chart = new QChart();
+    chart->setBackgroundBrush(Qt::white);
+    chart->setAnimationOptions(QChart::NoAnimation);
+    chart->legend()->hide();
+    auto* series = new QBoxPlotSeries(chart);
+    chart->addSeries(series);
+    const auto updateAxes = [chart, series]() {
+        chart->createDefaultAxes();
+        const auto boxes = series->boxSets();
+        double lower = 0.0, upper = 1.0;
+        if (!boxes.isEmpty()) {
+            lower = boxes.front()->at(QBoxSet::LowerExtreme);
+            upper = boxes.front()->at(QBoxSet::UpperExtreme);
+            for (const auto* box : boxes) {
+                lower = std::min(lower, box->at(QBoxSet::LowerExtreme));
+                upper = std::max(upper, box->at(QBoxSet::UpperExtreme));
+            }
+            // A constant array still needs a nonzero axis range.
+            if (lower == upper) {
+                const double padding = std::max(1.0, std::abs(lower)) * 0.05;
+                lower -= padding;
+                upper += padding;
+            }
+        }
+        for (auto* axis : chart->axes(Qt::Vertical)) {
+            if (auto* valueAxis = qobject_cast<QValueAxis*>(axis))
+                valueAxis->setRange(lower, upper);
+        }
+    };
+    auto* table = new QTableWidget(rows.size(), 7);
+    table->setHorizontalHeaderLabels({QStringLiteral("属性 / 显示"), QStringLiteral("颜色"),
+                                     "Min", "Q1", "Median", "Q3", "Max"});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    const QColor colors[] = {QColor("#000000"), QColor("#E41A1C"), QColor("#377EB8"), QColor("#4DAF4A")};
+    for (int i = 0; i < rows.size(); ++i) {
+        const auto& r = rows[i];
+        auto* box = new QBoxSet(r.name);
+        *box << r.min << r.q1 << r.median << r.q3 << r.max;
+        box->setBrush(colors[i % 4]);
+        series->append(box);
+        auto* visible = new QCheckBox(r.name + " (" + r.attach + ")", table);
+        visible->setChecked(true);
+        table->setCellWidget(i, 0, visible);
+        // Keep hidden boxes alive so they can be restored without recomputing statistics.
+        box->setParent(chart);
+        QObject::connect(visible, &QCheckBox::toggled, chart, [series, box, chart, updateAxes](bool checked) {
+            if (checked) series->append(box);
+            else { series->take(box); box->setParent(chart); }
+            updateAxes();
+        });
+        auto* color = new QPushButton(QStringLiteral("颜色"), table);
+        color->setStyleSheet(QStringLiteral("background-color: %1").arg(colors[i % 4].name()));
+        table->setCellWidget(i, 1, color);
+        QObject::connect(color, &QPushButton::clicked, chart, [box, color]() {
+            const QColor chosen = QColorDialog::getColor(box->brush().color(), color);
+            if (!chosen.isValid()) return;
+            box->setBrush(chosen);
+            color->setStyleSheet(QStringLiteral("background-color: %1").arg(chosen.name()));
+        });
+        const double values[] = {r.min, r.q1, r.median, r.q3, r.max};
+        for (int j = 0; j < 5; ++j)
+            table->setItem(i, j + 2, new QTableWidgetItem(QString::number(values[j], 'g', 12)));
+    }
+    updateAxes();
+    auto* view = new QChartView(chart);
+    view->setRenderHint(QPainter::Antialiasing);
+    view->setRubberBand(QChartView::RectangleRubberBand);
+    auto* oldControls = controls->widget();
+    auto* oldView = dock->widget();
+    controls->setWidget(table);
+    dock->setWidget(view);
+    delete oldControls;
+    delete oldView;
+    controls->show();
+    controls->raise();
+    dock->show();
+    dock->raise();
+    window->resizeDocks({dock}, {640}, Qt::Horizontal);
 }
 
 void igQtMainWindow::initAllFilters() {
@@ -11207,6 +11293,7 @@ void igQtMainWindow::initAllFilters() {
             m_temporalStatisticsDock = igQtTemporalStatisticsWidget::createDockWidget(this);
             addDockWidget(Qt::LeftDockWidgetArea, m_temporalStatisticsDock);
             auto* panel = qobject_cast<igQtTemporalStatisticsWidget*>(m_temporalStatisticsDock->widget());
+            m_temporalStatisticsContents = panel;
             connect(panel, &igQtTemporalStatisticsWidget::resultReady, this,
                     [this, obj](DataObject::Pointer output) {
                         if (!output) { return; }
@@ -11233,13 +11320,12 @@ void igQtMainWindow::initAllFilters() {
                         rendererWidget->update();
                     }
             );
-            connect(panel, &igQtTemporalStatisticsWidget::closeRequested, m_temporalStatisticsDock,
-                    &QDockWidget::hide);
+            connect(panel, &igQtTemporalStatisticsWidget::closeRequested, this,
+                    [this]() { closeLeftToolPanel(LeftToolPanelId::TemporalStatistics); });
         }
-        auto* panel = qobject_cast<igQtTemporalStatisticsWidget*>(m_temporalStatisticsDock->widget());
+        auto* panel = qobject_cast<igQtTemporalStatisticsWidget*>(m_temporalStatisticsContents);
         if (panel != nullptr) { panel->setCurrentModel(currentModel); }
-        m_temporalStatisticsDock->show();
-        m_temporalStatisticsDock->raise();
+        openLeftToolPanel(LeftToolPanelId::TemporalStatistics);
     });
     // ---------- Perlin 噪声 (Perlin Noise)：追加在“新增filter/第二批”菜单末尾 ----------
     connect(developingFiltersBatch2->addAction(QStringLiteral("Perlin 噪声 (Perlin Noise)")),
@@ -12809,7 +12895,9 @@ void igQtMainWindow::initAllFilters() {
                 rendererWidget->update();
             }
 
+            closeLeftToolPanel(LeftToolPanelId::QuartilesSeries);
             showQuartilesReportDialog(this, rows);
+            openLeftToolPanel(LeftToolPanelId::QuartilesSeries);
             dialog->close();
         });
     });
@@ -13631,6 +13719,9 @@ QDockWidget* igQtMainWindow::shellDockForLeftPanel(LeftToolPanelId id) const {
     case LeftToolPanelId::ResampleToImage: return m_resampleToImageDock;
     case LeftToolPanelId::HistogramParameters: return m_histogramParametersDock.data();
     case LeftToolPanelId::HistogramSeries: return m_histogramSeriesDock;
+    case LeftToolPanelId::TemporalStatistics: return m_temporalStatisticsDock;
+    case LeftToolPanelId::QuartilesSeries:
+        return findChild<QDockWidget*>(QStringLiteral("dockWidget_QuartilesSeries"));
     case LeftToolPanelId::Count: return nullptr;
     }
     return nullptr;
@@ -13748,6 +13839,15 @@ void igQtMainWindow::openLeftToolPanel(LeftToolPanelId id) {
     case LeftToolPanelId::HistogramParameters:
         relocateContentToLeftTab(m_histogramParametersDock.data(), m_histogramParameterContents,
                                  QStringLiteral("直方图参数"), id, false);
+        break;
+    case LeftToolPanelId::QuartilesSeries:
+        if (auto* shell = shellDockForLeftPanel(id)) {
+            relocateContentToLeftTab(shell, shell->widget(), QStringLiteral("箱线图系列"), id, false);
+        }
+        break;
+    case LeftToolPanelId::TemporalStatistics:
+        relocateContentToLeftTab(m_temporalStatisticsDock, m_temporalStatisticsContents,
+                                 QStringLiteral("时域统计"), id, false);
         break;
     case LeftToolPanelId::HistogramSeries:
         if (m_histogramChartWidget) {

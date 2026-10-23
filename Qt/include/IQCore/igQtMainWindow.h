@@ -92,6 +92,8 @@ public:
         ResampleToImage,
         HistogramParameters,
         HistogramSeries,
+        QuartilesSeries,
+        TemporalStatistics,
         Count
     };
 
@@ -244,13 +246,17 @@ private:
     int m_axisAlignedReflectionCount{0};
     // 时域统计：左侧 Dock（首次打开懒创建），面板里勾选要输出的统计量
     QDockWidget* m_temporalStatisticsDock = nullptr;
+    QWidget* m_temporalStatisticsContents = nullptr;
     QDockWidget* m_resampleToImageDock = nullptr;
     igQtResampleToImageWidget* m_resampleToImageWidget = nullptr;
     // 通用几何变换：面板 + 可拖拽变换盒子的控制器（面板关闭时销毁）
     igQtTransformBoxController* m_transformController = nullptr;
     // 每类左侧工具面板占一个槽位，初始均未打开。
-    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel{
-        {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
+    std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> m_leftToolTabByPanel = [] {
+        std::array<int, static_cast<size_t>(LeftToolPanelId::Count)> tabs;
+        tabs.fill(-1);
+        return tabs;
+    }();
 
     void relocateContentToLeftTab(QDockWidget* shell, QWidget* inner, const QString& title, LeftToolPanelId id,
                                   bool centerFlowField);
