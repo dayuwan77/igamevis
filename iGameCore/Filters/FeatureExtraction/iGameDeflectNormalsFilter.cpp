@@ -41,9 +41,8 @@ bool DeflectNormalsFilter::FindExistingPointNormals(AttributeSet* attrSet, int& 
         if (ref.attachmentType != IG_POINT) continue;
         if (ref.pointer->GetDimension() != 3) continue;
         std::string name = ref.pointer->GetName();
-        // 常见法向属性名
-        if (name == "Normals" || name == "PointNormals" || name == "normals" ||
-            name.find("Normal") != std::string::npos) {
+        // 仅精确匹配约定的法向名称，避免误用 NormalVelocity、DeflectedNormals 等向量。
+        if (name == "Normals" || name == "PointNormals" || name == "normals") {
             outIdx = i;
             return true;
         }
