@@ -63,6 +63,13 @@ Examples/Models/TextureMapToPlaneSlantedPatch.vtk -filter -diff -merge text
 Examples/Models/SurfaceTangents.vtk -filter -diff -merge text
 
 # Keep development-branch small plain-text example fixtures outside Git LFS.
+Examples/Models/ExtractBlockFlat.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockNested.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockThreeTypes.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockDeep.vtm -filter -diff -merge text
+Examples/Models/ExtractBlockHexahedron.vtu -filter -diff -merge text
+Examples/Models/ExtractSelectionTriangles.vtu -filter -diff -merge text
+Examples/Models/ExtractSelectionTetrahedra.vtu -filter -diff -merge text
 Examples/Models/PerlinNoise_Test.vtk -filter -diff -merge text
 Examples/Models/ExtractSelectionTriangles.vtk -filter -diff -merge text
 Examples/Models/ExtractSelectionTetrahedra.vtk -filter -diff -merge text
