@@ -2,20 +2,46 @@
 #define iGameGhostCellFilter_h
 
 #include "iGameFilter.h"
+#include "iGamePointSet.h"
 #include "iGameSurfaceMesh.h"
 #include "iGameUnstructuredMesh.h"
 #include "iGameVolumeMesh.h"
 
 #include <string>
-#include <vector>
 
 IGAME_NAMESPACE_BEGIN
+
 class GhostCellFilter : public Filter {
 public:
     I_OBJECT(GhostCellFilter);
     static Pointer New() { return new GhostCellFilter; }
 
-    void SetPointGhostArrayName(const std::string& name) { m_PointGhostArrayName = name; }
+    /* 输入的单元标记数组名，默认 vtkGhostType（必须是单元上的单分量数组） */
+    void SetGhostArrayName(const std::string& name);
+    const std::string& GetGhostArrayName() const { return m_GhostArrayName; }
+
+    /* 输出的单元掩码数组名，默认 GhostCellMask（取值 0 / 1） */
+    void SetOutputArrayName(const std::string& name);
+    const std::string& GetOutputArrayName() const { return m_OutputArrayName; }
+
+    /* ghost 类型选择（可多选，"或"关系；默认只勾"任意"） */
+    void SetCheckAny(bool value) { m_CheckAny = value; }
+    void SetCheckDuplicateCell(bool value) { m_CheckDuplicateCell = value; }
+    void SetCheckRefinedCell(bool value) { m_CheckRefinedCell = value; }
+    void SetCheckExteriorCell(bool value) { m_CheckExteriorCell = value; }
+    void SetCheckHiddenCell(bool value) { m_CheckHiddenCell = value; }
+
+    bool GetCheckAny() const { return m_CheckAny; }
+    bool GetCheckDuplicateCell() const { return m_CheckDuplicateCell; }
+    bool GetCheckRefinedCell() const { return m_CheckRefinedCell; }
+    bool GetCheckExteriorCell() const { return m_CheckExteriorCell; }
+    bool GetCheckHiddenCell() const { return m_CheckHiddenCell; }
+
+    /* 当前勾选的类型位掩码 */
+    unsigned int GetGhostTypeMask() const;
+
+    /* 查找可用的单元标记数组下标，找不到返回 -1 */
+    int FindGhostArrayIndex(DataObject::Pointer input) const;
 
     bool Execute() override;
 
@@ -24,17 +50,30 @@ protected:
     ~GhostCellFilter() override = default;
 
 private:
-    // 从输入网格中读取点上的 ghost 标记数组
-    bool LoadPointGhostArray(DataObject::Pointer input, std::vector<char>& pointGhosts);
+    /* VTK / vtkDataSetAttributes 的 ghost 位标志 */
+    enum GhostTypeBit {
+        DUPLICATE_CELL = 1,
+        REFINED_CELL = 8,
+        EXTERIOR_CELL = 16,
+        HIDDEN_CELL = 32,
+    };
 
-    // 根据点的 ghost 标记计算每个单元是否为 ghost 单元
-    bool ComputeCellGhosts(DataObject::Pointer input, const std::vector<char>& pointGhosts, bool hasPointGhosts,
-                           std::vector<char>& cellGhosts);
+    static ArrayObject::Pointer CloneArray(ArrayObject::Pointer source);
 
-    // 将计算结果写入单元的 GhostCells 属性
-    bool AttachCellGhostArray(DataObject::Pointer input, const std::vector<char>& cellGhosts);
+    /* 把输入的属性集完整复制到输出（跳过空 / 已删除的属性，避免留下空指针占位） */
+    static bool CopyAttributes(DataObject::Pointer output, DataObject::Pointer input);
 
-    std::string m_PointGhostArrayName{"GhostPoints"};
+    /* 把 0 / 1 掩码写到输出的单元属性上（同名 + 同附着类型则原地替换） */
+    bool AttachMask(DataObject::Pointer output, IGsize cellCount, ArrayObject::Pointer ghostArray) const;
+
+    std::string m_GhostArrayName{"vtkGhostType"};
+    std::string m_OutputArrayName{"GhostCellMask"};
+    bool m_CheckAny{true};
+    bool m_CheckDuplicateCell{false};
+    bool m_CheckRefinedCell{false};
+    bool m_CheckExteriorCell{false};
+    bool m_CheckHiddenCell{false};
 };
+
 IGAME_NAMESPACE_END
 #endif
