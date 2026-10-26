@@ -33,6 +33,27 @@
 //
 // 注意：单元类型常量（IG_LINE / IG_QUAD / IG_TETRA ...）在本文件里必须写全限定名
 // iGame::IG_xxx —— iGame 命名空间下有同名符号会遮蔽全局枚举。
+//
+// 回归背景（Examples/AGENTS.md 要求）：
+//   - BUG / 触发条件 / 错误表现：本用例与 filter 实现是首次一并加入的，尚无独立的修复提交；
+//     开发期间按 VTK 语义逐个校正过的行为是：Capping 端面与自由边侧裙的分支
+//     （封闭体被多生成侧裙、开放片缺端面、内部共享边重复生成侧裙）、顶点复制规则
+//     （顶点->线、线/折线->四点带）、以及旧法向属性被错误复制到拉伸结果上。
+//   - 用例保证的正确行为：输出点数恒为 2N；面数 = 2F + B（Capping 开）/ B（Capping 关），
+//     B 为自由边数；内部共享边不生成侧裙；单元属性按来源单元复制、旧法向不复制。
+//   - 重要边界及原因：LinearExtrusion_OpenSurface.vtk（B=16）覆盖"端面 + 自由边侧裙"组合，
+//     LinearExtrusion_ClosedCube.vtk（B=0）覆盖"无侧裙"分支；两者都带 point_id / 单元属性，
+//     用来校验属性按来源重映射，而不是只比点数面数。
+//   - 首次提交：测试与实现同次提交（提交主题
+//     "feat(filter): add Linear Extrusion filter with Qt panel, examples and user notice"），
+//     为避免自引用这里不写提交号，可用下面命令查询：
+//       git log --diff-filter=A --format="%h %s" -- Examples/Filter/TestLinearExtrusion.cpp
+//     后续若针对本 filter 提交修复，请把真实提交号补在这一行下面。
+//   - 夹具修正（提交主题 "fix(LinearExtrusion): 去掉测试模型里未被引用的多余点"）：
+//     LinearExtrusion_OpenSurface.vtk 原先声明 POINTS 26，但第 26 个点 (0.5, 4, 0.5) 没有被任何
+//     POLYGONS 引用，与文件标题/本注释的"25 点 / 4x4 面片"不符（多余点还会被拉伸复制成孤立点）。
+//     该提交只改模型（POINTS/POINT_DATA 26→25 并删掉该点及其 point_id 值），断言按输入动态计算故未改动；
+//     查询命令：git log --format="%h %s" -- Examples/Models/LinearExtrusion_OpenSurface.vtk
 
 namespace ig = iGame;
 
